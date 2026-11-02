@@ -64,6 +64,11 @@ export class ClickUpUserConnection {
     state.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS workspace_access (id INTEGER PRIMARY KEY CHECK(id = 1), subject TEXT NOT NULL, workspace_id TEXT NOT NULL, enabled_at_ms INTEGER NOT NULL)",
     );
+    // Per-user active List selection, bound to the SAME verified OAuth Workspace.
+    // No credential or Workspace switch is permitted via this table.
+    state.storage.sql.exec(
+      "CREATE TABLE IF NOT EXISTS list_target (id INTEGER PRIMARY KEY CHECK(id = 1), subject TEXT NOT NULL, workspace_id TEXT NOT NULL, list_id TEXT NOT NULL, changed_at_ms INTEGER NOT NULL)",
+    );
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -132,6 +137,16 @@ export class ClickUpUserConnection {
         principal,
       )
       .toArray()[0];
+    const target = this.state.storage.sql
+      .exec<{ workspace_id: string; list_id: string }>(
+        "SELECT workspace_id,list_id FROM list_target WHERE id = 1 AND subject = ?",
+        principal,
+      )
+      .toArray()[0];
+    const targetListId =
+      stored?.subject === principal && target?.workspace_id === stored.workspace_id
+        ? target.list_id
+        : null;
     const exclusive = verified?.workspace_exclusive === 1;
     const workspaceEnabled =
       exclusive &&
@@ -147,6 +162,7 @@ export class ClickUpUserConnection {
               connectedAtMs: stored.connected_at_ms,
               workspaceExclusive: exclusive,
               workspaceEnabled,
+              targetListId,
             }
           : { connected: false },
         { headers: metadataHeaders() },
@@ -176,6 +192,25 @@ export class ClickUpUserConnection {
       });
       return Response.json({ workspaceEnabled: enabled }, { headers: metadataHeaders() });
     }
+    if (route === "/target-list") {
+      if (!stored || stored.subject !== principal || body["workspaceId"] !== stored.workspace_id)
+        return new Response(null, { status: 403 });
+      const selected = body["listId"];
+      if (!numeric(selected)) return new Response(null, { status: 400 });
+      this.state.storage.transactionSync(() => {
+        this.state.storage.sql.exec(
+          "INSERT OR REPLACE INTO list_target(id,subject,workspace_id,list_id,changed_at_ms) VALUES(1,?,?,?,?)",
+          principal,
+          stored.workspace_id,
+          selected,
+          now,
+        );
+      });
+      return Response.json(
+        { selected: true, workspaceId: stored.workspace_id, listId: selected },
+        { headers: metadataHeaders() },
+      );
+    }
     if (route === "/disconnect") {
       this.state.storage.sql.exec("DELETE FROM connection WHERE subject = ?", principal);
       this.state.storage.sql.exec(
@@ -183,6 +218,7 @@ export class ClickUpUserConnection {
         principal,
       );
       this.state.storage.sql.exec("DELETE FROM workspace_access WHERE subject = ?", principal);
+      this.state.storage.sql.exec("DELETE FROM list_target WHERE subject = ?", principal);
       this.state.storage.sql.exec("DELETE FROM pending WHERE subject = ?", principal);
       return Response.json({ disconnected: true }, { headers: metadataHeaders() });
     }
@@ -215,6 +251,9 @@ export class ClickUpUserConnection {
         this.state.storage.transactionSync(() => {
           // Reconnection must never silently carry forward an earlier broad grant.
           this.state.storage.sql.exec("DELETE FROM workspace_access WHERE subject = ?", principal);
+          // OAuth reconnection always clears the old List choice; no cross-account
+          // target selection carries over to a new token.
+          this.state.storage.sql.exec("DELETE FROM list_target WHERE subject = ?", principal);
           this.state.storage.sql.exec(
             "INSERT OR REPLACE INTO connection(id,subject,clickup_user_id,workspace_id,cipher,iv,connected_at_ms) VALUES(1,?,?,?,?,?,?)",
             principal,
@@ -258,6 +297,7 @@ export class ClickUpUserConnection {
             accessToken: new TextDecoder().decode(raw),
             workspaceExclusive: exclusive,
             workspaceEnabled,
+            targetListId,
           },
           { headers: metadataHeaders() },
         );
