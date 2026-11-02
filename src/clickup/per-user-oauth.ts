@@ -213,8 +213,7 @@ export async function clickUpConnectionStatus(auth: unknown, env: unknown): Prom
   const workspaceEnabled =
     workspaceApproved &&
     result["workspaceExclusive"] === true &&
-    (obj(env)?.["CLICKUP_RESOURCE_SCOPE"] === "workspace" ||
-      result["workspaceEnabled"] === true);
+    (obj(env)?.["CLICKUP_RESOURCE_SCOPE"] === "workspace" || result["workspaceEnabled"] === true);
   const chosen = workspaceEnabled ? decimal(result["targetListId"]) : null;
   return result["connected"] === true
     ? {
@@ -301,7 +300,8 @@ export async function saveClickUpListTarget(
   }
   // Require valid personal OAuth evidence even when called from a future code path.
   const personal = await personalClickUpCredential(auth, env);
-  if (personal.workspaceId !== workspaceId) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  if (personal.workspaceId !== workspaceId)
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   const saved = await internalCall(staffStub(settings.binding, subject), "target-list", {
     subject,
     workspaceId,
