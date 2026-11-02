@@ -5,6 +5,8 @@ import { createProtocolHandler } from "../src/mcp/handler.js";
 function targetRig() {
   const selected = new Map<string, string>();
   const calls: string[] = [];
+  let connectionGeneration = "AAAAAAAAAAAAAAAA";
+  let reconnectDuringPreflight = false;
   const oauthKey = btoa(String.fromCharCode(...new Uint8Array(32)));
   const bindings = {
     ALLOWED_GITHUB_IDS: "11,22",
@@ -30,7 +32,11 @@ function targetRig() {
           const path = new URL(request.url).pathname;
           if (key !== "staff-clickup:" + subject) return new Response(null, { status: 403 });
           if (path === "/target-list") {
-            if (subject !== "github:11" || body["workspaceId"] !== "555")
+            if (
+              subject !== "github:11" ||
+              body["workspaceId"] !== "555" ||
+              body["connectionGeneration"] !== connectionGeneration
+            )
               return new Response(null, { status: 403 });
             selected.set(subject, String(body["listId"]));
             return Response.json({ selected: true, workspaceId: "555", listId: body["listId"] });
@@ -41,6 +47,7 @@ function targetRig() {
               clickupUserId: subject === "github:11" ? "707" : "809",
               workspaceId: "555",
               accessToken: "synthetic-personal-user-token",
+              connectionGeneration,
               workspaceExclusive: true,
               workspaceEnabled: subject === "github:11",
               targetListId: selected.get(subject) ?? null,
@@ -68,7 +75,16 @@ function targetRig() {
       });
     if (path === "/api/v2/list/99999")
       return Response.json({ id: "99999", name: "Foreign", space: { id: "999" } });
-    if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "765" }] });
+    if (path === "/api/v2/list/88888")
+      return Response.json({ id: "88888", name: "x".repeat(181), space: { id: "765" } });
+    if (path === "/api/v2/team/555/space") {
+      if (reconnectDuringPreflight) {
+        connectionGeneration = "BBBBBBBBBBBBBBBB";
+        selected.clear();
+        reconnectDuringPreflight = false;
+      }
+      return Response.json({ spaces: [{ id: "765" }] });
+    }
     throw Error("Unexpected ClickUp path: " + path);
   });
   const connect = async (subject: "11" | "22", write = true) => {
@@ -94,7 +110,12 @@ function targetRig() {
       },
     };
   };
-  return { connect, selected, calls };
+  return {
+    connect,
+    selected,
+    calls,
+    reconnectOnNextPreflight: () => { reconnectDuringPreflight = true; },
+  };
 }
 
 describe("owner-controlled ClickUp target selector, no production Workspace leakage", () => {
@@ -185,6 +206,56 @@ describe("owner-controlled ClickUp target selector, no production Workspace leak
     } finally {
       await owner.close();
       await coworker.close();
+    }
+  });
+
+  it("rejects stale target selection when ClickUp OAuth reconnects during preflight", async () => {
+    const rig = targetRig();
+    const owner = await rig.connect("11");
+    try {
+      rig.reconnectOnNextPreflight();
+      const result = await owner.client.callTool({
+        name: "clickup_select_target",
+        arguments: {
+          workspace_id: "555",
+          list_id: "23456",
+          expected_list_name: "MCP QA Alternate",
+          confirm: true,
+        },
+      });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toContain("CLICKUP_TARGET_CONNECTION_CHANGED");
+      expect(rig.selected.size).toBe(0);
+      const baseline = await owner.client.callTool({ name: "get_scoped_list", arguments: {} });
+      expect(baseline.structuredContent).toMatchObject({ list_id: "12345", name: "Sandbox" });
+    } finally {
+      await owner.close();
+    }
+  });
+
+  it("rejects a List whose full name exceeds the trusted preview length", async () => {
+    const rig = targetRig();
+    const owner = await rig.connect("11");
+    try {
+      const preview = await owner.client.callTool({
+        name: "clickup_preview_target",
+        arguments: { workspace_id: "555", list_id: "88888" },
+      });
+      expect(preview.isError).toBe(true);
+      expect(JSON.stringify(preview.content)).toContain("CLICKUP_TARGET_NAME_TOO_LONG");
+      const save = await owner.client.callTool({
+        name: "clickup_select_target",
+        arguments: {
+          workspace_id: "555",
+          list_id: "88888",
+          expected_list_name: "x".repeat(180),
+          confirm: true,
+        },
+      });
+      expect(save.isError).toBe(true);
+      expect(rig.selected.size).toBe(0);
+    } finally {
+      await owner.close();
     }
   });
 
