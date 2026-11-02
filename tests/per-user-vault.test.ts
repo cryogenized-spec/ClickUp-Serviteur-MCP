@@ -241,6 +241,8 @@ describe("actual encrypted SQLite per-user token vault", () => {
       workspaceExclusive: true,
     };
     expect((await call(vault, "store", own)).status).toBe(200);
+    const generation = String((await call(vault, "credential", { subject: "github:11" })).data["connectionGeneration"]);
+    expect(generation).toMatch(/^[A-Za-z0-9+/]{16}$/);
     expect((await call(vault, "status", { subject: "github:11" })).data).toMatchObject({
       targetListId: null,
     });
@@ -250,6 +252,7 @@ describe("actual encrypted SQLite per-user token vault", () => {
           subject: "github:22",
           workspaceId: "999",
           listId: "12345",
+          connectionGeneration: generation,
         })
       ).status,
     ).toBe(403);
@@ -259,6 +262,7 @@ describe("actual encrypted SQLite per-user token vault", () => {
           subject: "github:11",
           workspaceId: "888",
           listId: "12345",
+          connectionGeneration: generation,
         })
       ).status,
     ).toBe(403);
@@ -268,6 +272,7 @@ describe("actual encrypted SQLite per-user token vault", () => {
           subject: "github:11",
           workspaceId: "999",
           listId: "not-an-id",
+          connectionGeneration: generation,
         })
       ).status,
     ).toBe(400);
@@ -275,6 +280,7 @@ describe("actual encrypted SQLite per-user token vault", () => {
       subject: "github:11",
       workspaceId: "999",
       listId: "23456",
+          connectionGeneration: generation,
     });
     expect(changed.data).toEqual({ selected: true, workspaceId: "999", listId: "23456" });
     expect((await call(vault, "credential", { subject: "github:11" })).data).toMatchObject({
@@ -288,13 +294,23 @@ describe("actual encrypted SQLite per-user token vault", () => {
       subject: "github:11",
       workspaceId: "999",
       listId: "23456",
+          connectionGeneration: generation,
     });
     await call(vault, "store", own);
     expect(backing.target()).toBeUndefined();
+    // The previous OAuth generation cannot be reused after credential rotation.
+    expect((await call(vault, "target-list", {
+      subject: "github:11",
+      workspaceId: "999",
+      listId: "34567",
+      connectionGeneration: generation,
+    })).status).toBe(409);
+    const rotated = String((await call(vault, "credential", { subject: "github:11" })).data["connectionGeneration"]);
+    expect(rotated).not.toBe(generation);
     expect((await call(vault, "credential", { subject: "github:11" })).data).toMatchObject({
       targetListId: null,
     });
-    await call(vault, "target-list", { subject: "github:11", workspaceId: "999", listId: "34567" });
+    await call(vault, "target-list", { subject: "github:11", workspaceId: "999", listId: "34567", connectionGeneration: rotated });
     await call(vault, "disconnect", { subject: "github:11" });
     expect(backing.target()).toBeUndefined();
   });
