@@ -350,6 +350,40 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     expect(writes).toHaveLength(wrote);
   });
 
+  it("rejects malformed Custom Field dropdown and label option IDs without consuming a write", async () => {
+    for (const [type, variant] of [
+      ["drop_down", { option_id: "undefined" }],
+      ["labels", { selected_option_ids: ["undefined"] }],
+    ] as const) {
+      for (const malformedOption of [{}, null, { id: null }, { id: 9 }, { id: " " }]) {
+        const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
+          const path = new URL(String(request)).pathname;
+          if (path === "/api/v2/list/12345/field")
+            return reply({
+              fields: [
+                {
+                  id: "field-select",
+                  type,
+                  type_config: { options: [malformedOption] },
+                },
+              ],
+            });
+          if (init?.method === "POST") throw Error("must not consume a field write");
+          return reply(fixture(path));
+        });
+        await expect(
+          runCatalogOperation(
+            "clickup_set_custom_field",
+            { task_id: "abc123", field_id: "field-select", field_value: variant },
+            makeGrant(),
+            fetcher as typeof fetch,
+          ),
+        ).rejects.toThrow("CLICKUP_BAD_RESPONSE");
+        expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+      }
+    }
+  });
+
   it("fails closed when Custom Field metadata is malformed or cannot be verified", async () => {
     for (const payload of [{}, { fields: {} }, { fields: ["garbled"] }]) {
       const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
