@@ -11,6 +11,14 @@ export interface ScopedTask {
   readonly url: string | null;
 }
 
+/** Detailed single-task reads, never included in bulk task search output. */
+export interface ScopedTaskDetail extends ScopedTask {
+  readonly description: string | null;
+  readonly description_format: "markdown" | "plain" | "none";
+  readonly description_truncated: boolean;
+  readonly priority: number | null;
+}
+
 export interface PageResult {
   readonly tasks: readonly ScopedTask[];
   readonly pages_scanned: number;
@@ -226,14 +234,54 @@ export async function getScopedTask(
   grant: ReadGrant,
   taskId: string,
   fetcher: Fetcher,
-): Promise<ScopedTask> {
+): Promise<ScopedTaskDetail> {
   if (!/^[a-zA-Z0-9_-]{2,40}$/.test(taskId)) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  const taskPath = "task/" + encodeURIComponent(taskId);
   const raw = await getJson(
     grant,
-    "task/" + encodeURIComponent(taskId) + "?custom_task_ids=false",
+    taskPath + "?custom_task_ids=false&include_markdown_description=true",
     fetcher,
   );
   const task = normalizeTask(raw, grant.listId);
   if (task.id !== taskId) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-  return task;
+
+  // Only project verbose content after checking the returned task's home List.
+  // Do not add descriptions to bulk search or attention report payloads.
+  const detail = object(raw)!;
+  const markdown = detail["markdown_description"];
+  const plain = detail["description"];
+  if (
+    (markdown != null && typeof markdown !== "string") ||
+    (plain != null && typeof plain !== "string")
+  ) {
+    throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+  }
+  let description: string | null = null;
+  let descriptionFormat: "markdown" | "plain" | "none" = "none";
+  if (typeof markdown === "string" && markdown.length > 0) {
+    description = markdown;
+    descriptionFormat = "markdown";
+  } else if (typeof plain === "string") {
+    description = plain;
+    descriptionFormat = "plain";
+  } else if (typeof markdown === "string") {
+    description = markdown;
+    descriptionFormat = "markdown";
+  }
+  const priorityRaw = detail["priority"];
+  let priority: number | null = null;
+  if (priorityRaw != null) {
+    const value = object(priorityRaw)?.["id"];
+    if ((typeof value !== "string" && typeof value !== "number") || !/^[1-4]$/.test(String(value)))
+      throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+    priority = Number(value);
+  }
+  const MAX_DESCRIPTION = 8000;
+  return {
+    ...task,
+    description: description === null ? null : description.slice(0, MAX_DESCRIPTION),
+    description_format: descriptionFormat,
+    description_truncated: description !== null && description.length > MAX_DESCRIPTION,
+    priority,
+  };
 }

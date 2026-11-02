@@ -105,6 +105,207 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     }
   });
 
+  it("keeps legacy List-scoped search inside its approved home List", async () => {
+    const requests: string[] = [];
+    const f = vi.fn(async (req: RequestInfo | URL) => {
+      const url = new URL(String(req));
+      requests.push(url.pathname);
+      if (url.pathname === "/api/v2/list/12345")
+        return reply({ id: "12345", space: { id: "777" } });
+      if (url.pathname === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
+      if (url.pathname === "/api/v2/list/12345/task")
+        return reply({ tasks: [{ id: "own1", name: "Stocktake", list: { id: "12345" } }] });
+      throw Error("unexpected wider Workspace fetch: " + url.pathname);
+    });
+    const result = await runCatalogOperation(
+      "clickup_search_workspace",
+      { query: "Stocktake" },
+      makeListGrant(),
+      f as typeof fetch,
+    );
+    expect(result).toMatchObject({
+      scope: "list",
+      incomplete: false,
+      docs: [],
+      folders: [],
+      lists: [],
+    });
+    expect(result["tasks"]).toHaveLength(1);
+    expect(requests).toEqual([
+      "/api/v2/list/12345",
+      "/api/v2/team/555/space",
+      "/api/v2/list/12345/task",
+    ]);
+  });
+
+  it("requires explicit Workspace authority for out-of-List actions", async () => {
+    const f = fakeApi();
+    for (const name of [
+      "clickup_get_workspace_hierarchy",
+      "clickup_create_list",
+      "clickup_create_folder",
+      "clickup_get_folder",
+      "clickup_get_chat_channels",
+      "clickup_send_chat_message",
+      "clickup_create_document",
+      "clickup_get_document_pages",
+      "clickup_stop_time_tracking",
+      "clickup_get_current_time_entry",
+    ]) {
+      await expect(
+        runCatalogOperation(name, {}, makeListGrant(), f as typeof fetch),
+      ).rejects.toThrow("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
+    }
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid task drafts before POST and retains all fields for valid drafts", async () => {
+    for (const bad of [
+      { name: "Bad", priority: 9 },
+      { name: "Bad", description: 123 },
+      { name: "Bad", due_date_ms: 0 },
+      { name: "Bad", assignee_ids: ["707"] },
+      { name: "Bad", unknown_property: "should not silently disappear" },
+    ]) {
+      const api = fakeApi();
+      await expect(
+        runCatalogOperation(
+          "clickup_create_task",
+          { list_id: "12345", new_task: bad },
+          makeGrant(),
+          api as typeof fetch,
+        ),
+      ).rejects.toThrow("CLICKUP_INVALID_ARGUMENT");
+      expect(api.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+    }
+    const api = fakeApi();
+    await runCatalogOperation(
+      "clickup_create_task",
+      {
+        list_id: "12345",
+        new_task: {
+          name: "Valid",
+          priority: 2,
+          assignee_ids: [707],
+          due_date_ms: 1793192400000,
+        },
+      },
+      makeGrant(),
+      api as typeof fetch,
+    );
+    const sent = api.mock.calls.find(([, init]) => init?.method === "POST");
+    const body = JSON.parse(String(sent?.[1]?.body));
+    expect(body).toMatchObject({
+      name: "Valid",
+      priority: 2,
+      assignees: [707],
+      due_date: 1793192400000,
+      due_date_time: true,
+    });
+  });
+
+  it("advertises numeric member IDs and decimal custom field values", () => {
+    const create = CLICKUP_MODEL_TOOL_CATALOG.find((tool) => tool.name === "clickup_create_task")!;
+    const draft = create.inputSchema.properties["new_task"]!;
+    expect(draft.properties?.["assignee_ids"]?.items?.type).toBe("integer");
+    const custom = CLICKUP_MODEL_TOOL_CATALOG.find(
+      (tool) => tool.name === "clickup_set_custom_field",
+    )!;
+    expect(custom.inputSchema.properties["field_value"]?.properties?.["number"]?.type).toBe(
+      "number",
+    );
+  });
+
+  it("accepts Workspace tag and type results from multiple home Lists", async () => {
+    const requests: string[] = [];
+    const f = vi.fn(async (req: RequestInfo | URL) => {
+      const url = new URL(String(req));
+      requests.push(url.pathname);
+      if (url.pathname === "/api/v2/team/555/task") {
+        return reply({
+          tasks: [
+            { id: "a1", list: { id: "12345" }, custom_item_id: 7, tags: [{ name: "Urgent" }] },
+            { id: "b2", list: { id: "12346" }, custom_item_id: 7, tags: [{ name: "Urgent" }] },
+          ],
+        });
+      }
+      throw Error("unexpected endpoint " + url.pathname);
+    });
+    for (const [name, args] of [
+      ["clickup_search_tasks_by_tag", { tag: "Urgent" }],
+      ["clickup_search_tasks_by_type", { task_type: "7" }],
+    ] as const) {
+      const result = await runCatalogOperation(name, args, makeGrant(), f as typeof fetch);
+      expect(result["tasks"]).toHaveLength(2);
+    }
+    expect(requests).toEqual(["/api/v2/team/555/task", "/api/v2/team/555/task"]);
+  });
+
+  it("accepts additional-List tasks with a different home List", async () => {
+    const f = vi.fn(async (req: RequestInfo | URL) => {
+      const url = new URL(String(req));
+      if (url.pathname === "/api/v2/list/12346") return reply(fixture(url.pathname));
+      if (url.pathname === "/api/v2/team/555/space") return reply(fixture(url.pathname));
+      if (url.pathname === "/api/v2/list/12346/task") {
+        if (url.searchParams.get("include_timl") !== "true") return reply({ tasks: [] });
+        return reply({ tasks: [{ id: "t1", list: { id: "12347" }, tags: [{ name: "Urgent" }] }] });
+      }
+      throw Error("unexpected endpoint " + url.pathname);
+    });
+    const result = await runCatalogOperation(
+      "clickup_search_tasks_by_tag",
+      { list_id: "12346", tag: "Urgent" },
+      makeGrant(),
+      f as typeof fetch,
+    );
+    expect(result["tasks"]).toHaveLength(1);
+  });
+
+  it("rejects malformed Workspace home Lists in tag and type searches", async () => {
+    for (const badId of [null, {}, [], "", 0]) {
+      const f = vi.fn(async (req: RequestInfo | URL) => {
+        const url = new URL(String(req));
+        if (url.pathname === "/api/v2/team/555/task") {
+          return reply({
+            tasks: [
+              { id: "bad", list: { id: badId }, tags: [{ name: "Urgent" }], custom_item_id: 7 },
+            ],
+          });
+        }
+        throw Error("unexpected endpoint " + url.pathname);
+      });
+      for (const [name, args] of [
+        ["clickup_search_tasks_by_tag", { tag: "Urgent" }],
+        ["clickup_search_tasks_by_type", { task_type: "7" }],
+      ] as const) {
+        const operation = runCatalogOperation(name, args, makeGrant(), f as typeof fetch);
+        await expect(operation).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      }
+    }
+  });
+
+  it("still rejects foreign-home search results under a single-List grant", async () => {
+    const f = vi.fn(async (req: RequestInfo | URL) => {
+      const url = new URL(String(req));
+      if (url.pathname === "/api/v2/list/12345") return reply(fixture(url.pathname));
+      if (url.pathname === "/api/v2/team/555/space") return reply(fixture(url.pathname));
+      if (url.pathname === "/api/v2/list/12345/task") {
+        return reply({
+          tasks: [{ id: "foreign", list: { id: "12346" }, tags: [{ name: "Urgent" }] }],
+        });
+      }
+      throw Error("unexpected endpoint " + url.pathname);
+    });
+    await expect(
+      runCatalogOperation(
+        "clickup_search_tasks_by_tag",
+        { tag: "Urgent" },
+        makeListGrant(),
+        f as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  });
+
   it("refuses cross-workspace List configuration before a write reaches ClickUp", async () => {
     const api = fakeApi();
     await expect(
@@ -439,7 +640,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
         const p = new URL(String(req)).pathname;
         if (p === "/api/v2/list/12345") return reply(fixture(p));
         if (p === "/api/v2/team/555/space") return reply(fixture(p));
-        if (p === "/api/v2/list/12345/task")
+        if (p === "/api/v2/list/12345/task" || p === "/api/v2/team/555/task")
           return reply(malformed === "tasks" ? {} : { tasks: [] });
         if (p === "/api/v3/workspaces/555/docs")
           return reply(malformed === "docs" ? {} : { docs: [] });
@@ -449,7 +650,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
         runCatalogOperation(
           "clickup_search_workspace",
           { query: "Stocktake" },
-          makeListGrant(),
+          malformed === "docs" ? makeGrant() : makeListGrant(),
           f as typeof fetch,
         ),
       ).rejects.toThrow("CLICKUP_BAD_RESPONSE");
@@ -554,7 +755,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     const f = vi.fn(async (req: RequestInfo | URL) => {
       const p = new URL(String(req)).pathname;
       if (p === "/api/v2/list/12345") return reply(fixture(p));
-      if (p === "/api/v2/list/12345/task") return reply({ tasks: [] });
+      if (p === "/api/v2/team/555/task") return reply({ tasks: [] });
       if (p === "/api/v3/workspaces/555/docs") return reply({ docs: [] });
       if (p === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777", name: "Sales" }] });
       if (p === "/api/v2/space/777/folder")
@@ -568,7 +769,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     const output = await runCatalogOperation(
       "clickup_search_workspace",
       { query: "Stocktake" },
-      makeListGrant(),
+      makeGrant(),
       f as typeof fetch,
     );
     expect(output["lists"]).toHaveLength(2);

@@ -169,6 +169,58 @@ describe("Phase 4 ClickUp GET-only transport", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it("returns bounded Markdown details and priority", async () => {
+    const grant = await requireReadGrant(auth, env);
+    const requests: string[] = [];
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return json(
+        task("gauntlet1", {
+          description: "Plain fallback",
+          markdown_description: "# Challenge\\nRead this entire task.",
+          priority: { id: "2", priority: "high" },
+        }),
+      );
+    });
+    const detail = await getScopedTask(grant, "gauntlet1", fetcher as typeof fetch);
+    expect(detail).toMatchObject({
+      id: "gauntlet1",
+      list_id: "12345",
+      description: "# Challenge\\nRead this entire task.",
+      description_format: "markdown",
+      description_truncated: false,
+      priority: 2,
+    });
+    expect(requests).toEqual([
+      "https://api.clickup.com/api/v2/task/gauntlet1?custom_task_ids=false&include_markdown_description=true",
+    ]);
+  });
+
+  it("truncates descriptions and rejects unsafe detail payloads", async () => {
+    const grant = await requireReadGrant(auth, env);
+    const description = "x".repeat(10000);
+    const fetcher = vi.fn(async () => json(task("allowed1", { description, priority: null })));
+    const detail = await getScopedTask(grant, "allowed1", fetcher as typeof fetch);
+    expect(detail.description).toHaveLength(8000);
+    expect(detail.description_truncated).toBe(true);
+    expect(detail.description_format).toBe("plain");
+    expect(detail.priority).toBeNull();
+    const listing = await findScopedTasks(
+      grant,
+      vi.fn(async () => json({ tasks: [task("allowed1", { description })] })) as typeof fetch,
+    );
+    expect("description" in listing.tasks[0]!).toBe(false);
+    for (const bad of [
+      task("allowed1", { list: { id: "999" }, description: "out-of-scope" }),
+      task("allowed1", { description: { unexpected: "content" } }),
+      task("allowed1", { priority: { id: "99" } }),
+    ]) {
+      await expect(
+        getScopedTask(grant, "allowed1", vi.fn(async () => json(bad)) as typeof fetch),
+      ).rejects.toBeInstanceOf(ReadFailure);
+    }
+  });
+
   it("rejects task-ID substitution after a successful scoped GET", async () => {
     const grant = await requireReadGrant(auth, env);
     const fetcher = vi.fn(async () => json(task("different")));

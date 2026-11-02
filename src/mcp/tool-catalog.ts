@@ -45,7 +45,7 @@ export interface ModelToolDefinition {
 }
 
 type Field = Readonly<{
-  type: "string" | "integer" | "boolean" | "array" | "object";
+  type: "string" | "integer" | "number" | "boolean" | "array" | "object";
   description: string;
   maxLength?: number;
   minLength?: number;
@@ -72,6 +72,21 @@ const integer = (description: string, minimum = 0, maximum = 1_000_000): Field =
   minimum,
   maximum,
 });
+const decimal = (
+  description: string,
+  minimum = -1_000_000_000,
+  maximum = 1_000_000_000,
+): Field => ({
+  type: "number",
+  description,
+  minimum,
+  maximum,
+});
+const memberId = integer(
+  "Positive numeric ClickUp user ID, not a name or a GitHub ID.",
+  1,
+  9_007_199_254_740_991,
+);
 const arrayOf = (description: string, item: Field, maxItems = 20): Field => ({
   type: "array",
   description,
@@ -92,11 +107,7 @@ const taskPatch = obj(
     status: str("Target status; must be valid for the task's home List.", 80),
     priority: integer("ClickUp priority: 1 urgent, 2 high, 3 normal, 4 low.", 1, 4),
     due_date_ms: integer("Due date as Unix epoch milliseconds, not seconds.", 0, 9_000_000_000_000),
-    assignee_ids: arrayOf(
-      "ClickUp user IDs; resolve names first.",
-      str("Numeric ClickUp user ID.", 24),
-      12,
-    ),
+    assignee_ids: arrayOf("ClickUp user IDs; resolve names first.", memberId, 12),
   },
 );
 const taskDraft = obj(
@@ -107,11 +118,7 @@ const taskDraft = obj(
     status: str("Optional status valid in the target List.", 80),
     due_date_ms: integer("Unix epoch milliseconds, not seconds.", 0, 9_000_000_000_000),
     priority: integer("ClickUp priority 1-4.", 1, 4),
-    assignee_ids: arrayOf(
-      "ClickUp user IDs, not display names.",
-      str("Numeric ClickUp member ID.", 24),
-      12,
-    ),
+    assignee_ids: arrayOf("ClickUp user IDs, not display names.", memberId, 12),
   },
   ["name"],
 );
@@ -153,7 +160,7 @@ const F = {
     12,
   ),
   member_id: str("Numeric ClickUp member ID, not a GitHub user ID.", 24),
-  assignee_ids: arrayOf("Verified ClickUp member IDs.", str("Numeric ClickUp member ID.", 24), 12),
+  assignee_ids: arrayOf("Verified ClickUp member IDs.", memberId, 12),
   text: str("Exact message/comment text; posting is a write with external visibility.", 6_000),
   max_results: integer("Result cap; request the smallest useful amount.", 1, 50),
   lookback_days: integer("Limit historical search window in days.", 1, 90),
@@ -162,7 +169,9 @@ const F = {
   field_id: str("Custom Field UUID from server-verified List configuration.", 100),
   field_value: obj("Typed Custom Field draft; infer legal options from field metadata.", {
     text: str("For text/URL fields.", 4_000),
-    number: integer("For numeric fields; use field-specific constraints.", 0, 1_000_000_000),
+    number: decimal(
+      "Numeric Custom Field value, including negative or decimal values where permitted.",
+    ),
     option_id: str("Existing dropdown option ID.", 100),
     selected_option_ids: arrayOf(
       "Existing multi-select option IDs.",
@@ -290,7 +299,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Get Task",
     "tasks",
     "read",
-    "Retrieve a task by exact ID. In List-scope mode, the task's home List must match the configured grant in the SAME ClickUp response; cross-List tasks are rejected. Do not guess task IDs. Task-ID writes remain Workspace-gated.",
+    "Retrieve a task by exact ID. Do not guess IDs. In List scope, the task's home List must match the configured grant in the SAME response; foreign-List details are rejected. Task-ID writes remain Workspace-gated.",
     "Show task details for a known task ID.",
     ["task_id"],
   ),

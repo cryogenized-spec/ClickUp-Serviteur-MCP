@@ -139,6 +139,38 @@ describe("Phase 4 official SDK integration", () => {
     }
   });
 
+  it("reports verified write scope without exposing any OAuth token", async () => {
+    const handler = createProtocolHandler({ bindings: configuration() });
+    const client = new Client({ name: "write-scope-diagnostic", version: "0.1.0" });
+    const transport = new StreamableHTTPClientTransport(new URL("http://local.test/mcp"), {
+      fetch: async (input, init) =>
+        handler.fetch(new Request(input, init), {
+          authInfo: {
+            token: "verified-internal-only",
+            clientId: "mcp-test",
+            scopes: ["mcp:read", "mcp:write"],
+            extra: { subject: "github:11" },
+          },
+        }),
+    });
+    try {
+      await client.connect(transport);
+      const status = await client.callTool({
+        name: "get_clickup_connection_status",
+        arguments: {},
+      });
+      expect(status.structuredContent).toMatchObject({
+        connected: true,
+        mcp_read_scope_granted: true,
+        mcp_write_scope_granted: true,
+      });
+      expect(JSON.stringify(status.structuredContent)).not.toContain("nonworking-personal-fixture");
+    } finally {
+      await client.close();
+      await handler.close();
+    }
+  });
+
   it("rejects user header spoofing and unapproved subject before touching ClickUp", async () => {
     const outbound = vi.fn(async () =>
       Response.json({ tasks: [] }, { headers: { "content-type": "application/json" } }),

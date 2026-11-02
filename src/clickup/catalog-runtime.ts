@@ -175,20 +175,52 @@ async function folderInWorkspace(
   await inWorkspace(grant, f, obj(folder["space"])?.["id"]);
   return folder;
 }
-const taskBody = (a: Json, update = false) => ({
-  ...(typeof a["name"] === "string" ? { name: txt(a["name"], 180) } : {}),
-  ...(typeof a["description"] === "string" ? { description: txt(a["description"]) } : {}),
-  ...(typeof a["status"] === "string" ? { status: txt(a["status"], 80) } : {}),
-  ...(a["priority"] !== undefined ? { priority: a["priority"] } : {}),
-  ...(a["due_date_ms"] !== undefined ? { due_date: a["due_date_ms"], due_date_time: true } : {}),
-  ...(Array.isArray(a["assignee_ids"])
-    ? {
-        assignees: update
-          ? { add: a["assignee_ids"].map(id).map(Number), rem: [] }
-          : a["assignee_ids"].map(id).map(Number),
-      }
-    : {}),
-});
+const taskBody = (a: Json, update = false): Json => {
+  const permitted = new Set([
+    "name",
+    "description",
+    "status",
+    "priority",
+    "due_date_ms",
+    "assignee_ids",
+  ]);
+  if (Object.keys(a).some((key) => !permitted.has(key)))
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  for (const key of ["name", "description", "status"] as const) {
+    if (a[key] !== undefined && typeof a[key] !== "string")
+      throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  }
+  if (
+    a["priority"] !== undefined &&
+    (!Number.isInteger(a["priority"]) || Number(a["priority"]) < 1 || Number(a["priority"]) > 4)
+  )
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  if (
+    a["due_date_ms"] !== undefined &&
+    (!Number.isSafeInteger(a["due_date_ms"]) ||
+      Number(a["due_date_ms"]) <= 0 ||
+      Number(a["due_date_ms"]) > 9_000_000_000_000)
+  )
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  const assignees = a["assignee_ids"];
+  if (
+    assignees !== undefined &&
+    (!Array.isArray(assignees) ||
+      assignees.length > 12 ||
+      assignees.some((user) => !Number.isSafeInteger(user) || user <= 0))
+  )
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  return {
+    ...(a["name"] !== undefined ? { name: txt(a["name"], 180) } : {}),
+    ...(a["description"] !== undefined ? { description: txt(a["description"]) } : {}),
+    ...(a["status"] !== undefined ? { status: txt(a["status"], 80) } : {}),
+    ...(a["priority"] !== undefined ? { priority: a["priority"] } : {}),
+    ...(a["due_date_ms"] !== undefined ? { due_date: a["due_date_ms"], due_date_time: true } : {}),
+    ...(Array.isArray(assignees)
+      ? { assignees: update ? { add: assignees, rem: [] } : assignees }
+      : {}),
+  };
+};
 async function members(grant: ReadGrant, f: typeof fetch): Promise<Json[]> {
   const d = await send(grant, f, "GET", v2("team"));
   const team = Array.isArray(d["teams"])
@@ -351,8 +383,23 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
 // Preserve all 48 registrations, but execute this subset only after the owner
 // explicitly enables Workspace authority and exclusive one-Workspace OAuth.
 const WORKSPACE_SCOPE_OPERATIONS = new Set([
-  // A single GET /task/{id} includes its home List ID in that SAME response:
-  // unlike task-ID writes, this read can be verified without a TOCTOU gap.
+  // These tools have Workspace-wide effects or return data outside the home List.
+  "clickup_get_workspace_hierarchy",
+  "clickup_get_folder",
+  "clickup_create_list",
+  "clickup_create_list_in_folder",
+  "clickup_create_folder",
+  "clickup_update_folder",
+  "clickup_get_chat_channels",
+  "clickup_send_chat_message",
+  "clickup_create_document",
+  "clickup_list_document_pages",
+  "clickup_get_document_pages",
+  "clickup_create_document_page",
+  "clickup_update_document_page",
+  "clickup_stop_time_tracking",
+  "clickup_get_current_time_entry",
+  // Single task GET validates its home List from the same response.
   "clickup_update_task",
   "clickup_set_custom_field",
   "clickup_delete_task",
@@ -398,7 +445,7 @@ export async function runCatalogOperation(
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   switch (name) {
     case "clickup_search_workspace": {
-      const q = txt(a["query"], 160).toLowerCase();
+      const q = txt(a["query"], 240).toLowerCase();
       // Never search all Workspace tasks: the user may have more upstream rights
       // than this MCP's configured home-List grant permits.
       if (!workspaceScope) await listInWorkspace(g, f, g.listId);
@@ -416,6 +463,19 @@ export async function runCatalogOperation(
         const t = obj(candidate);
         if (!t || (!workspaceScope && String(obj(t["list"])?.["id"]) !== g.listId))
           throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      }
+      const match = (v: unknown) => JSON.stringify(v).toLowerCase().includes(q);
+      if (!workspaceScope) {
+        // Never search Workspace Docs, Folders or unrelated Lists under a single-List grant.
+        return {
+          source: "clickup-api-v2",
+          scope: "list",
+          tasks: clip(tasks.filter(match).slice(0, N)),
+          docs: [],
+          lists: [],
+          folders: [],
+          incomplete: tasks.length >= 100 || tasks.filter(match).length > N,
+        };
       }
       const docs = await call("GET", v3("workspaces/" + W + "/docs?limit=50"));
       if (!Array.isArray(docs["docs"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
@@ -440,7 +500,6 @@ export async function runCatalogOperation(
           foundLists.push(...childLists["lists"]);
         }
       }
-      const match = (v: unknown) => JSON.stringify(v).toLowerCase().includes(q);
       return {
         source: "clickup-api",
         tasks: clip(tasks.filter(match).slice(0, N)),
@@ -463,13 +522,24 @@ export async function runCatalogOperation(
         "GET",
         workspaceScope && a["list_id"] === undefined
           ? v2("team/" + W + "/task?page=0&subtasks=true&include_closed=true")
-          : v2("list/" + id(target) + "/task?page=0&subtasks=true&include_closed=true"),
+          : v2(
+              "list/" +
+                id(target) +
+                "/task?page=0&subtasks=true&include_closed=true" +
+                (workspaceScope ? "&include_timl=true" : ""),
+            ),
       );
       if (!Array.isArray(result["tasks"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       const tasks = result["tasks"];
       for (const candidate of tasks) {
         const t = obj(candidate);
-        if (!t || String(obj(t["list"])?.["id"]) !== g.listId)
+        const homeList = obj(t?.["list"])?.["id"];
+        if (
+          !t ||
+          (typeof homeList !== "number" && typeof homeList !== "string") ||
+          !/^[1-9]\d{0,17}$/.test(String(homeList)) ||
+          (!workspaceScope && String(homeList) !== g.listId)
+        )
           throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       }
       const found = tasks.filter((x) => {
@@ -492,7 +562,7 @@ export async function runCatalogOperation(
     case "clickup_create_task": {
       await list("list_id");
       const payload = taskBody(buildArgs(a, "new_task"));
-      if (!payload.name) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (!payload["name"]) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       return short(
         await call("POST", v2("list/" + val(a, "list_id") + "/task"), {
           ...payload,
@@ -510,6 +580,16 @@ export async function runCatalogOperation(
     case "clickup_set_custom_field": {
       await task("task_id");
       const field = buildArgs(a, "field_value");
+      const allowed = new Set([
+        "text",
+        "number",
+        "option_id",
+        "selected_option_ids",
+        "checked",
+        "timestamp_ms",
+      ]);
+      if (Object.keys(field).length !== 1 || Object.keys(field).some((key) => !allowed.has(key)))
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       const value =
         field["text"] ??
         field["number"] ??
@@ -518,6 +598,15 @@ export async function runCatalogOperation(
         field["checked"] ??
         field["timestamp_ms"];
       if (value === undefined) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (
+        ("number" in field && (typeof value !== "number" || !Number.isFinite(value))) ||
+        ("text" in field && typeof value !== "string") ||
+        ("checked" in field && typeof value !== "boolean") ||
+        ("timestamp_ms" in field && (!Number.isSafeInteger(value) || Number(value) <= 0)) ||
+        ("selected_option_ids" in field &&
+          (!Array.isArray(value) || value.some((id) => typeof id !== "string")))
+      )
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       return short(
         await call("POST", v2("task/" + val(a, "task_id") + "/field/" + val(a, "field_id")), {
           value,
@@ -539,7 +628,7 @@ export async function runCatalogOperation(
         const item = obj(draft);
         if (!item) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
         const payload = taskBody(item);
-        if (!payload.name) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        if (!payload["name"]) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
         return payload;
       });
       const outcome: unknown[] = [];
