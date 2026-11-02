@@ -40,6 +40,7 @@ class StagingManifestTests(unittest.TestCase):
         self.assertIsNotNone(config)
         assert config is not None
         self.assertEqual("256972168", config["vars"]["CLICKUP_WORKSPACE_GITHUB_IDS"])
+        self.assertEqual("workspace", config["vars"]["CLICKUP_RESOURCE_SCOPE"])
         self.assertEqual("neonsales-clickup-mcp-staging", config["name"])
         self.assertTrue(config["keep_vars"])
 
