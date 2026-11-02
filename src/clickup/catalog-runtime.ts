@@ -446,12 +446,8 @@ export async function runCatalogOperation(
   const W = id(g.workspaceId),
     N = count(a);
   const workspaceScope = g.resourceScope === "workspace";
-  const call = (
-    method: Method,
-    path: string,
-    body?: Json,
-    responseMode: ResponseMode = "strict",
-  ) => send(g, f, method, path, body, responseMode);
+  const call = (method: Method, path: string, body?: Json, responseMode: ResponseMode = "strict") =>
+    send(g, f, method, path, body, responseMode);
   const task = async (k: string) => taskInWorkspace(g, f, a[k]);
   const list = async (k: string) => listInWorkspace(g, f, a[k]);
   const folder = async (k: string) => folderInWorkspace(g, f, a[k]);
