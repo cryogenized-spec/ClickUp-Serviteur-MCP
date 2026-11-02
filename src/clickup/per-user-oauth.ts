@@ -216,6 +216,8 @@ export async function clickUpConnectionStatus(auth: unknown, env: unknown): Prom
         clickup_user_id: result["clickupUserId"],
         workspace_id: result["workspaceId"],
         workspace_exclusive: result["workspaceExclusive"] === true,
+        selected_list_id: decimal(result["targetListId"]) ?? decimal(obj(env)?.["CLICKUP_LIST_ID"]),
+        selected_list_is_override: decimal(result["targetListId"]) !== null,
         workspace_scope_approved: workspaceApproved,
         workspace_scope_enabled:
           workspaceApproved &&
@@ -277,6 +279,41 @@ export async function setClickUpWorkspaceAccess(
   };
 }
 
+/** Persist only a List in the currently OAuth-bound Workspace. The caller
+ * MUST verify List ancestry and its exact name before invoking this helper. */
+export async function saveClickUpListTarget(
+  auth: unknown,
+  env: unknown,
+  workspaceId: string,
+  listId: string,
+): Promise<Json> {
+  const subject = verifiedSubject(auth, env);
+  const settings = config(env);
+  if (
+    workspaceId !== settings.workspaceId ||
+    !decimal(listId) ||
+    !Array.isArray(obj(auth)?.["scopes"]) ||
+    !(obj(auth)?.["scopes"] as unknown[]).includes("mcp:write")
+  ) {
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  }
+  // Require valid personal OAuth evidence even when called from a future code path.
+  const personal = await personalClickUpCredential(auth, env);
+  if (personal.workspaceId !== workspaceId) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  const saved = await internalCall(staffStub(settings.binding, subject), "target-list", {
+    subject,
+    workspaceId,
+    listId,
+  });
+  if (
+    saved["selected"] !== true ||
+    saved["workspaceId"] !== workspaceId ||
+    saved["listId"] !== listId
+  )
+    throw new ReadFailure("CLICKUP_ACCOUNT_STORE_UNAVAILABLE");
+  return { workspace_id: workspaceId, selected_list_id: listId, persisted: true };
+}
+
 export async function disconnectClickUp(auth: unknown, env: unknown): Promise<Json> {
   const subject = verifiedSubject(auth, env);
   const settings = config(env);
@@ -298,6 +335,7 @@ export async function personalClickUpCredential(
   workspaceId: string;
   workspaceExclusive: boolean;
   workspaceEnabled: boolean;
+  selectedListId: string | null;
 }> {
   const subject = verifiedSubject(auth, env);
   const settings = config(env);
@@ -322,6 +360,7 @@ export async function personalClickUpCredential(
     workspaceId: settings.workspaceId,
     workspaceExclusive: record["workspaceExclusive"] === true,
     workspaceEnabled: record["workspaceEnabled"] === true,
+    selectedListId: decimal(record["targetListId"]),
   };
 }
 
