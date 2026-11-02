@@ -253,6 +253,10 @@ export async function setClickUpWorkspaceAccess(
   }
   if (!approved.has(subject.slice(7)))
     throw new ReadFailure("CLICKUP_WORKSPACE_OWNER_APPROVAL_REQUIRED");
+  // A staging-level Workspace grant cannot be revoked through a per-user toggle.
+  // Reject rather than falsely claiming List-only access was restored.
+  if (!enabled && obj(env)?.["CLICKUP_RESOURCE_SCOPE"] === "workspace")
+    throw new ReadFailure("CLICKUP_WORKSPACE_CONFIG_ROLLBACK_REQUIRED");
   const personal = await personalClickUpCredential(auth, env);
   if (enabled && !personal.workspaceExclusive)
     throw new ReadFailure("CLICKUP_WORKSPACE_RECONSENT_REQUIRED");
