@@ -292,7 +292,11 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       },
       { id: "field-date", type: "date" },
       { id: "field-check", type: "checkbox" },
-      { id: "field-other-type", type: "text", applied_objects: [{ object_type: 19, object_id: 8 }] },
+      {
+        id: "field-other-type",
+        type: "text",
+        applied_objects: [{ object_type: 19, object_id: 8 }],
+      },
     ];
     const writes: Record<string, unknown>[] = [];
     const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
