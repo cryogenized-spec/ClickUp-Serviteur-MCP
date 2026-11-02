@@ -92,9 +92,17 @@ describe("explicit per-user Workspace operations", () => {
     const { env, selected } = testRig();
     const owner = auth("11");
     const baseline = await requireReadGrant(owner, { ...env, CLICKUP_RESOURCE_SCOPE: "workspace" });
-    expect(baseline).toMatchObject({ workspaceId: "555", listId: "12345", resourceScope: "workspace" });
-    await expect(saveClickUpListTarget(owner, env, "777", "23456")).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-    await expect(saveClickUpListTarget(auth("11", false), env, "555", "23456")).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    expect(baseline).toMatchObject({
+      workspaceId: "555",
+      listId: "12345",
+      resourceScope: "workspace",
+    });
+    await expect(saveClickUpListTarget(owner, env, "777", "23456")).rejects.toThrow(
+      "CLICKUP_SCOPE_OR_SCHEMA_REJECTED",
+    );
+    await expect(saveClickUpListTarget(auth("11", false), env, "555", "23456")).rejects.toThrow(
+      "CLICKUP_SCOPE_OR_SCHEMA_REJECTED",
+    );
     expect(selected.size).toBe(0);
     expect(await saveClickUpListTarget(owner, env, "555", "23456")).toMatchObject({
       persisted: true,
@@ -102,9 +110,21 @@ describe("explicit per-user Workspace operations", () => {
       selected_list_id: "23456",
     });
     const switched = await requireReadGrant(owner, { ...env, CLICKUP_RESOURCE_SCOPE: "workspace" });
-    expect(switched).toMatchObject({ workspaceId: "555", listId: "23456", resourceScope: "workspace" });
-    expect((await clickUpConnectionStatus(owner, { ...env, CLICKUP_RESOURCE_SCOPE: "workspace" }))["selected_list_id"]).toBe("23456");
-    expect((await clickUpConnectionStatus(owner, { ...env, CLICKUP_RESOURCE_SCOPE: "workspace" }))["selected_list_is_override"]).toBe(true);
+    expect(switched).toMatchObject({
+      workspaceId: "555",
+      listId: "23456",
+      resourceScope: "workspace",
+    });
+    expect(
+      (await clickUpConnectionStatus(owner, { ...env, CLICKUP_RESOURCE_SCOPE: "workspace" }))[
+        "selected_list_id"
+      ],
+    ).toBe("23456");
+    expect(
+      (await clickUpConnectionStatus(owner, { ...env, CLICKUP_RESOURCE_SCOPE: "workspace" }))[
+        "selected_list_is_override"
+      ],
+    ).toBe(true);
     expect((await clickUpConnectionStatus(owner, env))["selected_list_id"]).toBe("12345");
     expect((await clickUpConnectionStatus(owner, env))["selected_list_is_override"]).toBe(false);
     const other = await requireReadGrant(auth("22"), env);
