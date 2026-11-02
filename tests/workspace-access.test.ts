@@ -103,11 +103,19 @@ describe("explicit per-user Workspace operations", () => {
     });
     const switched = await requireReadGrant(owner, { ...env, CLICKUP_RESOURCE_SCOPE: "workspace" });
     expect(switched).toMatchObject({ workspaceId: "555", listId: "23456", resourceScope: "workspace" });
-    expect((await clickUpConnectionStatus(owner, env))["selected_list_id"]).toBe("23456");
-    expect((await clickUpConnectionStatus(owner, env))["selected_list_is_override"]).toBe(true);
+    expect((await clickUpConnectionStatus(owner, { ...env, CLICKUP_RESOURCE_SCOPE: "workspace" }))["selected_list_id"]).toBe("23456");
+    expect((await clickUpConnectionStatus(owner, { ...env, CLICKUP_RESOURCE_SCOPE: "workspace" }))["selected_list_is_override"]).toBe(true);
+    expect((await clickUpConnectionStatus(owner, env))["selected_list_id"]).toBe("12345");
+    expect((await clickUpConnectionStatus(owner, env))["selected_list_is_override"]).toBe(false);
     const other = await requireReadGrant(auth("22"), env);
     expect(other).toMatchObject({ workspaceId: "555", listId: "12345", resourceScope: "list" });
     expect(selected.get("github:22")).toBeUndefined();
+    const revoked = await requireReadGrant(owner, {
+      ...env,
+      CLICKUP_RESOURCE_SCOPE: "workspace",
+      CLICKUP_WORKSPACE_GITHUB_IDS: "22",
+    });
+    expect(revoked).toMatchObject({ resourceScope: "list", listId: "12345" });
   });
 
   it("starts in List mode, activates only the approved user and revokes independently", async () => {
