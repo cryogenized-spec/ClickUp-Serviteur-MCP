@@ -287,6 +287,7 @@ export async function saveClickUpListTarget(
   env: unknown,
   workspaceId: string,
   listId: string,
+  expectedGeneration: string | null | undefined,
 ): Promise<Json> {
   const subject = verifiedSubject(auth, env);
   const settings = config(env);
@@ -300,12 +301,17 @@ export async function saveClickUpListTarget(
   }
   // Require valid personal OAuth evidence even when called from a future code path.
   const personal = await personalClickUpCredential(auth, env);
-  if (personal.workspaceId !== workspaceId)
-    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  if (
+    personal.workspaceId !== workspaceId ||
+    !expectedGeneration ||
+    personal.connectionGeneration !== expectedGeneration
+  )
+    throw new ReadFailure("CLICKUP_TARGET_CONNECTION_CHANGED");
   const saved = await internalCall(staffStub(settings.binding, subject), "target-list", {
     subject,
     workspaceId,
     listId,
+    connectionGeneration: expectedGeneration,
   });
   if (
     saved["selected"] !== true ||
@@ -338,6 +344,7 @@ export async function personalClickUpCredential(
   workspaceExclusive: boolean;
   workspaceEnabled: boolean;
   selectedListId: string | null;
+  connectionGeneration: string | null;
 }> {
   const subject = verifiedSubject(auth, env);
   const settings = config(env);
@@ -363,6 +370,11 @@ export async function personalClickUpCredential(
     workspaceExclusive: record["workspaceExclusive"] === true,
     workspaceEnabled: record["workspaceEnabled"] === true,
     selectedListId: decimal(record["targetListId"]),
+    connectionGeneration:
+      typeof record["connectionGeneration"] === "string" &&
+      /^[A-Za-z0-9+/]{16}$/.test(record["connectionGeneration"])
+        ? record["connectionGeneration"]
+        : null,
   };
 }
 
