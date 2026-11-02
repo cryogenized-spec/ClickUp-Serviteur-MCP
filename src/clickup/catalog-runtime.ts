@@ -1000,17 +1000,35 @@ export async function runCatalogOperation(
         content: typeof a["doc_content"] === "string" ? a["doc_content"] : "",
         content_format: "text/md",
       });
-    case "clickup_update_document_page":
-      return call(
-        "PUT",
-        v3("workspaces/" + W + "/docs/" + val(a, "document_id") + "/pages/" + val(a, "page_id")),
-        {
-          content: txt(a["doc_content"], 12000),
-          content_edit_mode: "replace",
-          content_format: "text/md",
-        },
-        "empty-write-ack",
+    case "clickup_update_document_page": {
+      const content = txt(a["doc_content"], 12000);
+      const pagePath = v3(
+        "workspaces/" + W + "/docs/" + val(a, "document_id") + "/pages/" + val(a, "page_id"),
       );
+      try {
+        return await call(
+          "PUT",
+          pagePath,
+          { content, content_edit_mode: "replace", content_format: "text/md" },
+          "empty-write-ack",
+        );
+      } catch (error) {
+        if (!(error instanceof ReadFailure) || error.code !== "CLICKUP_WRITE_OUTCOME_UNKNOWN")
+          throw error;
+        // A successful ClickUp Docs update can return an unusable response
+        // (e.g. non-JSON), even after its content is already committed.
+        // Never retry the write. Verify that the exact requested content
+        // persisted with one independent read before reporting success.
+        try {
+          const verified = await call("GET", pagePath + "?content_format=text%2Fmd");
+          if (verified["content"] === content)
+            return { success: true, source: "clickup-api", verified_by_readback: true };
+        } catch {
+          // Preserve the original uncertain-write error if verification fails.
+        }
+        throw error;
+      }
+    }
     case "clickup_get_task_time_in_status": {
       await task("task_id");
       const statusTime = await call("GET", v2("task/" + val(a, "task_id") + "/time_in_status"));
