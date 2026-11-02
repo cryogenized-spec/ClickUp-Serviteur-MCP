@@ -143,7 +143,10 @@ const F = {
     24,
   ),
   comment_id: str("Exact ClickUp comment identifier.", 100),
-  parent_comment_id: str("Verified parent comment ID on the same authorized task; create a threaded reply.", 100),
+  parent_comment_id: str(
+    "Verified parent comment ID on the same authorized task; create a threaded reply.",
+    100,
+  ),
   document_id: str("Exact ClickUp Document ID.", 100),
   page_id: str("Exact Document page ID.", 100),
   channel_id: str("Exact ClickUp Chat channel identifier.", 100),
