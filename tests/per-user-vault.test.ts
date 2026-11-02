@@ -34,8 +34,9 @@ function fakeSqlite() {
         pending = undefined;
       }
     } else if (sql.startsWith("SELECT workspace_id,list_id FROM list_target")) {
-      if (target?.subject === params[0])
+      if (target && target.subject === params[0]) {
         values = [{ workspace_id: target.workspaceId, list_id: target.listId }];
+      }
     } else if (sql.startsWith("INSERT OR REPLACE INTO list_target")) {
       target = {
         subject: String(params[0]),
