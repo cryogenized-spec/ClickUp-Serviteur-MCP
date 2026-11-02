@@ -836,9 +836,7 @@ export async function runCatalogOperation(
               : NaN;
       if (
         expected !== undefined &&
-        (!Number.isSafeInteger(expected) ||
-          expected < 0 ||
-          (expected > 0 && replies.length === 0))
+        (!Number.isSafeInteger(expected) || expected < 0 || (expected > 0 && replies.length === 0))
       )
         throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       return short(
