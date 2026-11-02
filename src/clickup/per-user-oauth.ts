@@ -210,20 +210,22 @@ export async function clickUpConnectionStatus(auth: unknown, env: unknown): Prom
       workspaceApproved = false;
     }
   }
+  const workspaceEnabled =
+    workspaceApproved &&
+    result["workspaceExclusive"] === true &&
+    (obj(env)?.["CLICKUP_RESOURCE_SCOPE"] === "workspace" ||
+      result["workspaceEnabled"] === true);
+  const chosen = workspaceEnabled ? decimal(result["targetListId"]) : null;
   return result["connected"] === true
     ? {
         connected: true,
         clickup_user_id: result["clickupUserId"],
         workspace_id: result["workspaceId"],
         workspace_exclusive: result["workspaceExclusive"] === true,
-        selected_list_id: decimal(result["targetListId"]) ?? decimal(obj(env)?.["CLICKUP_LIST_ID"]),
-        selected_list_is_override: decimal(result["targetListId"]) !== null,
+        selected_list_id: chosen ?? decimal(obj(env)?.["CLICKUP_LIST_ID"]),
+        selected_list_is_override: chosen !== null,
         workspace_scope_approved: workspaceApproved,
-        workspace_scope_enabled:
-          workspaceApproved &&
-          result["workspaceExclusive"] === true &&
-          (obj(env)?.["CLICKUP_RESOURCE_SCOPE"] === "workspace" ||
-            result["workspaceEnabled"] === true),
+        workspace_scope_enabled: workspaceEnabled,
       }
     : { connected: false };
 }
