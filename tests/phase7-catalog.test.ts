@@ -1002,8 +1002,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
   it("preserves actual time-in-status records and legitimate empty Lists", async () => {
     const api = vi.fn(async (req: RequestInfo | URL) => {
       const path = new URL(String(req)).pathname;
-      if (path === "/api/v2/list/12345/task")
-        return reply({ tasks: [{ id: "abc123" }] });
+      if (path === "/api/v2/list/12345/task") return reply({ tasks: [{ id: "abc123" }] });
       if (path === "/api/v2/task/abc123/time_in_status")
         return reply({ current_status: { status: "Open", total_time: 1234 } });
       if (path.includes("/bulk_time_in_status/"))
