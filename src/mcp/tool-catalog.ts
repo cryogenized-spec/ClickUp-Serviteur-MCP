@@ -166,6 +166,9 @@ const F = {
   page: integer("Zero-based bounded pagination offset.", 0, 2),
   status: str("Exact ClickUp status label; first check available List statuses.", 80),
   field_id: str("Custom Field UUID from server-verified List configuration.", 100),
+  include_custom_fields: flag(
+    "Include verified List Custom Field definitions/options without writing values.",
+  ),
   field_value: obj("Typed Custom Field draft; infer legal options from field metadata.", {
     text: str("For text/URL fields.", 4_000),
     number: decimal(
@@ -567,6 +570,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Read metadata, statuses and settings for a particular authorized List, not its tasks.",
     "Which statuses does the Workshop List support?",
     ["list_id"],
+    ["include_custom_fields"],
   ),
   tool(
     "clickup_update_list",

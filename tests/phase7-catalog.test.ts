@@ -244,6 +244,166 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     expect(writes).toContainEqual(expect.objectContaining({ assignees: [707] }));
   });
 
+  it("discovers Custom Field metadata from an authorized List only when requested", async () => {
+    const calls: string[] = [];
+    const fetcher = vi.fn(async (request: RequestInfo | URL) => {
+      const path = new URL(String(request)).pathname;
+      calls.push(path);
+      if (path === "/api/v2/list/12345/field")
+        return reply({ fields: [{ id: "field-1", name: "Estimate", type: "number" }] });
+      return reply(fixture(path));
+    });
+    const plain = await runCatalogOperation(
+      "clickup_get_list",
+      { list_id: "12345" },
+      makeGrant(),
+      fetcher as typeof fetch,
+    );
+    expect(plain["custom_fields"]).toBeUndefined();
+    expect(calls).not.toContain("/api/v2/list/12345/field");
+    const enriched = await runCatalogOperation(
+      "clickup_get_list",
+      { list_id: "12345", include_custom_fields: true },
+      makeGrant(),
+      fetcher as typeof fetch,
+    );
+    expect(enriched["custom_fields"]).toMatchObject([
+      { id: "field-1", name: "Estimate", type: "number" },
+    ]);
+    expect(enriched["custom_fields_count"]).toBe(1);
+    expect(calls).toContain("/api/v2/list/12345/field");
+    const schema = CLICKUP_MODEL_TOOL_CATALOG.find((item) => item.name === "clickup_get_list")!;
+    expect(schema.inputSchema.properties["include_custom_fields"]?.type).toBe("boolean");
+  });
+
+  it("validates Custom Field type, options and task-type applicability before spending a write", async () => {
+    const definitions = [
+      { id: "field-text", type: "text" },
+      { id: "field-money", type: "currency" },
+      {
+        id: "field-choice",
+        type: "drop_down",
+        type_config: { options: [{ id: "option-a" }, { id: "option-b" }] },
+      },
+      {
+        id: "field-labels",
+        type: "labels",
+        type_config: { options: [{ id: "label-a" }, { id: "label-b" }] },
+      },
+      { id: "field-date", type: "date" },
+      { id: "field-check", type: "checkbox" },
+      {
+        id: "field-other-type",
+        type: "text",
+        applied_objects: [{ object_type: 19, object_id: 8 }],
+      },
+    ];
+    const writes: Record<string, unknown>[] = [];
+    const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(request)).pathname;
+      if (path === "/api/v2/list/12345/field") return reply({ fields: definitions });
+      if (init?.method === "POST") {
+        writes.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return reply({});
+      }
+      return reply(fixture(path));
+    });
+    const scenarios = [
+      ["field-text", { text: "QA text" }, "QA text"],
+      ["field-money", { number: -17.25 }, -17.25],
+      ["field-choice", { option_id: "option-a" }, "option-a"],
+      ["field-labels", { selected_option_ids: ["label-b"] }, ["label-b"]],
+      ["field-check", { checked: false }, false],
+      ["field-date", { timestamp_ms: 1793647200000 }, 1793647200000],
+    ] as const;
+    for (const [field_id, field_value, value] of scenarios) {
+      const result = await runCatalogOperation(
+        "clickup_set_custom_field",
+        { task_id: "abc123", field_id, field_value },
+        makeGrant(),
+        fetcher as typeof fetch,
+      );
+      expect(result).toMatchObject({ success: true, response_empty: true });
+      expect(writes.at(-1)).toMatchObject({
+        value,
+        ...(field_id === "field-date" ? { value_options: { time: true } } : {}),
+      });
+    }
+    const wrote = writes.length;
+    for (const [field_id, field_value] of [
+      ["field-absent", { text: "No" }],
+      ["field-other-type", { text: "Wrong type" }],
+      ["field-money", { text: "Not a number" }],
+      ["field-choice", { option_id: "not-an-option" }],
+      ["field-labels", { selected_option_ids: ["not-a-label"] }],
+      ["field-date", { timestamp_ms: -1 }],
+    ] as const) {
+      await expect(
+        runCatalogOperation(
+          "clickup_set_custom_field",
+          { task_id: "abc123", field_id, field_value },
+          makeGrant(),
+          fetcher as typeof fetch,
+        ),
+      ).rejects.toThrow(/CLICKUP_(INVALID_ARGUMENT|SCOPE_OR_SCHEMA_REJECTED)/);
+    }
+    expect(writes).toHaveLength(wrote);
+  });
+
+  it("rejects malformed Custom Field dropdown and label option IDs without consuming a write", async () => {
+    for (const [type, variant] of [
+      ["drop_down", { option_id: "undefined" }],
+      ["labels", { selected_option_ids: ["undefined"] }],
+    ] as const) {
+      for (const malformedOption of [{}, null, { id: null }, { id: 9 }, { id: " " }]) {
+        const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
+          const path = new URL(String(request)).pathname;
+          if (path === "/api/v2/list/12345/field")
+            return reply({
+              fields: [
+                {
+                  id: "field-select",
+                  type,
+                  type_config: { options: [malformedOption] },
+                },
+              ],
+            });
+          if (init?.method === "POST") throw Error("must not consume a field write");
+          return reply(fixture(path));
+        });
+        await expect(
+          runCatalogOperation(
+            "clickup_set_custom_field",
+            { task_id: "abc123", field_id: "field-select", field_value: variant },
+            makeGrant(),
+            fetcher as typeof fetch,
+          ),
+        ).rejects.toThrow("CLICKUP_BAD_RESPONSE");
+        expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+      }
+    }
+  });
+
+  it("fails closed when Custom Field metadata is malformed or cannot be verified", async () => {
+    for (const payload of [{}, { fields: {} }, { fields: ["garbled"] }]) {
+      const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(String(request)).pathname;
+        if (path === "/api/v2/list/12345/field") return reply(payload);
+        if (init?.method === "POST") throw Error("unsafe Custom Field mutation");
+        return reply(fixture(path));
+      });
+      await expect(
+        runCatalogOperation(
+          "clickup_set_custom_field",
+          { task_id: "abc123", field_id: "field-1", field_value: { number: 2.5 } },
+          makeGrant(),
+          fetcher as typeof fetch,
+        ),
+      ).rejects.toThrow(/CLICKUP_(BAD_RESPONSE|SCOPE_OR_SCHEMA_REJECTED)/);
+      expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+    }
+  });
+
   it("accepts Workspace tag and type results from multiple home Lists", async () => {
     const requests: string[] = [];
     const f = vi.fn(async (req: RequestInfo | URL) => {
