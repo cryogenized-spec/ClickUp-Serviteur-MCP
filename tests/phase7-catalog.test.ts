@@ -784,6 +784,43 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     expect(f).toHaveBeenCalledTimes(1);
   });
 
+  it("creates a Doc in an authorized Folder using ClickUp numeric parent type 5", async () => {
+    const requests: Array<{ method: string; path: string; body?: unknown }> = [];
+    const api = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(req)).pathname;
+      requests.push({
+        method: String(init?.method),
+        path,
+        ...(init?.body ? { body: JSON.parse(String(init.body)) as unknown } : {}),
+      });
+      if (path === "/api/v2/folder/folder1")
+        return reply({ id: "folder1", space: { id: "777" } });
+      if (path === "/api/v2/team/555/space")
+        return reply({ spaces: [{ id: "777" }] });
+      if (init?.method === "POST")
+        return reply({ id: "doc-1", name: "QA placed Doc" }, 201);
+      throw Error("Unexpected request: " + path);
+    });
+    const doc = await runCatalogOperation(
+      "clickup_create_document",
+      { workspace_id: "555", name: "QA placed Doc", folder_id: "folder1" },
+      makeGrant(),
+      api as typeof fetch,
+    );
+    expect(doc).toMatchObject({ id: "doc-1" });
+    expect(requests.filter((x) => x.method === "POST")).toEqual([
+      {
+        method: "POST",
+        path: "/api/v3/workspaces/555/docs",
+        body: {
+          name: "QA placed Doc",
+          create_page: true,
+          parent: { id: "folder1", type: 5 },
+        },
+      },
+    ]);
+  });
+
   it("treats ambiguous 204 and empty-200 task creations as unknown writes", async () => {
     for (const response of [new Response(null, { status: 204 }), reply({})]) {
       const f = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) =>
