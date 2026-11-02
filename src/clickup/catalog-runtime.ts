@@ -26,6 +26,22 @@ const count = (a: Json) => {
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   return n as number;
 };
+/** clip() bounds every nested array to 50; disclose when Doc children are also clipped. */
+const hasClippedNestedArray = (value: unknown): boolean => {
+  const pending: unknown[] = [value];
+  for (let i = 0; i < pending.length; i++) {
+    if (i >= 10_000) return true;
+    const item = pending[i];
+    if (Array.isArray(item)) {
+      if (item.length > 50) return true;
+      pending.push(...item);
+    } else {
+      const record = obj(item);
+      if (record) pending.push(...Object.values(record));
+    }
+  }
+  return false;
+};
 const clip = (v: unknown): unknown => {
   if (Array.isArray(v)) return v.slice(0, 50).map(clip);
   const item = obj(v);
@@ -258,10 +274,11 @@ const short = (d: Json, limit = 50): Json => {
   // ClickUp's first comments page can contain 25; reaching it suggests older
   // pages may exist even if no item was discarded by the display cap.
   const possibleMorePages = Array.isArray(d["comments"]) && d["comments"].length >= 25;
+  const nestedPagesClipped = Array.isArray(d["pages"]) && hasClippedNestedArray(d["pages"]);
   return clip({
     ...d,
     ...Object.fromEntries(arrays.map((k) => [k, (d[k] as unknown[]).slice(0, limit)])),
-    incomplete: truncated || possibleMorePages || d["incomplete"] === true,
+    incomplete: truncated || nestedPagesClipped || possibleMorePages || d["incomplete"] === true,
     first_page_only: true,
   }) as Json;
 };
