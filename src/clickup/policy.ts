@@ -102,7 +102,9 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
   return {
     subject,
     clickupUserId: user.clickupUserId,
-    listId,
+    // A user's selected List is scoped to the same OAuth Workspace and
+    // never broadens their resourceScope. Stale/missing selections fall back.
+    listId: user.selectedListId ?? listId,
     resourceScope: effectiveScope,
     workspaceId: user.workspaceId,
     apiToken: user.token,
