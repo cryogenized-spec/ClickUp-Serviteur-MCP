@@ -10,6 +10,7 @@
 - Live **expected denial** cases: `clickup_get_task_comments`, `clickup_get_task_time_entries`, `clickup_get_workspace_hierarchy` returned `CLICKUP_WORKSPACE_SCOPE_REQUIRED`. This proves those routes failed closed in the tested default configuration, **not** that they succeed when authorized.
 - The code registers `clickup_set_workspace_access` (explicit owner-only revocable opt-in), but the **ChatGPT connector's current tool enumeration exposes 58 tools and omits it**, although the server responds with new per-user scope-status fields. Expected tool inventory is 48 catalogue + 11 supporting tools = 59. Investigate registration/tool-list refresh/client cache before any Workspace opt-in.
 - The source and model-visible tool descriptions do not wholly agree in this session: for example the advertised `clickup_get_task` description still contains legacy “schema-only ... disabled” wording, even though it returned live authorized task data. Diagnose and correct this user-facing discovery discrepancy; never market it as fully synchronized.
+- **Open API response-contract risks found by source inspection:** `src/clickup/catalog-runtime.ts` currently maps 204/205 (other than DELETE) and empty `{}` write acknowledgements to `CLICKUP_WRITE_OUTCOME_UNKNOWN`. That can misreport valid upstream writes, depending on the ClickUp route. It also requires top-level JSON objects, while PR #37's prior contract audit identified the ClickUp v3 Docs `page_listing` response as an array. These are likely compatibility failures needing endpoint-specific tests and narrow fixes before their tools can be called reliable. Do not blindly retry an uncertain write or merge PR #37 wholesale onto current OAuth code.
 - **No live write or delete acceptance test** was executed in this checkpoint. Never infer write success from `mcp:write` scope alone.
 - Codex reviewed PR #46 (scope/input fixes) and PR #47 (staging owner allowlist regex fix) with no major findings. They were merged into `main`. The earlier PR #37 contract audit is still an old draft and **must not be merged blindly**. A read-only differential Codex review was requested on 2026-11-02; review of the original old head alone is not proof its changes are missing from current main.
 
@@ -63,6 +64,7 @@ Each group must test the documented *read* or *write* behaviour and separately t
 7. **Privacy:** confirm private staff/customer data is not exposed in unnecessary tool fields. Do not opt confidential operational data into model training without organizational permission.
 8. **Rate limiting:** native ClickUp REST API limits apply per connected account even when the first-party MCP's daily call allocation is not used.
 9. **Evidence freshness:** tests run against older branch heads or synthetic fixtures do not establish functionality of the deployed staging revision.
+10. **Endpoint-specific ClickUp payloads:** verify empty write acknowledgements and Docs page-listing arrays against the documented and actual REST response. A tool that incorrectly reports a successful write as uncertain is not 'working as advertised'.
 
 ## Immediate next session
 
