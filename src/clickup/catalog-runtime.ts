@@ -797,9 +797,39 @@ export async function runCatalogOperation(
               val(a, "blocking_task_id"),
           ),
         );
-      return call("POST", v2("task/" + val(a, "waiting_task_id") + "/dependency"), {
-        depends_on: a["blocking_task_id"],
-      });
+      const blockerId = val(a, "blocking_task_id");
+      const waiterId = val(a, "waiting_task_id");
+      try {
+        await call(
+          "POST",
+          v2("task/" + waiterId + "/dependency"),
+          { depends_on: blockerId },
+          "empty-write-ack",
+        );
+      } catch (error) {
+        // If ClickUp committed but did not return parseable JSON, inspect
+        // the new relationship once. Never retry the POST.
+        if (!(error instanceof ReadFailure) || error.code !== "CLICKUP_WRITE_OUTCOME_UNKNOWN")
+          throw error;
+      }
+      try {
+        const waiter = await call("GET", v2("task/" + waiterId));
+        const present =
+          Array.isArray(waiter["dependencies"]) &&
+          waiter["dependencies"].some((item) => {
+            const link = obj(item);
+            return (
+              link !== null &&
+              String(link["task_id"]) === waiterId &&
+              String(link["depends_on"]) === blockerId
+            );
+          });
+        if (present)
+          return { success: true, source: "clickup-api", verified_by_readback: true };
+      } catch {
+        // A failed read cannot convert an uncertain write into a success.
+      }
+      throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
     }
     case "clickup_move_task_to_list": {
       const moving = await task("task_id");
