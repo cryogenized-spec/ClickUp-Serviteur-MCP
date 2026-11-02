@@ -60,11 +60,15 @@ function targetRig() {
     if (path === "/api/v2/list/12345")
       return Response.json({ id: "12345", name: "Sandbox", space: { id: "765" }, statuses: [] });
     if (path === "/api/v2/list/23456")
-      return Response.json({ id: "23456", name: "MCP QA Alternate", space: { id: "765" }, statuses: [{ status: "Open" }] });
+      return Response.json({
+        id: "23456",
+        name: "MCP QA Alternate",
+        space: { id: "765" },
+        statuses: [{ status: "Open" }],
+      });
     if (path === "/api/v2/list/99999")
       return Response.json({ id: "99999", name: "Foreign", space: { id: "999" } });
-    if (path === "/api/v2/team/555/space")
-      return Response.json({ spaces: [{ id: "765" }] });
+    if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "765" }] });
     throw Error("Unexpected ClickUp path: " + path);
   });
   const connect = async (subject: "11" | "22", write = true) => {
@@ -82,7 +86,13 @@ function targetRig() {
         }),
     });
     await client.connect(transport);
-    return { client, async close() { await client.close(); await handler.close(); } };
+    return {
+      client,
+      async close() {
+        await client.close();
+        await handler.close();
+      },
+    };
   };
   return { connect, selected, calls };
 }
@@ -94,8 +104,12 @@ describe("owner-controlled ClickUp target selector, no production Workspace leak
     const coworker = await rig.connect("22");
     try {
       const advertised = (await owner.client.listTools()).tools;
-      expect(advertised.find((t) => t.name === "clickup_preview_target")?.annotations?.readOnlyHint).toBe(true);
-      expect(advertised.find((t) => t.name === "clickup_select_target")?.annotations?.readOnlyHint).toBe(false);
+      expect(
+        advertised.find((t) => t.name === "clickup_preview_target")?.annotations?.readOnlyHint,
+      ).toBe(true);
+      expect(
+        advertised.find((t) => t.name === "clickup_select_target")?.annotations?.readOnlyHint,
+      ).toBe(false);
       const preview = await owner.client.callTool({
         name: "clickup_preview_target",
         arguments: { workspace_id: "555", list_id: "23456" },
@@ -111,28 +125,63 @@ describe("owner-controlled ClickUp target selector, no production Workspace leak
       expect(rig.selected.size).toBe(0);
       const unsafe = await owner.client.callTool({
         name: "clickup_select_target",
-        arguments: { workspace_id: "555", list_id: "23456", expected_list_name: "MCP QA Alternate", confirm: false },
+        arguments: {
+          workspace_id: "555",
+          list_id: "23456",
+          expected_list_name: "MCP QA Alternate",
+          confirm: false,
+        },
       });
       expect(unsafe.isError).toBe(true);
       expect(rig.selected.size).toBe(0);
       const wrongName = await owner.client.callTool({
         name: "clickup_select_target",
-        arguments: { workspace_id: "555", list_id: "23456", expected_list_name: "Company Tasks", confirm: true },
+        arguments: {
+          workspace_id: "555",
+          list_id: "23456",
+          expected_list_name: "Company Tasks",
+          confirm: true,
+        },
       });
       expect(wrongName.isError).toBe(true);
       expect(rig.selected.size).toBe(0);
       const changed = await owner.client.callTool({
         name: "clickup_select_target",
-        arguments: { workspace_id: "555", list_id: "23456", expected_list_name: "MCP QA Alternate", confirm: true },
+        arguments: {
+          workspace_id: "555",
+          list_id: "23456",
+          expected_list_name: "MCP QA Alternate",
+          confirm: true,
+        },
       });
       expect(changed.isError).not.toBe(true);
-      expect(changed.structuredContent).toMatchObject({ persisted: true, selected_list_id: "23456", list_name: "MCP QA Alternate" });
+      expect(changed.structuredContent).toMatchObject({
+        persisted: true,
+        selected_list_id: "23456",
+        list_name: "MCP QA Alternate",
+      });
       const current = await owner.client.callTool({ name: "get_scoped_list", arguments: {} });
-      expect(current.structuredContent).toMatchObject({ list_id: "23456", name: "MCP QA Alternate" });
-      const status = await owner.client.callTool({ name: "get_clickup_connection_status", arguments: {} });
-      expect(status.structuredContent).toMatchObject({ selected_list_id: "23456", selected_list_is_override: true });
-      const colleagueList = await coworker.client.callTool({ name: "get_scoped_list", arguments: {} });
-      expect(colleagueList.structuredContent).toMatchObject({ list_id: "12345", name: "Sandbox", resource_scope: "list" });
+      expect(current.structuredContent).toMatchObject({
+        list_id: "23456",
+        name: "MCP QA Alternate",
+      });
+      const status = await owner.client.callTool({
+        name: "get_clickup_connection_status",
+        arguments: {},
+      });
+      expect(status.structuredContent).toMatchObject({
+        selected_list_id: "23456",
+        selected_list_is_override: true,
+      });
+      const colleagueList = await coworker.client.callTool({
+        name: "get_scoped_list",
+        arguments: {},
+      });
+      expect(colleagueList.structuredContent).toMatchObject({
+        list_id: "12345",
+        name: "Sandbox",
+        resource_scope: "list",
+      });
     } finally {
       await owner.close();
       await coworker.close();
@@ -148,12 +197,20 @@ describe("owner-controlled ClickUp target selector, no production Workspace leak
         ["777", "23456"],
         ["555", "99999"],
       ]) {
-        const response = await owner.client.callTool({ name: "clickup_preview_target", arguments: { workspace_id, list_id } });
+        const response = await owner.client.callTool({
+          name: "clickup_preview_target",
+          arguments: { workspace_id, list_id },
+        });
         expect(response.isError).toBe(true);
       }
       const forbidden = await owner.client.callTool({
         name: "clickup_select_target",
-        arguments: { workspace_id: "777", list_id: "23456", expected_list_name: "MCP QA Alternate", confirm: true },
+        arguments: {
+          workspace_id: "777",
+          list_id: "23456",
+          expected_list_name: "MCP QA Alternate",
+          confirm: true,
+        },
       });
       expect(forbidden.isError).toBe(true);
       const coworkerPreview = await coworker.client.callTool({
