@@ -1,5 +1,7 @@
 # NeonSales ClickUp MCP
 
+> **Live release-readiness snapshot (2 November 2026):** The current staging deployment passed, but only a subset of the 48 REST-backed catalogue tools has been verified against real ClickUp. Workspace-wide access remains disabled. Read the [evidence-backed release roadmap and 48-tool acceptance matrix](docs/RELEASE_READINESS_ROADMAP_2026-11-02.md) before relying on any capability for production work.
+
 A private, cloud-hosted [Model Context Protocol](https://modelcontextprotocol.io/) server connecting authorized staff members to ClickUp through **their own individual ClickUp OAuth accounts**. The same remote MCP endpoint is intended for supported Claude and ChatGPT clients.
 
 > **Integration checkpoint — 12 October 2026 (SAST):** OAuth, 48 ClickUp REST-backed catalogue tool adapters, Codex security remediations, and cloud-only GitHub Actions deployment workflow are **merged into `main`**. Strict CI at commit `46c834c714c08aa1b13e2f026351292c0fcc9315` passed all checks. The owner previously connected the custom MCP from Claude to a Cloudflare-hosted staging endpoint; this is not evidence that the new 48 operations have been deployed or tested with real ClickUp credentials. **Staging deployment/CLI configuration and then hands-on Claude/ChatGPT + ClickUp acceptance remain.** No local always-on service, duplicate journal, rollback system or second tool-approval UI.
