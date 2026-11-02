@@ -79,10 +79,9 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
   // Workspace-wide catalogue operations are safe only with an OAuth credential
   // proven at consent to cover precisely this one Workspace; legacy cached
   // tokens carry no such proof and must reconnect rather than be grandfathered.
-  // A staff member may separately enable Workspace tools, but ONLY if the
-  // owner allowlisted that exact GitHub ID and ClickUp OAuth proved that their
-  // token authorizes exactly this one Workspace. Changing the Worker allowlist
-  // revokes the effective grant immediately without a global scope change.
+  // Staging may default to Workspace mode, but only owner-allowlisted GitHub
+  // identities with exclusive ClickUp OAuth can gain broader authority.
+  // Revoking the owner allowlist immediately returns their scope to List-only.
   let workspaceApproved = false;
   const workspaceIds = env["CLICKUP_WORKSPACE_GITHUB_IDS"];
   if (typeof workspaceIds === "string") {
@@ -95,7 +94,7 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
     }
   }
   const effectiveScope =
-    resourceScope === "workspace" || (workspaceApproved && user.workspaceEnabled === true)
+    workspaceApproved && (resourceScope === "workspace" || user.workspaceEnabled === true)
       ? "workspace"
       : "list";
   if (effectiveScope === "workspace" && user.workspaceExclusive !== true)
