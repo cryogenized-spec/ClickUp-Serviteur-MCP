@@ -244,7 +244,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     expect(writes).toContainEqual(expect.objectContaining({ assignees: [707] }));
   });
 
-  it("discovers Custom Field metadata from an authorized List only when requested", async () => {
+  it("discovers Custom Field metadata with legacy list_id-only clients, with explicit opt-out", async () => {
     const calls: string[] = [];
     const fetcher = vi.fn(async (request: RequestInfo | URL) => {
       const path = new URL(String(request)).pathname;
@@ -259,21 +259,35 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       makeGrant(),
       fetcher as typeof fetch,
     );
-    expect(plain["custom_fields"]).toBeUndefined();
-    expect(calls).not.toContain("/api/v2/list/12345/field");
+    expect(plain["custom_fields"]).toMatchObject([{ id: "field-1" }]);
+    expect(calls).toContain("/api/v2/list/12345/field");
     const enriched = await runCatalogOperation(
       "clickup_get_list",
-      { list_id: "12345", include_custom_fields: true },
+      { list_id: "12345", include_custom_fields: false },
       makeGrant(),
       fetcher as typeof fetch,
     );
-    expect(enriched["custom_fields"]).toMatchObject([
-      { id: "field-1", name: "Estimate", type: "number" },
-    ]);
-    expect(enriched["custom_fields_count"]).toBe(1);
-    expect(calls).toContain("/api/v2/list/12345/field");
+    expect(enriched["custom_fields"]).toBeUndefined();
+    expect(plain["custom_fields_count"]).toBe(1);
+    expect(calls.filter((path) => path === "/api/v2/list/12345/field")).toHaveLength(1);
     const schema = CLICKUP_MODEL_TOOL_CATALOG.find((item) => item.name === "clickup_get_list")!;
     expect(schema.inputSchema.properties["include_custom_fields"]?.type).toBe("boolean");
+  });
+
+  it("preserves old List metadata when upstream Custom Field discovery is forbidden", async () => {
+    const fetcher = vi.fn(async (request: RequestInfo | URL) => {
+      const path = new URL(String(request)).pathname;
+      if (path === "/api/v2/list/12345/field") return reply({ err: "Forbidden" }, 403);
+      return reply(fixture(path));
+    });
+    const result = await runCatalogOperation(
+      "clickup_get_list",
+      { list_id: "12345" },
+      makeGrant(),
+      fetcher as typeof fetch,
+    );
+    expect(result).toMatchObject({ id: "12345", custom_fields_unavailable: true });
+    expect(result["custom_fields"]).toBeUndefined();
   });
 
   it("validates Custom Field type, options and task-type applicability before spending a write", async () => {
@@ -709,6 +723,55 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     expect(f).toHaveBeenCalledTimes(4);
   });
 
+  it("verifies an ambiguous attachment upload by a new attachment ID and exact filename", async () => {
+    for (const response of [
+      new Response(null, { status: 204 }),
+      new Response("OK", { status: 200, headers: { "content-type": "text/plain" } }),
+      reply({}),
+    ]) {
+      let committed = false;
+      const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(String(request)).pathname;
+        if (path === "/api/v2/task/abc123/attachment" && init?.method === "POST") {
+          committed = true;
+          return response;
+        }
+        if (path === "/api/v2/task/abc123") {
+          const attachments = [{ id: "old", title: "note.txt" }];
+          if (committed) attachments.push({ id: "new", title: "note.txt" });
+          return reply({ id: "abc123", list: { id: "12345" }, attachments });
+        }
+        return reply(fixture(path));
+      });
+      const result = await runCatalogOperation(
+        "clickup_attach_file_to_task",
+        { task_id: "abc123", file_name: "note.txt", file_base64: btoa("hello") },
+        makeGrant(),
+        fetcher as typeof fetch,
+      );
+      expect(result).toMatchObject({ success: true, attachment_id: "new", verified_by_readback: true });
+      expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    }
+  });
+
+  it("never certifies or retries an ambiguous attachment if no new filename-matched ID exists", async () => {
+    const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(request)).pathname;
+      if (path === "/api/v2/task/abc123/attachment" && init?.method === "POST")
+        return new Response("Success", { status: 200, headers: { "content-type": "text/plain" } });
+      if (path === "/api/v2/task/abc123")
+        return reply({ id: "abc123", list: { id: "12345" }, attachments: [{ id: "old", title: "note.txt" }] });
+      return reply(fixture(path));
+    });
+    await expect(runCatalogOperation(
+      "clickup_attach_file_to_task",
+      { task_id: "abc123", file_name: "note.txt", file_base64: btoa("hello") },
+      makeGrant(),
+      fetcher as typeof fetch,
+    )).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
   it("refuses oversized, malformed or path-style attachment input before any upload", async () => {
     const outbound = fakeApi();
     for (const [file_name, file_base64] of [
@@ -885,6 +948,75 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       fetcher as typeof fetch,
     );
     expect(allowed).toMatchObject({ replies: [{ id: "reply1" }] });
+  });
+
+  it("validates threaded-reply payloads and never reports zero replies for a known nonempty thread", async () => {
+    for (const response of [reply({}), reply({ comments: [] })]) {
+      const fetcher = vi.fn(async (request: RequestInfo | URL) => {
+        const path = new URL(String(request)).pathname;
+        if (path === "/api/v2/task/abc123/comment")
+          return reply({ comments: [{ id: "parent-1", reply_count: 2 }] });
+        if (path === "/api/v2/comment/parent-1/reply") return response;
+        return reply(fixture(path));
+      });
+      await expect(runCatalogOperation(
+        "clickup_get_threaded_replies",
+        { task_id: "abc123", comment_id: "parent-1" },
+        makeGrant(),
+        fetcher as typeof fetch,
+      )).rejects.toThrow("CLICKUP_BAD_RESPONSE");
+    }
+    const fetcher = vi.fn(async (request: RequestInfo | URL) => {
+      const path = new URL(String(request)).pathname;
+      if (path === "/api/v2/task/abc123/comment")
+        return reply({ comments: [{ id: "parent-1", reply_count: 2 }] });
+      if (path === "/api/v2/comment/parent-1/reply")
+        return reply({ replies: [{ id: "reply-1", comment_text: "one" }, { id: "reply-2", comment_text: "two" }] });
+      return reply(fixture(path));
+    });
+    const result = await runCatalogOperation(
+      "clickup_get_threaded_replies",
+      { task_id: "abc123", comment_id: "parent-1" },
+      makeGrant(),
+      fetcher as typeof fetch,
+    );
+    expect(result).toMatchObject({ parent_comment_id: "parent-1", parent_reply_count: 2, incomplete: false });
+    expect(result["comments"]).toMatchObject([{ id: "reply-1" }, { id: "reply-2" }]);
+  });
+
+  it("creates a threaded reply only beneath an independently verified same-task parent", async () => {
+    let wrote = false;
+    const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(request)).pathname;
+      if (path === "/api/v2/task/abc123/comment")
+        return reply({ comments: [{ id: "parent-1", reply_count: wrote ? 1 : 0 }] });
+      if (path === "/api/v2/comment/parent-1/reply") {
+        if (init?.method === "POST") {
+          wrote = true;
+          expect(JSON.parse(String(init.body))).toMatchObject({ comment_text: "QA reply", notify_all: false });
+          return reply({});
+        }
+        return reply({ comments: wrote ? [{ id: "reply-1", comment_text: "QA reply" }] : [] });
+      }
+      return reply(fixture(path));
+    });
+    const output = await runCatalogOperation(
+      "clickup_create_task_comment",
+      { task_id: "abc123", parent_comment_id: "parent-1", text: "QA reply" },
+      makeGrant(),
+      fetcher as typeof fetch,
+    );
+    expect(output).toMatchObject({ success: true, reply_id: "reply-1", verified_by_readback: true });
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    const schema = CLICKUP_MODEL_TOOL_CATALOG.find((t) => t.name === "clickup_create_task_comment")!;
+    expect(schema.inputSchema.properties["parent_comment_id"]?.type).toBe("string");
+    await expect(runCatalogOperation(
+      "clickup_create_task_comment",
+      { task_id: "abc123", parent_comment_id: "foreign-parent", text: "unsafe" },
+      makeGrant(),
+      fetcher as typeof fetch,
+    )).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
   });
 
   it("accepts native Docs page_listing root arrays but still rejects arrays on unrelated endpoints", async () => {
