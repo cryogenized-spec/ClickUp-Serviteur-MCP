@@ -831,7 +831,7 @@ export async function runCatalogOperation(
           ? undefined
           : typeof rawCount === "number"
             ? rawCount
-            : typeof rawCount === "string" && /^\\d+$/.test(rawCount)
+            : typeof rawCount === "string" && /^\d+$/.test(rawCount)
               ? Number(rawCount)
               : NaN;
       if (
