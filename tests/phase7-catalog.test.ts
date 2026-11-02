@@ -608,6 +608,8 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
           persisted = true;
           return response;
         }
+        if (path === "/api/v2/list/12345") return reply(fixture(path));
+        if (path === "/api/v2/team/555/space") return reply(fixture(path));
         if (path === "/api/v2/task/block123")
           return reply({ id: "block123", list: { id: "12345" } });
         if (path === "/api/v2/task/wait123")
@@ -634,6 +636,8 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       const path = new URL(String(req)).pathname;
       if (path === "/api/v2/task/wait123/dependency" && init?.method === "POST")
         return reply({});
+      if (path === "/api/v2/list/12345") return reply(fixture(path));
+      if (path === "/api/v2/team/555/space") return reply(fixture(path));
       if (path === "/api/v2/task/block123")
         return reply({ id: "block123", list: { id: "12345" } });
       if (path === "/api/v2/task/wait123")
@@ -656,6 +660,8 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       const path = new URL(String(req)).pathname;
       if (path === "/api/v2/task/wait123/dependency" && init?.method === "POST")
         return reply({ err: "no permission" }, 403);
+      if (path === "/api/v2/list/12345") return reply(fixture(path));
+      if (path === "/api/v2/team/555/space") return reply(fixture(path));
       if (path === "/api/v2/task/block123")
         return reply({ id: "block123", list: { id: "12345" } });
       if (path === "/api/v2/task/wait123")
