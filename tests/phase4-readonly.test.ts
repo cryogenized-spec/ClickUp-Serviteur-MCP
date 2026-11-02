@@ -34,6 +34,7 @@ const env = {
     }),
   },
   CLICKUP_READ_GITHUB_IDS: "11,22",
+  CLICKUP_WORKSPACE_GITHUB_IDS: "11",
   ALLOWED_GITHUB_IDS: "11,22,33",
   CLICKUP_QUOTA: {
     idFromName: (_name: string) => "test-quota-id",
