@@ -964,7 +964,7 @@ export async function runCatalogOperation(
       const body: Json = { name: txt(a["name"], 180), create_page: true };
       if (a["folder_id"] !== undefined) {
         await folder("folder_id");
-        body["parent"] = { id: String(a["folder_id"]), type: "FOLDER" };
+        body["parent"] = { id: String(a["folder_id"]), type: 5 };
       }
       return call("POST", v3("workspaces/" + W + "/docs"), body);
     }
