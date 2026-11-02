@@ -14,6 +14,7 @@ function fakeSqlite() {
   let account: Row | undefined;
   let authorization: { subject: string; exclusive: number } | undefined;
   let workspaceAccess: { subject: string; workspaceId: string; at: number } | undefined;
+  let target: { subject: string; workspaceId: string; listId: string } | undefined;
   const exec = (sql: string, ...params: (string | number)[]) => {
     let values: unknown[] = [];
     if (sql.startsWith("CREATE TABLE")) {
@@ -32,6 +33,13 @@ function fakeSqlite() {
         values = [{ nonce_hash: pending.hash }];
         pending = undefined;
       }
+    } else if (sql.startsWith("SELECT workspace_id,list_id FROM list_target")) {
+      if (target?.subject === params[0])
+        values = [{ workspace_id: target.workspaceId, list_id: target.listId }];
+    } else if (sql.startsWith("INSERT OR REPLACE INTO list_target")) {
+      target = { subject: String(params[0]), workspaceId: String(params[1]), listId: String(params[2]) };
+    } else if (sql.startsWith("DELETE FROM list_target")) {
+      if (target?.subject === params[0]) target = undefined;
     } else if (sql.startsWith("SELECT workspace_id FROM workspace_access")) {
       if (workspaceAccess && workspaceAccess.subject === params[0])
         values = [{ workspace_id: workspaceAccess.workspaceId }];
@@ -74,7 +82,7 @@ function fakeSqlite() {
   const state = {
     storage: { sql: { exec }, transactionSync: (fn: () => unknown) => fn() },
   } as unknown as DurableObjectState;
-  return { state, stored: () => account, workspaceAccess: () => workspaceAccess };
+  return { state, stored: () => account, workspaceAccess: () => workspaceAccess, target: () => target };
 }
 const encryptedKey = btoa(String.fromCharCode(...new Uint8Array(32).fill(9)));
 
@@ -210,6 +218,45 @@ describe("actual encrypted SQLite per-user token vault", () => {
         })
       ).status,
     ).toBe(403);
+  });
+
+  it("persists only this staff user's List in the exact OAuth Workspace and resets on reconnect", async () => {
+    const backing = fakeSqlite();
+    const vault = new ClickUpUserConnection(backing.state, { CLICKUP_TOKEN_KEY: encryptedKey });
+    const own = {
+      subject: "github:11",
+      accessToken: "synthetic-personal-token-for-tests",
+      clickupUserId: "707",
+      workspaceId: "999",
+      workspaceExclusive: true,
+    };
+    expect((await call(vault, "store", own)).status).toBe(200);
+    expect((await call(vault, "status", { subject: "github:11" })).data).toMatchObject({
+      targetListId: null,
+    });
+    expect((await call(vault, "target-list", { subject: "github:22", workspaceId: "999", listId: "12345" })).status).toBe(403);
+    expect((await call(vault, "target-list", { subject: "github:11", workspaceId: "888", listId: "12345" })).status).toBe(403);
+    expect((await call(vault, "target-list", { subject: "github:11", workspaceId: "999", listId: "not-an-id" })).status).toBe(400);
+    const changed = await call(vault, "target-list", {
+      subject: "github:11",
+      workspaceId: "999",
+      listId: "23456",
+    });
+    expect(changed.data).toEqual({ selected: true, workspaceId: "999", listId: "23456" });
+    expect((await call(vault, "credential", { subject: "github:11" })).data).toMatchObject({
+      targetListId: "23456",
+      workspaceId: "999",
+    });
+    expect((await call(vault, "status", { subject: "github:11" })).data).toMatchObject({
+      targetListId: "23456",
+    });
+    expect(backing.target()).toMatchObject({ subject: "github:11", workspaceId: "999", listId: "23456" });
+    await call(vault, "store", own);
+    expect(backing.target()).toBeUndefined();
+    expect((await call(vault, "credential", { subject: "github:11" })).data).toMatchObject({ targetListId: null });
+    await call(vault, "target-list", { subject: "github:11", workspaceId: "999", listId: "34567" });
+    await call(vault, "disconnect", { subject: "github:11" });
+    expect(backing.target()).toBeUndefined();
   });
 
   it("atomically consumes a one-use state nonce and refuses replay or other user", async () => {
