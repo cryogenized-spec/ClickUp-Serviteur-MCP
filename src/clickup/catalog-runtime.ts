@@ -251,9 +251,7 @@ const taskBody = (a: Json, update = false): Json => {
     ...(a["status"] !== undefined ? { status: txt(a["status"], 80) } : {}),
     ...(a["priority"] !== undefined ? { priority: a["priority"] } : {}),
     ...(a["due_date_ms"] !== undefined ? { due_date: a["due_date_ms"], due_date_time: true } : {}),
-    ...(memberIds !== null
-      ? { assignees: update ? { add: memberIds, rem: [] } : memberIds }
-      : {}),
+    ...(memberIds !== null ? { assignees: update ? { add: memberIds, rem: [] } : memberIds } : {}),
   };
 };
 async function members(grant: ReadGrant, f: typeof fetch): Promise<Json[]> {
