@@ -448,10 +448,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
     async (args, extra) => {
       try {
         const grant = await requireReadGrant(extra.http?.authInfo, dependencies.bindings);
-        if (
-          args.workspace_id !== grant.workspaceId ||
-          grant.resourceScope !== "workspace"
-        )
+        if (args.workspace_id !== grant.workspaceId || grant.resourceScope !== "workspace")
           throw new ReadFailure("CLICKUP_TARGET_WORKSPACE_NOT_AUTHORIZED");
         const candidate = { ...grant, listId: args.list_id };
         await verifyListWorkspace(candidate, dependencies.fetcher ?? fetch);
@@ -490,7 +487,8 @@ export function createServer(deps?: ReadDependencies): McpServer {
             type: "string",
             minLength: 1,
             maxLength: 180,
-            description: "Exact name from clickup_preview_target; protects against accidental ID selection.",
+            description:
+              "Exact name from clickup_preview_target; protects against accidental ID selection.",
           },
           confirm: {
             type: "boolean",
@@ -507,10 +505,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
       try {
         const grant = await requireWriteGrant(extra.http?.authInfo, dependencies.bindings);
         if (args.confirm !== true) throw new ReadFailure("CLICKUP_TARGET_CONFIRM_REQUIRED");
-        if (
-          args.workspace_id !== grant.workspaceId ||
-          grant.resourceScope !== "workspace"
-        )
+        if (args.workspace_id !== grant.workspaceId || grant.resourceScope !== "workspace")
           throw new ReadFailure("CLICKUP_TARGET_WORKSPACE_NOT_AUTHORIZED");
         const candidate = { ...grant, listId: args.list_id };
         await verifyListWorkspace(candidate, dependencies.fetcher ?? fetch);
