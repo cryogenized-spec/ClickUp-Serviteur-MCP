@@ -3,6 +3,7 @@ import { requireReadGrant } from "../src/clickup/policy.js";
 import {
   clickUpConnectionStatus,
   setClickUpWorkspaceAccess,
+  saveClickUpListTarget,
 } from "../src/clickup/per-user-oauth.js";
 
 const oauthKey = btoa(String.fromCharCode(...new Uint8Array(32)));
@@ -16,6 +17,7 @@ function testRig() {
     ["github:22", { enabled: false, exclusive: true }],
   ]);
   const calls: string[] = [];
+  const selected = new Map<string, string>();
   const bindings = {
     idFromName: (name: string) => name,
     get: (name: string) => ({
@@ -36,6 +38,7 @@ function testRig() {
             accessToken: "a-dummy-OAuth-token",
             workspaceExclusive: state.exclusive,
             workspaceEnabled: state.enabled,
+            targetListId: selected.get(subject) ?? null,
           });
         if (endpoint === "/status")
           return Response.json({
@@ -44,7 +47,14 @@ function testRig() {
             workspaceId: "555",
             workspaceExclusive: state.exclusive,
             workspaceEnabled: state.enabled,
+            targetListId: selected.get(subject) ?? null,
           });
+        if (endpoint === "/target-list") {
+          if (body["workspaceId"] !== "555" || !/^[1-9]\\d{0,17}$/.test(String(body["listId"])))
+            return new Response(null, { status: 403 });
+          selected.set(subject, String(body["listId"]));
+          return Response.json({ selected: true, workspaceId: "555", listId: body["listId"] });
+        }
         if (endpoint === "/workspace-access") {
           if (body["workspaceId"] !== "555" || (body["enabled"] && !state.exclusive))
             return new Response(null, { status: 403 });
@@ -75,9 +85,31 @@ function testRig() {
       get: () => ({ fetch: async () => Response.json({ allowed: true }) }),
     },
   };
-  return { env, flags, calls };
+  return { env, flags, calls, selected };
 }
 describe("explicit per-user Workspace operations", () => {
+  it("selects a per-user List without changing Workspace or another user's grant", async () => {
+    const { env, selected } = testRig();
+    const owner = auth("11");
+    const baseline = await requireReadGrant(owner, { ...env, CLICKUP_RESOURCE_SCOPE: "workspace" });
+    expect(baseline).toMatchObject({ workspaceId: "555", listId: "12345", resourceScope: "workspace" });
+    await expect(saveClickUpListTarget(owner, env, "777", "23456")).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    await expect(saveClickUpListTarget(auth("11", false), env, "555", "23456")).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    expect(selected.size).toBe(0);
+    expect(await saveClickUpListTarget(owner, env, "555", "23456")).toMatchObject({
+      persisted: true,
+      workspace_id: "555",
+      selected_list_id: "23456",
+    });
+    const switched = await requireReadGrant(owner, { ...env, CLICKUP_RESOURCE_SCOPE: "workspace" });
+    expect(switched).toMatchObject({ workspaceId: "555", listId: "23456", resourceScope: "workspace" });
+    expect((await clickUpConnectionStatus(owner, env))["selected_list_id"]).toBe("23456");
+    expect((await clickUpConnectionStatus(owner, env))["selected_list_is_override"]).toBe(true);
+    const other = await requireReadGrant(auth("22"), env);
+    expect(other).toMatchObject({ workspaceId: "555", listId: "12345", resourceScope: "list" });
+    expect(selected.get("github:22")).toBeUndefined();
+  });
+
   it("starts in List mode, activates only the approved user and revokes independently", async () => {
     const { env, flags } = testRig();
     expect((await requireReadGrant(auth("11"), env)).resourceScope).toBe("list");
