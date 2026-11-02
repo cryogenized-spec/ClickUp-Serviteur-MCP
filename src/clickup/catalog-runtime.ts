@@ -630,11 +630,11 @@ export async function runCatalogOperation(
       if (
         applied !== undefined &&
         (!Array.isArray(applied) ||
-          !applied.some(
+          (applied.length > 0 && !applied.some(
             (item) =>
               String(obj(item)?.["object_type"]) === "19" &&
               String(obj(item)?.["object_id"]) === String(target["custom_item_id"] ?? 0),
-          ))
+          )))
       )
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       const field = buildArgs(a, "field_value");
