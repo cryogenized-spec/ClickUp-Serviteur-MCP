@@ -13,7 +13,7 @@ if (typeof kv !== "string" || !/^[a-f0-9]{32}$/i.test(kv)) {
 // Other staff cannot acquire Workspace mode unless the owner explicitly amends
 // this staging allowlist. User opt-in and exclusive ClickUp OAuth remain required.
 const workspaceOwnerIds = process.env.STAGING_WORKSPACE_GITHUB_IDS ?? "256972168";
-if (!/^[1-9]\\d{0,15}(?:,[1-9]\\d{0,15}){0,3}$/.test(workspaceOwnerIds)) {
+if (!/^[1-9]\d{0,15}(?:,[1-9]\d{0,15}){0,3}$/.test(workspaceOwnerIds)) {
   throw new Error("STAGING_WORKSPACE_GITHUB_IDS contains invalid GitHub ID(s)");
 }
 const stage = {
