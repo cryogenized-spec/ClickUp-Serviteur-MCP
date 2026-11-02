@@ -1011,9 +1011,13 @@ export async function runCatalogOperation(
         },
         "empty-write-ack",
       );
-    case "clickup_get_task_time_in_status":
+    case "clickup_get_task_time_in_status": {
       await task("task_id");
-      return short(await call("GET", v2("task/" + val(a, "task_id") + "/time_in_status")));
+      const statusTime = await call("GET", v2("task/" + val(a, "task_id") + "/time_in_status"));
+      if (Object.keys(statusTime).length === 0)
+        throw new ReadFailure("CLICKUP_STATUS_TIME_DATA_UNAVAILABLE");
+      return short(statusTime);
+    }
     case "clickup_get_list_time_in_status": {
       await list("list_id");
       const tasks = await call(
@@ -1029,7 +1033,10 @@ export async function runCatalogOperation(
         : [];
       if (ids.length === 0) return { source: "clickup-api-v2", tasks: [] };
       const params = ids.map((x) => "task_ids=" + x).join("&");
-      return short(await call("GET", v2("task/bulk_time_in_status/task_ids?" + params)));
+      const statusTime = await call("GET", v2("task/bulk_time_in_status/task_ids?" + params));
+      if (Object.keys(statusTime).length === 0)
+        throw new ReadFailure("CLICKUP_STATUS_TIME_DATA_UNAVAILABLE");
+      return short(statusTime);
     }
     default:
       throw new ReadFailure("CLICKUP_TOOL_NOT_IMPLEMENTED");
