@@ -1,13 +1,15 @@
 /**
- * Single strongly-consistent SQLite Durable Object per shared ClickUp token.
+ * Shared upstream ClickUp 429 cooldown for each authenticated ClickUp account.
  * The public Worker never routes external requests here; only the internal binding can.
- * Each request is reserved before HTTP, with a conservative token-wide 80/min ceiling.
+ *
+ * No self-imposed per-minute request caps: /reserve permits calls unless ClickUp
+ * actually requested a cooldown via a 429 X-RateLimit-Reset response.
+ * Keep the existing Durable Object class/binding and "limits" SQLite table so
+ * deployed staging and existing encrypted OAuth connections need no migration.
+ * Previously stored "reservations" rows are intentionally ignored.
  */
 export class ClickUpQuota {
   constructor(private readonly state: DurableObjectState) {
-    state.storage.sql.exec(
-      "CREATE TABLE IF NOT EXISTS reservations (at_ms INTEGER NOT NULL, subject TEXT NOT NULL)",
-    );
     state.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS limits (id INTEGER PRIMARY KEY CHECK (id = 1), blocked_until_ms INTEGER NOT NULL)",
     );
@@ -42,33 +44,13 @@ export class ClickUpQuota {
       });
       return Response.json({ allowed: true });
     }
-    const result = this.state.storage.transactionSync(() => {
-      this.state.storage.sql.exec("DELETE FROM reservations WHERE at_ms <= ?", now - 60_000);
-      const block = this.state.storage.sql
-        .exec<{ blocked_until_ms: number }>("SELECT blocked_until_ms FROM limits WHERE id = 1")
-        .one();
-      if (block.blocked_until_ms > now) {
-        return { allowed: false, retryAfterMs: block.blocked_until_ms - now };
-      }
-      const global = this.state.storage.sql
-        .exec<{ count: number }>("SELECT COUNT(*) AS count FROM reservations")
-        .one().count;
-      const personal = this.state.storage.sql
-        .exec<{ count: number }>(
-          "SELECT COUNT(*) AS count FROM reservations WHERE subject = ?",
-          subject,
-        )
-        .one().count;
-      if (global >= 80 || personal >= 30) {
-        return { allowed: false, retryAfterMs: 60_000 };
-      }
-      this.state.storage.sql.exec(
-        "INSERT INTO reservations (at_ms, subject) VALUES (?, ?)",
-        now,
-        subject,
-      );
-      return { allowed: true, retryAfterMs: 0 };
+
+    const block = this.state.storage.sql
+      .exec<{ blocked_until_ms: number }>("SELECT blocked_until_ms FROM limits WHERE id = 1")
+      .one();
+    return Response.json({
+      allowed: block.blocked_until_ms <= now,
+      retryAfterMs: Math.max(0, block.blocked_until_ms - now),
     });
-    return Response.json(result);
   }
 }
