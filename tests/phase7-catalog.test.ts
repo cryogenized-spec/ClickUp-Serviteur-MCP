@@ -637,9 +637,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
   });
 
   it("bounds Docs page listings to 50 entries and discloses truncation", async () => {
-    const f = vi.fn(async () =>
-      reply(Array.from({ length: 60 }, (_, i) => ({ id: "page" + i }))),
-    );
+    const f = vi.fn(async () => reply(Array.from({ length: 60 }, (_, i) => ({ id: "page" + i }))));
     const result = await runCatalogOperation(
       "clickup_list_document_pages",
       { document_id: "doc1" },
