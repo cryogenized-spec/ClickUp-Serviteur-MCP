@@ -893,7 +893,12 @@ export async function runCatalogOperation(
           .map(obj)
           .filter((item): item is Json => item !== null)
           .filter((item) => {
-            if (typeof item["id"] !== "string" || previousIds.has(item["id"])) return false;
+            if (
+              typeof item["id"] !== "string" ||
+              previousIds.has(item["id"]) ||
+              String(obj(item["user"])?.["id"]) !== g.clickupUserId
+            )
+              return false;
             const text =
               typeof item["comment_text"] === "string"
                 ? item["comment_text"]
