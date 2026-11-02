@@ -614,7 +614,29 @@ export async function runCatalogOperation(
         await call("PUT", v2("task/" + val(a, "task_id")), taskBody(buildArgs(a, "changes"), true)),
       );
     case "clickup_set_custom_field": {
-      await task("task_id");
+      const target = await task("task_id");
+      const homeListId = obj(target["list"])?.["id"];
+      const available = await call(
+        "GET",
+        v2("list/" + id(homeListId) + "/field?include_applied_objects=true"),
+      );
+      if (!Array.isArray(available["fields"]) || available["fields"].length > 500)
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const definition = available["fields"]
+        .map(obj)
+        .find((candidate) => String(candidate?.["id"]) === String(a["field_id"]));
+      if (!definition) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const applied = definition["applied_objects"];
+      if (
+        applied !== undefined &&
+        (!Array.isArray(applied) ||
+          !applied.some(
+            (item) =>
+              String(obj(item)?.["object_type"]) === "19" &&
+              String(obj(item)?.["object_id"]) === String(target["custom_item_id"] ?? 0),
+          ))
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       const field = buildArgs(a, "field_value");
       const allowed = new Set([
         "text",
@@ -634,6 +656,26 @@ export async function runCatalogOperation(
         field["checked"] ??
         field["timestamp_ms"];
       if (value === undefined) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const variant = Object.keys(field)[0];
+      const fieldType = definition["type"];
+      const supported: Record<string, readonly string[]> = {
+        text: ["text", "short_text", "url", "email", "phone"],
+        number: ["number", "currency"],
+        option_id: ["drop_down"],
+        selected_option_ids: ["labels"],
+        checked: ["checkbox"],
+        timestamp_ms: ["date"],
+      };
+      if (!supported[variant]?.includes(String(fieldType)))
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (variant === "option_id" || variant === "selected_option_ids") {
+        const options = obj(definition["type_config"])?.["options"];
+        if (!Array.isArray(options)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        const optionIds = new Set(options.map((option) => String(obj(option)?.["id"])));
+        const selections = variant === "option_id" ? [value] : (value as unknown[]);
+        if (selections.some((option) => !optionIds.has(String(option))))
+          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      }
       if (
         ("number" in field && (typeof value !== "number" || !Number.isFinite(value))) ||
         ("text" in field && typeof value !== "string") ||
@@ -644,9 +686,12 @@ export async function runCatalogOperation(
       )
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       return short(
-        await call("POST", v2("task/" + val(a, "task_id") + "/field/" + val(a, "field_id")), {
-          value,
-        }),
+        await call(
+          "POST",
+          v2("task/" + val(a, "task_id") + "/field/" + val(a, "field_id")),
+          { value, ...(variant === "timestamp_ms" ? { value_options: { time: true } } : {}) },
+          "empty-write-ack",
+        ),
       );
     }
     case "clickup_delete_task":
@@ -919,8 +964,22 @@ export async function runCatalogOperation(
       return call("POST", v2("folder/" + val(a, "folder_id") + "/list"), {
         name: txt(a["name"], 180),
       });
-    case "clickup_get_list":
-      return short(await list("list_id"));
+    case "clickup_get_list": {
+      const result = await list("list_id");
+      if (a["include_custom_fields"] !== true) return short(result);
+      const available = await call(
+        "GET",
+        v2("list/" + val(a, "list_id") + "/field?include_applied_objects=true"),
+      );
+      if (!Array.isArray(available["fields"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const fields = available["fields"];
+      return short({
+        ...result,
+        custom_fields: fields.slice(0, 50),
+        custom_fields_count: fields.length,
+        incomplete: fields.length > 50 || hasClippedNestedArray(fields.slice(0, 50)),
+      });
+    }
     case "clickup_update_list":
       await list("list_id");
       return call("PUT", v2("list/" + val(a, "list_id")), {
