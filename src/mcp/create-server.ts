@@ -156,7 +156,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
     "clickup_set_workspace_access",
     {
       description:
-        "Explicitly enable or disable Workspace-wide ClickUp operations for YOUR connected account. Requires mcp:write, exact approved Workspace ID, separately owner-allowlisted GitHub identity and an OAuth token exclusively authorized for this one Workspace. This expands access to tasks and other ClickUp resources your own token permits, including updates, comments, dependencies and deletion; other staff remain List-restricted. No task is changed by this tool.",
+        "Explicitly enable or disable Workspace-wide ClickUp operations for YOUR connected account. Requires mcp:write, exact approved Workspace ID, separately owner-allowlisted GitHub identity and an OAuth token exclusively authorized for this one Workspace. This expands access to tasks and other ClickUp resources your own token permits, including updates, comments, dependencies and deletion; other staff remain List-restricted. No task is changed by this tool. In forced Workspace staging mode, disabling requires a server configuration rollback and is rejected here.",
       scopeChallenge: requireScopes("mcp:read", "mcp:write"),
       inputSchema: fromJsonSchema<{ workspace_id: string; enabled: boolean }>({
         type: "object",

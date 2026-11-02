@@ -99,6 +99,42 @@ describe("explicit per-user Workspace operations", () => {
     expect((await requireReadGrant(auth("11"), env)).resourceScope).toBe("list");
   });
 
+  it("enables the staging owner only without changing another user or bypassing OAuth proof", async () => {
+    const { env, flags } = testRig();
+    const stage = { ...env, CLICKUP_RESOURCE_SCOPE: "workspace" };
+    const ownerGrant = await requireReadGrant(auth("11"), stage);
+    expect(ownerGrant.resourceScope).toBe("workspace");
+    const ownerStatus = await clickUpConnectionStatus(auth("11"), stage);
+    expect(ownerStatus["workspace_scope_enabled"]).toBe(true);
+    const otherGrant = await requireReadGrant(auth("22"), stage);
+    expect(otherGrant.resourceScope).toBe("list");
+    const otherStatus = await clickUpConnectionStatus(auth("22"), stage);
+    expect(otherStatus["workspace_scope_enabled"]).toBe(false);
+
+    flags.get("github:11")!.exclusive = false;
+    await expect(requireReadGrant(auth("11"), stage)).rejects.toThrow(
+      "CLICKUP_WORKSPACE_RECONSENT_REQUIRED",
+    );
+    const revokedStatus = await clickUpConnectionStatus(auth("11"), stage);
+    expect(revokedStatus["workspace_scope_enabled"]).toBe(false);
+    const unapproved = await requireReadGrant(auth("11"), {
+      ...stage,
+      CLICKUP_WORKSPACE_GITHUB_IDS: undefined,
+    });
+    expect(unapproved.resourceScope).toBe("list");
+  });
+
+  it("never falsely reports successful revocation when staging forces Workspace scope", async () => {
+    const { env, calls } = testRig();
+    const stage = { ...env, CLICKUP_RESOURCE_SCOPE: "workspace" };
+    await expect(setClickUpWorkspaceAccess(auth("11"), stage, "555", false)).rejects.toThrow(
+      "CLICKUP_WORKSPACE_CONFIG_ROLLBACK_REQUIRED",
+    );
+    expect(calls.some((entry) => entry.endsWith("/workspace-access"))).toBe(false);
+    const stillGranted = await requireReadGrant(auth("11"), stage);
+    expect(stillGranted.resourceScope).toBe("workspace");
+  });
+
   it("rejects extra permissions without owner approval, valid write scope and one-Workspace OAuth", async () => {
     const { env, flags, calls } = testRig();
     for (const [identity, config, workspace, code] of [
