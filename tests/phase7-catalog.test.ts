@@ -969,6 +969,77 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     expect(f.mock.calls.every(([, init]) => init?.method !== "PUT")).toBe(true);
   });
 
+  it("rejects absent time-in-status data instead of returning a false empty success", async () => {
+    const requests: string[] = [];
+    const api = vi.fn(async (req: RequestInfo | URL) => {
+      const path = new URL(String(req)).pathname;
+      requests.push(path);
+      if (path === "/api/v2/list/12345/task")
+        return reply({ tasks: [{ id: "abc123" }, { id: "abc124" }] });
+      if (path.endsWith("/time_in_status") || path.includes("/bulk_time_in_status/"))
+        return reply({});
+      return reply(fixture(path));
+    });
+    await expect(
+      runCatalogOperation(
+        "clickup_get_task_time_in_status",
+        { task_id: "abc123" },
+        makeGrant(),
+        api as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_STATUS_TIME_DATA_UNAVAILABLE");
+    await expect(
+      runCatalogOperation(
+        "clickup_get_list_time_in_status",
+        { list_id: "12345", max_results: 2 },
+        makeGrant(),
+        api as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_STATUS_TIME_DATA_UNAVAILABLE");
+    expect(requests).toContain("/api/v2/task/bulk_time_in_status/task_ids");
+  });
+
+  it("preserves actual time-in-status records and legitimate empty Lists", async () => {
+    const api = vi.fn(async (req: RequestInfo | URL) => {
+      const path = new URL(String(req)).pathname;
+      if (path === "/api/v2/list/12345/task") return reply({ tasks: [{ id: "abc123" }] });
+      if (path === "/api/v2/task/abc123/time_in_status")
+        return reply({ current_status: { status: "Open", total_time: 1234 } });
+      if (path.includes("/bulk_time_in_status/"))
+        return reply({ abc123: { current_status: { status: "Open" }, status_history: [] } });
+      return reply(fixture(path));
+    });
+    const single = await runCatalogOperation(
+      "clickup_get_task_time_in_status",
+      { task_id: "abc123" },
+      makeGrant(),
+      api as typeof fetch,
+    );
+    expect(single).toMatchObject({ current_status: { status: "Open" } });
+    const batch = await runCatalogOperation(
+      "clickup_get_list_time_in_status",
+      { list_id: "12345", max_results: 2 },
+      makeGrant(),
+      api as typeof fetch,
+    );
+    expect(batch).toMatchObject({ abc123: { status_history: [] } });
+
+    const emptyApi = vi.fn(async (req: RequestInfo | URL) => {
+      const path = new URL(String(req)).pathname;
+      return path === "/api/v2/list/12345/task" ? reply({ tasks: [] }) : reply(fixture(path));
+    });
+    const empty = await runCatalogOperation(
+      "clickup_get_list_time_in_status",
+      { list_id: "12345" },
+      makeGrant(),
+      emptyApi as typeof fetch,
+    );
+    expect(empty).toEqual({ source: "clickup-api-v2", tasks: [] });
+    expect(
+      emptyApi.mock.calls.filter(([req]) => String(req).includes("bulk_time_in_status")),
+    ).toHaveLength(0);
+  });
+
   it("routes expanded search to the ClickUp Workspace endpoint", async () => {
     const requests: string[] = [];
     const f = vi.fn(async (req: RequestInfo | URL) => {
