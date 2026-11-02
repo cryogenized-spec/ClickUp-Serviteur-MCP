@@ -595,6 +595,85 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     expect(f.mock.calls.every(([, init]) => init?.method !== "PUT")).toBe(true);
   });
 
+  it("verifies committed dependencies after 204, empty JSON and unusable ClickUp POST acknowledgements", async () => {
+    for (const response of [
+      new Response(null, { status: 204 }),
+      reply({}),
+      new Response("OK", { status: 200, headers: { "Content-Type": "text/plain" } }),
+    ]) {
+      let persisted = false;
+      const fetcher = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(String(req)).pathname;
+        if (path === "/api/v2/task/wait123/dependency" && init?.method === "POST") {
+          persisted = true;
+          return response;
+        }
+        if (path === "/api/v2/task/block123")
+          return reply({ id: "block123", list: { id: "12345" } });
+        if (path === "/api/v2/task/wait123")
+          return reply({
+            id: "wait123",
+            list: { id: "12345" },
+            dependencies: persisted ? [{ task_id: "wait123", depends_on: "block123" }] : [],
+          });
+        throw Error("Unexpected request: " + path);
+      });
+      const result = await runCatalogOperation(
+        "clickup_add_dependency",
+        { blocking_task_id: "block123", waiting_task_id: "wait123" },
+        makeGrant(),
+        fetcher as typeof fetch,
+      );
+      expect(result).toMatchObject({ success: true, verified_by_readback: true });
+      expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    }
+  });
+
+  it("does not falsely certify a dependency if POST returns success but readback lacks the link", async () => {
+    const fetcher = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(req)).pathname;
+      if (path === "/api/v2/task/wait123/dependency" && init?.method === "POST")
+        return reply({});
+      if (path === "/api/v2/task/block123")
+        return reply({ id: "block123", list: { id: "12345" } });
+      if (path === "/api/v2/task/wait123")
+        return reply({ id: "wait123", list: { id: "12345" }, dependencies: [] });
+      throw Error("Unexpected request: " + path);
+    });
+    await expect(
+      runCatalogOperation(
+        "clickup_add_dependency",
+        { blocking_task_id: "block123", waiting_task_id: "wait123" },
+        makeGrant(),
+        fetcher as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
+  it("preserves definitive dependency permission denial without retry or extra read", async () => {
+    const fetcher = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(req)).pathname;
+      if (path === "/api/v2/task/wait123/dependency" && init?.method === "POST")
+        return reply({ err: "no permission" }, 403);
+      if (path === "/api/v2/task/block123")
+        return reply({ id: "block123", list: { id: "12345" } });
+      if (path === "/api/v2/task/wait123")
+        return reply({ id: "wait123", list: { id: "12345" }, dependencies: [] });
+      throw Error("Unexpected request: " + path);
+    });
+    await expect(
+      runCatalogOperation(
+        "clickup_add_dependency",
+        { blocking_task_id: "block123", waiting_task_id: "wait123" },
+        makeGrant(),
+        fetcher as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_UPSTREAM_DENIED");
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
   it("uses query parameters for deletion of dependencies rather than a DELETE JSON body", async () => {
     const f = vi.fn(async (req: RequestInfo | URL, _init?: RequestInit) => {
       const path = new URL(String(req)).pathname;
