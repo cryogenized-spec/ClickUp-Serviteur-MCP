@@ -1070,6 +1070,36 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     }
   });
 
+  it("does not certify a reply written by another ClickUp author after an uncertain POST", async () => {
+    let attempted = false;
+    const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(request)).pathname;
+      if (path === "/api/v2/task/abc123/comment")
+        return reply({ comments: [{ id: "parent-1", reply_count: 0 }] });
+      if (path === "/api/v2/comment/parent-1/reply") {
+        if (init?.method === "POST") {
+          attempted = true;
+          return reply({});
+        }
+        return reply({
+          comments: attempted
+            ? [{ id: "other-reply", comment_text: "QA reply", user: { id: 808 } }]
+            : [],
+        });
+      }
+      return reply(fixture(path));
+    });
+    await expect(
+      runCatalogOperation(
+        "clickup_create_task_comment",
+        { task_id: "abc123", parent_comment_id: "parent-1", text: "QA reply" },
+        makeGrant(),
+        fetcher as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
   it("creates a threaded reply only beneath an independently verified same-task parent", async () => {
     let wrote = false;
     const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
@@ -1085,7 +1115,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
           });
           return reply({});
         }
-        return reply({ comments: wrote ? [{ id: "reply-1", comment_text: "QA reply" }] : [] });
+        return reply({ comments: wrote ? [{ id: "reply-1", comment_text: "QA reply", user: { id: 707 } }] : [] });
       }
       return reply(fixture(path));
     });
