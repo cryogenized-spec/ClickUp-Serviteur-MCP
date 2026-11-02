@@ -617,6 +617,93 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     expect(allowed).toMatchObject({ replies: [{ id: "reply1" }] });
   });
 
+  it("accepts native Docs page_listing root arrays but still rejects arrays on unrelated endpoints", async () => {
+    const f = vi.fn(async () => reply([{ id: "page1", name: "Test page" }]));
+    const pages = await runCatalogOperation(
+      "clickup_list_document_pages",
+      { document_id: "doc1" },
+      makeGrant(),
+      f as typeof fetch,
+    );
+    expect(pages).toMatchObject({
+      pages: [{ id: "page1", name: "Test page" }],
+      incomplete: false,
+      first_page_only: true,
+    });
+
+    await expect(
+      runCatalogOperation("clickup_get_chat_channels", {}, makeGrant(), f as typeof fetch),
+    ).rejects.toThrow("CLICKUP_BAD_RESPONSE");
+  });
+
+  it("bounds Docs page listings to 50 entries and discloses truncation", async () => {
+    const f = vi.fn(async () => reply(Array.from({ length: 60 }, (_, i) => ({ id: "page" + i }))));
+    const result = await runCatalogOperation(
+      "clickup_list_document_pages",
+      { document_id: "doc1" },
+      makeGrant(),
+      f as typeof fetch,
+    );
+    expect(result["pages"]).toHaveLength(50);
+    expect(result).toMatchObject({ incomplete: true, first_page_only: true });
+  });
+
+  it("discloses when a Docs page contains more than 50 nested subpages", async () => {
+    const children = Array.from({ length: 60 }, (_, i) => ({ id: "child" + i }));
+    const f = vi.fn(async () => reply([{ id: "parent", pages: children }]));
+    const result = await runCatalogOperation(
+      "clickup_list_document_pages",
+      { document_id: "doc1" },
+      makeGrant(),
+      f as typeof fetch,
+    );
+    const root = result["pages"] as Array<{ pages: unknown[] }>;
+    expect(root).toHaveLength(1);
+    expect(root[0]?.pages).toHaveLength(50);
+    expect(result).toMatchObject({ incomplete: true, first_page_only: true });
+  });
+
+  it("accepts successful empty tag-add acknowledgements without weakening task creation", async () => {
+    for (const outcome of [new Response(null, { status: 204 }), reply({})]) {
+      const f = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) =>
+        init?.method === "POST" ? outcome : reply(fixture(new URL(String(req)).pathname)),
+      );
+      const result = await runCatalogOperation(
+        "clickup_add_tag_to_task",
+        { task_id: "abc123", tag: "mcp-qa" },
+        makeGrant(),
+        f as typeof fetch,
+      );
+      expect(result).toMatchObject({
+        success: true,
+        source: "clickup-api",
+        response_empty: true,
+      });
+      expect(f.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    }
+  });
+
+  it("accepts successful empty Docs page-update acknowledgements without retrying", async () => {
+    for (const outcome of [new Response(null, { status: 204 }), reply({})]) {
+      const f = vi.fn(async (_req: RequestInfo | URL, init?: RequestInit) => {
+        expect(init?.method).toBe("PUT");
+        return outcome;
+      });
+      const result = await runCatalogOperation(
+        "clickup_update_document_page",
+        { document_id: "doc1", page_id: "page1", doc_content: "QA content" },
+        makeGrant(),
+        f as typeof fetch,
+      );
+      expect(result).toMatchObject({
+        success: true,
+        source: "clickup-api",
+        response_empty: true,
+      });
+      expect(f).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("treats ambiguous 204 and empty-200 task creations as unknown writes", async () => {
     for (const response of [new Response(null, { status: 204 }), reply({})]) {
       const f = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) =>
