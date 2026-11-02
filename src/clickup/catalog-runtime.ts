@@ -300,7 +300,6 @@ async function uploadAttachment(
   filename: string,
   base64: string,
   mime: string,
-  priorAttachments: readonly unknown[],
 ): Promise<Json> {
   if (
     !/^[a-zA-Z0-9._ ()-]{1,120}$/.test(filename) ||
@@ -325,12 +324,6 @@ async function uploadAttachment(
   for (let i = 0; i < binary.length; i++) data[i] = binary.charCodeAt(i);
   const form = new FormData();
   form.append("attachment[0]", new Blob([data], { type: mime }), filename);
-  const priorIds = new Set(
-    priorAttachments
-      .map(obj)
-      .filter((item): item is Json => item !== null)
-      .map((item) => String(item["id"])),
-  );
   await quotaCall(grant, "reserve");
   const abort = new AbortController();
   const timeout = setTimeout(() => abort.abort(), 10000);
@@ -356,48 +349,27 @@ async function uploadAttachment(
       throw new ReadFailure(
         res.status >= 500 ? "CLICKUP_WRITE_OUTCOME_UNKNOWN" : "CLICKUP_UPSTREAM_UNAVAILABLE",
       );
-    // A committed attachment may have no JSON response body; do not resubmit.
+    // Only an authoritative response ID correlates this upload to this request.
+    // A matching filename seen later may belong to another concurrent writer.
     const content = await res.text();
     if (content.length > 1000000) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    let parsed: unknown;
     try {
-      const parsed: unknown = JSON.parse(content);
-      const object = obj(parsed);
-      if (object && typeof object["id"] === "string" && object["id"].length > 0)
-        return clip(object) as Json;
+      parsed = JSON.parse(content);
     } catch {
-      // Ambiguous 2xx response: verify exactly one new task attachment.
+      throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
     }
+    const attachment = obj(parsed);
+    if (!attachment || typeof attachment["id"] !== "string" || !attachment["id"])
+      throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    return clip(attachment) as Json;
   } catch (error) {
-    if (error instanceof ReadFailure && error.code !== "CLICKUP_WRITE_OUTCOME_UNKNOWN") throw error;
+    if (error instanceof ReadFailure) throw error;
+    // Do not retry uploads following a timeout or an ambiguous response.
+    throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
   } finally {
     clearTimeout(timeout);
   }
-  // On an uncertain upload, only report success for a previously unseen ID
-  // with an exact filename in the original authorized task. No second POST.
-  try {
-    const taskReadback = await send(grant, fetcher, "GET", v2("task/" + id(taskId)));
-    if (String(taskReadback["id"]) === taskId && Array.isArray(taskReadback["attachments"])) {
-      const newlyAttached = taskReadback["attachments"]
-        .map(obj)
-        .filter((item): item is Json => item !== null)
-        .filter(
-          (item) =>
-            typeof item["id"] === "string" &&
-            !priorIds.has(item["id"]) &&
-            [item["title"], item["name"], item["filename"]].some((title) => title === filename),
-        );
-      if (newlyAttached.length === 1)
-        return {
-          success: true,
-          source: "clickup-api",
-          attachment_id: newlyAttached[0]!["id"],
-          verified_by_readback: true,
-        };
-    }
-  } catch {
-    // A failed read cannot turn a possibly committed upload into success.
-  }
-  throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
 }
 
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
@@ -822,7 +794,7 @@ export async function runCatalogOperation(
       };
     }
     case "clickup_attach_file_to_task": {
-      const current = await task("task_id");
+      await task("task_id");
       return uploadAttachment(
         g,
         f,
@@ -830,7 +802,6 @@ export async function runCatalogOperation(
         txt(a["file_name"], 120),
         txt(a["file_base64"], 700000),
         typeof a["media_type"] === "string" ? a["media_type"] : "application/octet-stream",
-        Array.isArray(current["attachments"]) ? current["attachments"] : [],
       );
     }
     case "clickup_get_task_comments":
