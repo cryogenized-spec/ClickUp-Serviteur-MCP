@@ -1115,7 +1115,9 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
           });
           return reply({});
         }
-        return reply({ comments: wrote ? [{ id: "reply-1", comment_text: "QA reply", user: { id: 707 } }] : [] });
+        return reply({
+          comments: wrote ? [{ id: "reply-1", comment_text: "QA reply", user: { id: 707 } }] : [],
+        });
       }
       return reply(fixture(path));
     });
