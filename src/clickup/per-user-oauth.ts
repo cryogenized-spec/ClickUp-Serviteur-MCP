@@ -217,7 +217,11 @@ export async function clickUpConnectionStatus(auth: unknown, env: unknown): Prom
         workspace_id: result["workspaceId"],
         workspace_exclusive: result["workspaceExclusive"] === true,
         workspace_scope_approved: workspaceApproved,
-        workspace_scope_enabled: workspaceApproved && result["workspaceEnabled"] === true,
+        workspace_scope_enabled:
+          workspaceApproved &&
+          result["workspaceExclusive"] === true &&
+          (obj(env)?.["CLICKUP_RESOURCE_SCOPE"] === "workspace" ||
+            result["workspaceEnabled"] === true),
       }
     : { connected: false };
 }
