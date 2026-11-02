@@ -294,7 +294,6 @@ describe("actual encrypted SQLite per-user token vault", () => {
       subject: "github:11",
       workspaceId: "999",
       listId: "23456",
-          connectionGeneration: generation,
     });
     await call(vault, "store", own);
     expect(backing.target()).toBeUndefined();
