@@ -50,7 +50,7 @@ function testRig() {
             targetListId: selected.get(subject) ?? null,
           });
         if (endpoint === "/target-list") {
-          if (body["workspaceId"] !== "555" || !/^[1-9]\\d{0,17}$/.test(String(body["listId"])))
+          if (body["workspaceId"] !== "555" || !/^[1-9]\d{0,17}$/.test(String(body["listId"])))
             return new Response(null, { status: 403 });
           selected.set(subject, String(body["listId"]));
           return Response.json({ selected: true, workspaceId: "555", listId: body["listId"] });
