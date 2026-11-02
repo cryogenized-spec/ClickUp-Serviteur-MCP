@@ -197,6 +197,10 @@ export class ClickUpUserConnection {
         return new Response(null, { status: 403 });
       const selected = body["listId"];
       if (!numeric(selected)) return new Response(null, { status: 400 });
+      // Generation is this OAuth credential's random AES-GCM IV. It changes
+      // whenever /store replaces the account. Do not accept stale selections.
+      if (body["connectionGeneration"] !== stored.iv)
+        return new Response(null, { status: 409 });
       this.state.storage.transactionSync(() => {
         this.state.storage.sql.exec(
           "INSERT OR REPLACE INTO list_target(id,subject,workspace_id,list_id,changed_at_ms) VALUES(1,?,?,?,?)",
@@ -295,6 +299,7 @@ export class ClickUpUserConnection {
             clickupUserId: stored.clickup_user_id,
             workspaceId: stored.workspace_id,
             accessToken: new TextDecoder().decode(raw),
+            connectionGeneration: stored.iv,
             workspaceExclusive: exclusive,
             workspaceEnabled,
             targetListId,
