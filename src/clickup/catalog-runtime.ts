@@ -671,7 +671,16 @@ export async function runCatalogOperation(
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       if (variant === "option_id" || variant === "selected_option_ids") {
         const options = obj(definition["type_config"])?.["options"];
-        if (!Array.isArray(options)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        if (
+          !Array.isArray(options) ||
+          options.some(
+            (option) =>
+              !obj(option) ||
+              typeof obj(option)?.["id"] !== "string" ||
+              !String(obj(option)?.["id"]).trim(),
+          )
+        )
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
         const optionIds = new Set(options.map((option) => String(obj(option)?.["id"])));
         const selections = variant === "option_id" ? [value] : (value as unknown[]);
         if (selections.some((option) => !optionIds.has(String(option))))
