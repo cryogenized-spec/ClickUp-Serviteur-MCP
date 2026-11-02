@@ -1004,7 +1004,8 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     for (const count of ["1", "0"]) {
       const fetcher = vi.fn(async (request: RequestInfo | URL) => {
         const path = new URL(String(request)).pathname;
-        if (path === "/api/v2/task/abc123/comment") return reply({ comments: [{ id: "parent", reply_count: count }] });
+        if (path === "/api/v2/task/abc123/comment")
+          return reply({ comments: [{ id: "parent", reply_count: count }] });
         if (path === "/api/v2/comment/parent/reply")
           return reply({ comments: count === "1" ? [{ id: "reply", comment_text: "hello" }] : [] });
         return reply(fixture(path));
@@ -1020,21 +1021,27 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     }
     const f = vi.fn(async (request: RequestInfo | URL) => {
       const path = new URL(String(request)).pathname;
-      if (path === "/api/v2/task/abc123/comment") return reply({ comments: [{ id: "parent", reply_count: "Infinity" }] });
+      if (path === "/api/v2/task/abc123/comment")
+        return reply({ comments: [{ id: "parent", reply_count: "Infinity" }] });
       if (path === "/api/v2/comment/parent/reply") return reply({ comments: [{ id: "reply" }] });
       return reply(fixture(path));
     });
-    await expect(runCatalogOperation(
-      "clickup_get_threaded_replies",
-      { task_id: "abc123", comment_id: "parent" },
-      makeGrant(),
-      f as typeof fetch,
-    )).rejects.toThrow("CLICKUP_BAD_RESPONSE");
+    await expect(
+      runCatalogOperation(
+        "clickup_get_threaded_replies",
+        { task_id: "abc123", comment_id: "parent" },
+        makeGrant(),
+        f as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_BAD_RESPONSE");
   });
 
   it("never claims verified threaded write when reply matches are duplicated or only partial", async () => {
     for (const replyArray of [
-      [{ id: "new-1", comment_text: "QA reply" }, { id: "new-2", comment_text: "QA reply" }],
+      [
+        { id: "new-1", comment_text: "QA reply" },
+        { id: "new-2", comment_text: "QA reply" },
+      ],
       [{ id: "new-1", comment: [{ text: "QA reply" }, { text: " unexpected suffix" }] }],
     ]) {
       let posted = false;
@@ -1051,12 +1058,14 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
         }
         return reply(fixture(path));
       });
-      await expect(runCatalogOperation(
-        "clickup_create_task_comment",
-        { task_id: "abc123", parent_comment_id: "parent-1", text: "QA reply" },
-        makeGrant(),
-        fetcher as typeof fetch,
-      )).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      await expect(
+        runCatalogOperation(
+          "clickup_create_task_comment",
+          { task_id: "abc123", parent_comment_id: "parent-1", text: "QA reply" },
+          makeGrant(),
+          fetcher as typeof fetch,
+        ),
+      ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
       expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
     }
   });
