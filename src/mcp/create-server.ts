@@ -12,6 +12,7 @@ import {
   clickUpConnectionStatus,
   disconnectClickUp,
   setClickUpWorkspaceAccess,
+  saveClickUpListTarget,
 } from "../clickup/per-user-oauth.js";
 import { OPERATIONAL_CATALOG_NAMES, runCatalogOperation } from "../clickup/catalog-runtime.js";
 import { createAttentionReport } from "../reports/attention.js";
@@ -419,6 +420,119 @@ export function createServer(deps?: ReadDependencies): McpServer {
       description: "UTC Unix epoch milliseconds.",
     },
   } as const;
+
+  server.registerTool(
+    "clickup_preview_target",
+    {
+      description:
+        "Read-only preview of a proposed ClickUp List target. Input Workspace ID and List ID are verified against your OAuth-bound Workspace and its live List/Space ancestry. No target or task is changed. A different company Workspace requires a separately configured and consented MCP deployment.",
+      inputSchema: fromJsonSchema<{ workspace_id: string; list_id: string }>({
+        type: "object",
+        properties: {
+          workspace_id: {
+            type: "string",
+            pattern: "^[1-9]\\d{0,17}$",
+            description: "Already authorized ClickUp Workspace ID, never guessed.",
+          },
+          list_id: {
+            type: "string",
+            pattern: "^[1-9]\\d{0,17}$",
+            description: "Candidate List ID; a Board view is NOT a List ID.",
+          },
+        },
+        required: ["workspace_id", "list_id"],
+        additionalProperties: false,
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false },
+    },
+    async (args, extra) => {
+      try {
+        const grant = await requireReadGrant(extra.http?.authInfo, dependencies.bindings);
+        if (
+          args.workspace_id !== grant.workspaceId ||
+          grant.resourceScope !== "workspace"
+        )
+          throw new ReadFailure("CLICKUP_TARGET_WORKSPACE_NOT_AUTHORIZED");
+        const candidate = { ...grant, listId: args.list_id };
+        await verifyListWorkspace(candidate, dependencies.fetcher ?? fetch);
+        const list = await getScopedList(candidate, dependencies.fetcher ?? fetch);
+        return toolSuccess({
+          workspace_id: grant.workspaceId,
+          list_id: list["list_id"],
+          list_name: list["name"],
+          statuses: list["statuses"],
+          current_list_id: grant.listId,
+          would_change: grant.listId !== args.list_id,
+          note: "Preview only. No ClickUp task or target setting changed.",
+        });
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "clickup_select_target",
+    {
+      description:
+        "Change YOUR default ClickUp List for scoped operations, not the OAuth Workspace. Enter a verified Workspace ID, List ID, exact previewed List name and confirm=true. Requires mcp:write and owner-authorized Workspace scope. Persisted separately per signed-in user. Reconnection resets selection. Does NOT create, update or delete ClickUp records. Company Workspace switching is never enabled by entering its ID here.",
+      inputSchema: fromJsonSchema<{
+        workspace_id: string;
+        list_id: string;
+        expected_list_name: string;
+        confirm: boolean;
+      }>({
+        type: "object",
+        properties: {
+          workspace_id: { type: "string", pattern: "^[1-9]\\d{0,17}$" },
+          list_id: { type: "string", pattern: "^[1-9]\\d{0,17}$" },
+          expected_list_name: {
+            type: "string",
+            minLength: 1,
+            maxLength: 180,
+            description: "Exact name from clickup_preview_target; protects against accidental ID selection.",
+          },
+          confirm: {
+            type: "boolean",
+            description: "Must be explicitly true to save the default List selection.",
+          },
+        },
+        required: ["workspace_id", "list_id", "expected_list_name", "confirm"],
+        additionalProperties: false,
+      }),
+      scopeChallenge: requireScopes("mcp:read", "mcp:write"),
+      annotations: { readOnlyHint: false, destructiveHint: false },
+    },
+    async (args, extra) => {
+      try {
+        const grant = await requireWriteGrant(extra.http?.authInfo, dependencies.bindings);
+        if (args.confirm !== true) throw new ReadFailure("CLICKUP_TARGET_CONFIRM_REQUIRED");
+        if (
+          args.workspace_id !== grant.workspaceId ||
+          grant.resourceScope !== "workspace"
+        )
+          throw new ReadFailure("CLICKUP_TARGET_WORKSPACE_NOT_AUTHORIZED");
+        const candidate = { ...grant, listId: args.list_id };
+        await verifyListWorkspace(candidate, dependencies.fetcher ?? fetch);
+        const list = await getScopedList(candidate, dependencies.fetcher ?? fetch);
+        if (list["name"] !== args.expected_list_name)
+          throw new ReadFailure("CLICKUP_TARGET_NAME_CHANGED");
+        const saved = await saveClickUpListTarget(
+          extra.http?.authInfo,
+          dependencies.bindings,
+          grant.workspaceId,
+          args.list_id,
+        );
+        return toolSuccess({
+          ...saved,
+          list_name: list["name"],
+          note: "Your default scoped List target was saved. Explicit List IDs in the 48 native catalogue tools remain independently validated, and your OAuth Workspace authorization has NOT changed.",
+        });
+      } catch (error) {
+        return toolError(error);
+      }
+    },
+  );
 
   server.registerTool(
     "get_scoped_list",
