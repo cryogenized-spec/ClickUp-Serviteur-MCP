@@ -164,7 +164,10 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       { name: "Bad", priority: 9 },
       { name: "Bad", description: 123 },
       { name: "Bad", due_date_ms: 0 },
-      { name: "Bad", assignee_ids: ["707"] },
+      { name: "Bad", assignee_ids: ["not-a-user"] },
+      { name: "Bad", assignee_ids: ["0"] },
+      { name: "Bad", assignee_ids: ["1e2"] },
+      { name: "Bad", assignee_ids: [12.5] },
       { name: "Bad", unknown_property: "should not silently disappear" },
     ]) {
       const api = fakeApi();
@@ -186,7 +189,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
         new_task: {
           name: "Valid",
           priority: 2,
-          assignee_ids: [707],
+          assignee_ids: ["707"],
           due_date_ms: 1793192400000,
         },
       },
@@ -204,16 +207,39 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     });
   });
 
-  it("advertises numeric member IDs and decimal custom field values", () => {
+  it("advertises decimal-string member IDs and decimal custom field values", () => {
     const create = CLICKUP_MODEL_TOOL_CATALOG.find((tool) => tool.name === "clickup_create_task")!;
     const draft = create.inputSchema.properties["new_task"]!;
-    expect(draft.properties?.["assignee_ids"]?.items?.type).toBe("integer");
+    expect(draft.properties?.["assignee_ids"]?.items?.type).toBe("string");
+    const update = CLICKUP_MODEL_TOOL_CATALOG.find((tool) => tool.name === "clickup_update_task")!;
+    expect(update.inputSchema.properties["changes"]?.properties?.["assignee_ids"]?.items?.type).toBe("string");
     const custom = CLICKUP_MODEL_TOOL_CATALOG.find(
       (tool) => tool.name === "clickup_set_custom_field",
     )!;
     expect(custom.inputSchema.properties["field_value"]?.properties?.["number"]?.type).toBe(
       "number",
     );
+  });
+
+  it("sends numeric ClickUp member IDs after validating decimal-string IDs for task updates and bulk tasks", async () => {
+    const api = fakeApi();
+    await runCatalogOperation(
+      "clickup_update_task",
+      { task_id: "abc123", changes: { assignee_ids: ["707"] } },
+      makeGrant(),
+      api as typeof fetch,
+    );
+    await runCatalogOperation(
+      "clickup_create_bulk_tasks",
+      { list_id: "12345", tasks: [{ name: "QA assigned", assignee_ids: ["707"] }] },
+      makeGrant(),
+      api as typeof fetch,
+    );
+    const writes = api.mock.calls
+      .filter(([, init]) => init?.method === "PUT" || init?.method === "POST")
+      .map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
+    expect(writes).toContainEqual(expect.objectContaining({ assignees: { add: [707], rem: [] } }));
+    expect(writes).toContainEqual(expect.objectContaining({ assignees: [707] }));
   });
 
   it("accepts Workspace tag and type results from multiple home Lists", async () => {
