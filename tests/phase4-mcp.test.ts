@@ -75,6 +75,8 @@ describe("Phase 4 official SDK integration", () => {
             "clickup_tool_catalog",
             "connect_clickup_account",
             "clickup_set_workspace_access",
+            "clickup_preview_target",
+            "clickup_select_target",
             "create_scoped_task",
             "disconnect_clickup_account",
             "find_scoped_tasks",
@@ -94,6 +96,7 @@ describe("Phase 4 official SDK integration", () => {
             "disconnect_clickup_account",
             "create_scoped_task",
             "clickup_set_workspace_access",
+            "clickup_select_target",
           ].includes(tool.name),
         );
         expect(tool.annotations?.destructiveHint).toBe(
