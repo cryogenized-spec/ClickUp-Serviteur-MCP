@@ -228,22 +228,30 @@ const taskBody = (a: Json, update = false): Json => {
   )
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   const assignees = a["assignee_ids"];
+  // MCP clients advertise ClickUp member IDs as decimal strings. Preserve
+  // compatibility with integer IDs in direct legacy calls, but never send
+  // unvalidated or nonnumeric IDs to ClickUp.
   if (
     assignees !== undefined &&
     (!Array.isArray(assignees) ||
       assignees.length > 12 ||
-      assignees.some((user) => !Number.isSafeInteger(user) || user <= 0))
+      assignees.some(
+        (user) =>
+          (typeof user !== "string" && typeof user !== "number") ||
+          !/^[0-9]{1,24}$/.test(String(user)) ||
+          !Number.isSafeInteger(Number(user)) ||
+          Number(user) <= 0,
+      ))
   )
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  const memberIds = Array.isArray(assignees) ? assignees.map((user) => Number(user)) : null;
   return {
     ...(a["name"] !== undefined ? { name: txt(a["name"], 180) } : {}),
     ...(a["description"] !== undefined ? { description: txt(a["description"]) } : {}),
     ...(a["status"] !== undefined ? { status: txt(a["status"], 80) } : {}),
     ...(a["priority"] !== undefined ? { priority: a["priority"] } : {}),
     ...(a["due_date_ms"] !== undefined ? { due_date: a["due_date_ms"], due_date_time: true } : {}),
-    ...(Array.isArray(assignees)
-      ? { assignees: update ? { add: assignees, rem: [] } : assignees }
-      : {}),
+    ...(memberIds !== null ? { assignees: update ? { add: memberIds, rem: [] } : memberIds } : {}),
   };
 };
 async function members(grant: ReadGrant, f: typeof fetch): Promise<Json[]> {
