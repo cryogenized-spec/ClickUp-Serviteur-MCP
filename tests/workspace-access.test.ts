@@ -103,14 +103,20 @@ describe("explicit per-user Workspace operations", () => {
     const { env, flags } = testRig();
     const stage = { ...env, CLICKUP_RESOURCE_SCOPE: "workspace" };
     expect((await requireReadGrant(auth("11"), stage)).resourceScope).toBe("workspace");
-    expect((await clickUpConnectionStatus(auth("11"), stage))["workspace_scope_enabled"]).toBe(true);
+    expect(
+      (await clickUpConnectionStatus(auth("11"), stage))["workspace_scope_enabled"],
+    ).toBe(true);
     expect((await requireReadGrant(auth("22"), stage)).resourceScope).toBe("list");
-    expect((await clickUpConnectionStatus(auth("22"), stage))["workspace_scope_enabled"]).toBe(false);
+    expect(
+      (await clickUpConnectionStatus(auth("22"), stage))["workspace_scope_enabled"],
+    ).toBe(false);
     flags.get("github:11")!.exclusive = false;
     await expect(requireReadGrant(auth("11"), stage)).rejects.toThrow(
       "CLICKUP_WORKSPACE_RECONSENT_REQUIRED",
     );
-    expect((await clickUpConnectionStatus(auth("11"), stage))["workspace_scope_enabled"]).toBe(false);
+    expect(
+      (await clickUpConnectionStatus(auth("11"), stage))["workspace_scope_enabled"],
+    ).toBe(false);
     expect(
       (await requireReadGrant(auth("11"), { ...stage, CLICKUP_WORKSPACE_GITHUB_IDS: undefined }))
         .resourceScope,
