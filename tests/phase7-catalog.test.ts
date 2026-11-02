@@ -212,7 +212,9 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     const draft = create.inputSchema.properties["new_task"]!;
     expect(draft.properties?.["assignee_ids"]?.items?.type).toBe("string");
     const update = CLICKUP_MODEL_TOOL_CATALOG.find((tool) => tool.name === "clickup_update_task")!;
-    expect(update.inputSchema.properties["changes"]?.properties?.["assignee_ids"]?.items?.type).toBe("string");
+    expect(
+      update.inputSchema.properties["changes"]?.properties?.["assignee_ids"]?.items?.type,
+    ).toBe("string");
     const custom = CLICKUP_MODEL_TOOL_CATALOG.find(
       (tool) => tool.name === "clickup_set_custom_field",
     )!;
