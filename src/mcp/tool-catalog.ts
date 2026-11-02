@@ -82,10 +82,9 @@ const decimal = (
   minimum,
   maximum,
 });
-const memberId = integer(
-  "Positive numeric ClickUp user ID, not a name or a GitHub ID.",
-  1,
-  9_007_199_254_740_991,
+const memberId = str(
+  "Decimal digits of a positive ClickUp user ID, supplied as a string; not a name or GitHub ID.",
+  24,
 );
 const arrayOf = (description: string, item: Field, maxItems = 20): Field => ({
   type: "array",
