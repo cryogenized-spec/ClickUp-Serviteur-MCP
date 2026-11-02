@@ -114,7 +114,9 @@ function targetRig() {
     connect,
     selected,
     calls,
-    reconnectOnNextPreflight: () => { reconnectDuringPreflight = true; },
+    reconnectOnNextPreflight: () => {
+      reconnectDuringPreflight = true;
+    },
   };
 }
 
