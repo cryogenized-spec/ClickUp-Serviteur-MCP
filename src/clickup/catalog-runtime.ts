@@ -349,14 +349,23 @@ async function uploadAttachment(
       throw new ReadFailure(
         res.status >= 500 ? "CLICKUP_WRITE_OUTCOME_UNKNOWN" : "CLICKUP_UPSTREAM_UNAVAILABLE",
       );
+    // Only an authoritative response ID correlates this upload to this request.
+    // A matching filename seen later may belong to another concurrent writer.
     const content = await res.text();
     if (content.length > 1000000) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
-    const parsed: unknown = JSON.parse(content);
-    const object = obj(parsed);
-    if (!object) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
-    return clip(object) as Json;
-  } catch (e) {
-    if (e instanceof ReadFailure) throw e;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    }
+    const attachment = obj(parsed);
+    if (!attachment || typeof attachment["id"] !== "string" || !attachment["id"])
+      throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    return clip(attachment) as Json;
+  } catch (error) {
+    if (error instanceof ReadFailure) throw error;
+    // Do not retry uploads following a timeout or an ambiguous response.
     throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
   } finally {
     clearTimeout(timeout);
@@ -802,20 +811,115 @@ export async function runCatalogOperation(
       await task("task_id");
       const comments = await call("GET", v2("task/" + val(a, "task_id") + "/comment"));
       if (!Array.isArray(comments["comments"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      const parentFound = comments["comments"].some(
-        (comment: unknown) => String(obj(comment)?.["id"]) === String(a["comment_id"]),
-      );
+      const parent = comments["comments"]
+        .map(obj)
+        .find((comment) => String(comment?.["id"]) === String(a["comment_id"]));
       // Only comments verifiably belonging to the validated task are eligible.
       // Older comments outside the first upstream page fail closed.
-      if (!parentFound) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      return short(await call("GET", v2("comment/" + val(a, "comment_id") + "/reply")), N);
+      if (!parent) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const result = await call("GET", v2("comment/" + val(a, "comment_id") + "/reply"));
+      const replies = Array.isArray(result["comments"])
+        ? result["comments"]
+        : Array.isArray(result["replies"])
+          ? result["replies"]
+          : null;
+      if (!replies || replies.some((reply) => !obj(reply)))
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const rawCount = parent["reply_count"];
+      const expected =
+        rawCount === undefined
+          ? undefined
+          : typeof rawCount === "number"
+            ? rawCount
+            : typeof rawCount === "string" && /^\d+$/.test(rawCount)
+              ? Number(rawCount)
+              : NaN;
+      if (
+        expected !== undefined &&
+        (!Number.isSafeInteger(expected) || expected < 0 || (expected > 0 && replies.length === 0))
+      )
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      return short(
+        {
+          ...result,
+          comments: replies,
+          parent_comment_id: val(a, "comment_id"),
+          ...(expected === undefined ? {} : { parent_reply_count: expected }),
+          incomplete: expected !== undefined && expected > replies.length,
+        },
+        N,
+      );
     }
-    case "clickup_create_task_comment":
+    case "clickup_create_task_comment": {
       await task("task_id");
-      return call("POST", v2("task/" + val(a, "task_id") + "/comment"), {
-        comment_text: txt(a["text"], 6000),
-        notify_all: false,
-      });
+      const comment = { comment_text: txt(a["text"], 6000), notify_all: false };
+      if (a["parent_comment_id"] === undefined)
+        return call("POST", v2("task/" + val(a, "task_id") + "/comment"), comment);
+      // The reply destination must be independently verified against this task.
+      const parents = await call("GET", v2("task/" + val(a, "task_id") + "/comment"));
+      if (
+        !Array.isArray(parents["comments"]) ||
+        !parents["comments"].some(
+          (item) => String(obj(item)?.["id"]) === String(a["parent_comment_id"]),
+        )
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const replyPath = v2("comment/" + val(a, "parent_comment_id") + "/reply");
+      const before = await call("GET", replyPath);
+      const repliesBefore = Array.isArray(before["comments"])
+        ? before["comments"]
+        : Array.isArray(before["replies"])
+          ? before["replies"]
+          : null;
+      if (!repliesBefore) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const previousIds = new Set(repliesBefore.map((item) => String(obj(item)?.["id"])));
+      try {
+        const response = await call("POST", replyPath, comment, "empty-write-ack");
+        if (typeof response["id"] === "string" && response["id"]) return response;
+      } catch (error) {
+        if (!(error instanceof ReadFailure) || error.code !== "CLICKUP_WRITE_OUTCOME_UNKNOWN")
+          throw error;
+      }
+      // An empty/unparseable successful response may conceal a committed reply.
+      // Read once to confirm a new reply with the requested exact text; never repost.
+      try {
+        const after = await call("GET", replyPath);
+        const replies = Array.isArray(after["comments"])
+          ? after["comments"]
+          : Array.isArray(after["replies"])
+            ? after["replies"]
+            : [];
+        const matches = replies
+          .map(obj)
+          .filter((item): item is Json => item !== null)
+          .filter((item) => {
+            if (
+              typeof item["id"] !== "string" ||
+              previousIds.has(item["id"]) ||
+              String(obj(item["user"])?.["id"]) !== g.clickupUserId
+            )
+              return false;
+            const text =
+              typeof item["comment_text"] === "string"
+                ? item["comment_text"]
+                : Array.isArray(item["comment"]) &&
+                    item["comment"].every((part) => typeof obj(part)?.["text"] === "string")
+                  ? item["comment"].map((part) => String(obj(part)?.["text"])).join("")
+                  : null;
+            return text === comment.comment_text;
+          });
+        if (matches.length === 1)
+          return {
+            success: true,
+            source: "clickup-api",
+            reply_id: matches[0]!["id"],
+            verified_by_readback: true,
+          };
+      } catch {
+        // A missing readback cannot establish that a reply was committed.
+      }
+      throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    }
     case "clickup_add_tag_to_task":
       await task("task_id");
       return call(
@@ -976,19 +1080,28 @@ export async function runCatalogOperation(
       });
     case "clickup_get_list": {
       const result = await list("list_id");
-      if (a["include_custom_fields"] !== true) return short(result);
-      const available = await call(
-        "GET",
-        v2("list/" + val(a, "list_id") + "/field?include_applied_objects=true"),
-      );
-      if (!Array.isArray(available["fields"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      const fields = available["fields"];
-      return short({
-        ...result,
-        custom_fields: fields.slice(0, 50),
-        custom_fields_count: fields.length,
-        incomplete: fields.length > 50 || hasClippedNestedArray(fields.slice(0, 50)),
-      });
+      // Default to read-only field discovery, including for MCP clients still
+      // advertising the original list_id-only input schema.
+      if (a["include_custom_fields"] === false) return short(result);
+      try {
+        const available = await call(
+          "GET",
+          v2("list/" + val(a, "list_id") + "/field?include_applied_objects=true"),
+        );
+        if (!Array.isArray(available["fields"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        const fields = available["fields"];
+        return short({
+          ...result,
+          custom_fields: fields.slice(0, 50),
+          custom_fields_count: fields.length,
+          incomplete: fields.length > 50 || hasClippedNestedArray(fields.slice(0, 50)),
+        });
+      } catch (error) {
+        // Field metadata denial must not break otherwise authorized List reads.
+        if (error instanceof ReadFailure && error.code === "CLICKUP_UPSTREAM_DENIED")
+          return short({ ...result, custom_fields_unavailable: true });
+        throw error;
+      }
     }
     case "clickup_update_list":
       await list("list_id");
