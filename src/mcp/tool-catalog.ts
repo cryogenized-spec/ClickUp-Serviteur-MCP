@@ -143,6 +143,7 @@ const F = {
     24,
   ),
   comment_id: str("Exact ClickUp comment identifier.", 100),
+  parent_comment_id: str("Verified parent comment ID on the same authorized task; create a threaded reply.", 100),
   document_id: str("Exact ClickUp Document ID.", 100),
   page_id: str("Exact Document page ID.", 100),
   channel_id: str("Exact ClickUp Chat channel identifier.", 100),
@@ -394,6 +395,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Post a visible task comment, potentially notifying members. Preview the exact text and require independent approval before posting.",
     "Post an approved supplier update on the task.",
     ["task_id", "text"],
+    ["parent_comment_id"],
   ),
 
   // TAGS (2)
