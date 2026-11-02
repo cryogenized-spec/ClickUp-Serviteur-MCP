@@ -749,7 +749,11 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
         makeGrant(),
         fetcher as typeof fetch,
       );
-      expect(result).toMatchObject({ success: true, attachment_id: "new", verified_by_readback: true });
+      expect(result).toMatchObject({
+        success: true,
+        attachment_id: "new",
+        verified_by_readback: true,
+      });
       expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
     }
   });
@@ -760,15 +764,21 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       if (path === "/api/v2/task/abc123/attachment" && init?.method === "POST")
         return new Response("Success", { status: 200, headers: { "content-type": "text/plain" } });
       if (path === "/api/v2/task/abc123")
-        return reply({ id: "abc123", list: { id: "12345" }, attachments: [{ id: "old", title: "note.txt" }] });
+        return reply({
+          id: "abc123",
+          list: { id: "12345" },
+          attachments: [{ id: "old", title: "note.txt" }],
+        });
       return reply(fixture(path));
     });
-    await expect(runCatalogOperation(
-      "clickup_attach_file_to_task",
-      { task_id: "abc123", file_name: "note.txt", file_base64: btoa("hello") },
-      makeGrant(),
-      fetcher as typeof fetch,
-    )).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    await expect(
+      runCatalogOperation(
+        "clickup_attach_file_to_task",
+        { task_id: "abc123", file_name: "note.txt", file_base64: btoa("hello") },
+        makeGrant(),
+        fetcher as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
   });
 
@@ -959,19 +969,26 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
         if (path === "/api/v2/comment/parent-1/reply") return response;
         return reply(fixture(path));
       });
-      await expect(runCatalogOperation(
-        "clickup_get_threaded_replies",
-        { task_id: "abc123", comment_id: "parent-1" },
-        makeGrant(),
-        fetcher as typeof fetch,
-      )).rejects.toThrow("CLICKUP_BAD_RESPONSE");
+      await expect(
+        runCatalogOperation(
+          "clickup_get_threaded_replies",
+          { task_id: "abc123", comment_id: "parent-1" },
+          makeGrant(),
+          fetcher as typeof fetch,
+        ),
+      ).rejects.toThrow("CLICKUP_BAD_RESPONSE");
     }
     const fetcher = vi.fn(async (request: RequestInfo | URL) => {
       const path = new URL(String(request)).pathname;
       if (path === "/api/v2/task/abc123/comment")
         return reply({ comments: [{ id: "parent-1", reply_count: 2 }] });
       if (path === "/api/v2/comment/parent-1/reply")
-        return reply({ replies: [{ id: "reply-1", comment_text: "one" }, { id: "reply-2", comment_text: "two" }] });
+        return reply({
+          replies: [
+            { id: "reply-1", comment_text: "one" },
+            { id: "reply-2", comment_text: "two" },
+          ],
+        });
       return reply(fixture(path));
     });
     const result = await runCatalogOperation(
@@ -980,7 +997,11 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       makeGrant(),
       fetcher as typeof fetch,
     );
-    expect(result).toMatchObject({ parent_comment_id: "parent-1", parent_reply_count: 2, incomplete: false });
+    expect(result).toMatchObject({
+      parent_comment_id: "parent-1",
+      parent_reply_count: 2,
+      incomplete: false,
+    });
     expect(result["comments"]).toMatchObject([{ id: "reply-1" }, { id: "reply-2" }]);
   });
 
@@ -993,7 +1014,10 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       if (path === "/api/v2/comment/parent-1/reply") {
         if (init?.method === "POST") {
           wrote = true;
-          expect(JSON.parse(String(init.body))).toMatchObject({ comment_text: "QA reply", notify_all: false });
+          expect(JSON.parse(String(init.body))).toMatchObject({
+            comment_text: "QA reply",
+            notify_all: false,
+          });
           return reply({});
         }
         return reply({ comments: wrote ? [{ id: "reply-1", comment_text: "QA reply" }] : [] });
@@ -1006,16 +1030,24 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       makeGrant(),
       fetcher as typeof fetch,
     );
-    expect(output).toMatchObject({ success: true, reply_id: "reply-1", verified_by_readback: true });
+    expect(output).toMatchObject({
+      success: true,
+      reply_id: "reply-1",
+      verified_by_readback: true,
+    });
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
-    const schema = CLICKUP_MODEL_TOOL_CATALOG.find((t) => t.name === "clickup_create_task_comment")!;
+    const schema = CLICKUP_MODEL_TOOL_CATALOG.find(
+      (t) => t.name === "clickup_create_task_comment",
+    )!;
     expect(schema.inputSchema.properties["parent_comment_id"]?.type).toBe("string");
-    await expect(runCatalogOperation(
-      "clickup_create_task_comment",
-      { task_id: "abc123", parent_comment_id: "foreign-parent", text: "unsafe" },
-      makeGrant(),
-      fetcher as typeof fetch,
-    )).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    await expect(
+      runCatalogOperation(
+        "clickup_create_task_comment",
+        { task_id: "abc123", parent_comment_id: "foreign-parent", text: "unsafe" },
+        makeGrant(),
+        fetcher as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
   });
 
