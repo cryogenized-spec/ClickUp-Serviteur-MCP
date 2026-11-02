@@ -802,20 +802,56 @@ export async function runCatalogOperation(
       await task("task_id");
       const comments = await call("GET", v2("task/" + val(a, "task_id") + "/comment"));
       if (!Array.isArray(comments["comments"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      const parentFound = comments["comments"].some(
-        (comment: unknown) => String(obj(comment)?.["id"]) === String(a["comment_id"]),
+      const parent = comments["comments"].map(obj).find(
+        (comment) => String(comment?.["id"]) === String(a["comment_id"]),
       );
       // Only comments verifiably belonging to the validated task are eligible.
       // Older comments outside the first upstream page fail closed.
-      if (!parentFound) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      return short(await call("GET", v2("comment/" + val(a, "comment_id") + "/reply")), N);
+      if (!parent) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const result = await call("GET", v2("comment/" + val(a, "comment_id") + "/reply"));
+      const replies = Array.isArray(result["comments"])
+        ? result["comments"]
+        : Array.isArray(result["replies"])
+          ? result["replies"]
+          : null;
+      if (!replies || replies.some((reply) => !obj(reply)))
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const expected = parent["reply_count"];
+      if (
+        expected !== undefined &&
+        (!Number.isSafeInteger(expected) || Number(expected) < 0 ||
+          (Number(expected) > 0 && replies.length === 0))
+      )
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      return short({
+        ...result,
+        comments: replies,
+        parent_comment_id: val(a, "comment_id"),
+        ...(expected === undefined ? {} : { parent_reply_count: expected }),
+        incomplete: expected !== undefined && Number(expected) > replies.length,
+      }, N);
     }
-    case "clickup_create_task_comment":
+    case "clickup_create_task_comment": {
       await task("task_id");
-      return call("POST", v2("task/" + val(a, "task_id") + "/comment"), {
-        comment_text: txt(a["text"], 6000),
-        notify_all: false,
-      });
+      const comment = { comment_text: txt(a["text"], 6000), notify_all: false };
+      if (a["parent_comment_id"] === undefined)
+        return call("POST", v2("task/" + val(a, "task_id") + "/comment"), comment);
+      // The reply destination must be independently verified against this task.
+      const parents = await call("GET", v2("task/" + val(a, "task_id") + "/comment"));
+      if (
+        !Array.isArray(parents["comments"]) ||
+        !parents["comments"].some(
+          (item) => String(obj(item)?.["id"]) === String(a["parent_comment_id"]),
+        )
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      return call(
+        "POST",
+        v2("comment/" + val(a, "parent_comment_id") + "/reply"),
+        comment,
+        "empty-write-ack",
+      );
+    }
     case "clickup_add_tag_to_task":
       await task("task_id");
       return call(
@@ -976,7 +1012,9 @@ export async function runCatalogOperation(
       });
     case "clickup_get_list": {
       const result = await list("list_id");
-      if (a["include_custom_fields"] !== true) return short(result);
+      // Default to read-only field discovery, including for MCP clients still
+      // advertising the original list_id-only input schema.
+      if (a["include_custom_fields"] === false) return short(result);
       const available = await call(
         "GET",
         v2("list/" + val(a, "list_id") + "/field?include_applied_objects=true"),
