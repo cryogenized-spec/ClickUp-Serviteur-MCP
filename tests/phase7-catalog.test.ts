@@ -732,6 +732,58 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     }
   });
 
+  it("verifies a committed Docs page edit after an unusable upstream write response", async () => {
+    const calls: string[] = [];
+    const f = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(req)).pathname;
+      calls.push(String(init?.method) + " " + path);
+      if (init?.method === "PUT")
+        return new Response("OK", { status: 200, headers: { "Content-Type": "text/plain" } });
+      return reply({ id: "page1", content: "New QA content" });
+    });
+    const result = await runCatalogOperation(
+      "clickup_update_document_page",
+      { document_id: "doc1", page_id: "page1", doc_content: "New QA content" },
+      makeGrant(),
+      f as typeof fetch,
+    );
+    expect(result).toMatchObject({ success: true, verified_by_readback: true });
+    expect(calls).toEqual([
+      "PUT /api/v3/workspaces/555/docs/doc1/pages/page1",
+      "GET /api/v3/workspaces/555/docs/doc1/pages/page1",
+    ]);
+  });
+
+  it("does not misreport a Docs edit when independent readback differs", async () => {
+    const f = vi.fn(async (_req: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PUT")
+        return new Response("OK", { status: 200, headers: { "Content-Type": "text/plain" } });
+      return reply({ id: "page1", content: "Previous content" });
+    });
+    await expect(
+      runCatalogOperation(
+        "clickup_update_document_page",
+        { document_id: "doc1", page_id: "page1", doc_content: "Requested content" },
+        makeGrant(),
+        f as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    expect(f.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1);
+  });
+
+  it("preserves upstream Docs permission denial without retrying or readback", async () => {
+    const f = vi.fn(async () => reply({ err: "denied" }, 403));
+    await expect(
+      runCatalogOperation(
+        "clickup_update_document_page",
+        { document_id: "doc1", page_id: "page1", doc_content: "Requested content" },
+        makeGrant(),
+        f as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_UPSTREAM_DENIED");
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
   it("treats ambiguous 204 and empty-200 task creations as unknown writes", async () => {
     for (const response of [new Response(null, { status: 204 }), reply({})]) {
       const f = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) =>
