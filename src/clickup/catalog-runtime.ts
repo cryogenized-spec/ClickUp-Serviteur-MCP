@@ -824,8 +824,7 @@ export async function runCatalogOperation(
               String(link["depends_on"]) === blockerId
             );
           });
-        if (present)
-          return { success: true, source: "clickup-api", verified_by_readback: true };
+        if (present) return { success: true, source: "clickup-api", verified_by_readback: true };
       } catch {
         // A failed read cannot convert an uncertain write into a success.
       }
