@@ -6,6 +6,7 @@ import { ReadFailure, type ReadGrant } from "./policy.js";
  * The calling human's own OAuth identity is the ONLY upstream actor. */
 type Json = Record<string, unknown>;
 type Method = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+type ResponseMode = "strict" | "empty-write-ack" | "document-page-list";
 const obj = (x: unknown): Json | null =>
   x !== null && typeof x === "object" && !Array.isArray(x) ? (x as Json) : null;
 const id = (v: unknown): string => {
@@ -53,6 +54,7 @@ async function send(
   method: Method,
   path: string,
   body?: Json,
+  responseMode: ResponseMode = "strict",
 ): Promise<Json> {
   const target = pathEncoded(path);
   await quotaCall(grant, "reserve");
@@ -87,7 +89,7 @@ async function send(
           : "CLICKUP_WRITE_OUTCOME_UNKNOWN",
       );
     if (res.status === 204 || res.status === 205) {
-      if (method === "DELETE")
+      if (method === "DELETE" || responseMode === "empty-write-ack")
         return { success: true, source: "clickup-api", response_empty: true };
       throw new ReadFailure(
         method === "GET" ? "CLICKUP_BAD_RESPONSE" : "CLICKUP_WRITE_OUTCOME_UNKNOWN",
@@ -105,13 +107,20 @@ async function send(
         method === "GET" ? "CLICKUP_BAD_RESPONSE" : "CLICKUP_WRITE_OUTCOME_UNKNOWN",
       );
     const result: unknown = JSON.parse(text);
-    const data = obj(result);
+    // ClickUp v3 Docs page_listing returns a top-level array, unlike most REST routes.
+    const data =
+      responseMode === "document-page-list" && Array.isArray(result)
+        ? { pages: result }
+        : obj(result);
     if (!data)
       throw new ReadFailure(
         method === "GET" ? "CLICKUP_BAD_RESPONSE" : "CLICKUP_WRITE_OUTCOME_UNKNOWN",
       );
-    if (method !== "GET" && method !== "DELETE" && Object.keys(data).length === 0)
+    if (method !== "GET" && method !== "DELETE" && Object.keys(data).length === 0) {
+      if (responseMode === "empty-write-ack")
+        return { success: true, source: "clickup-api", response_empty: true };
       throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    }
     if (
       method === "POST" &&
       /\/list\/[^/]+\/task$/.test(path) &&
@@ -242,6 +251,7 @@ const short = (d: Json, limit = 50): Json => {
     "time_entries",
     "entries",
     "docs",
+    "pages",
   ];
   const arrays = keys.filter((k) => Array.isArray(d[k]));
   const truncated = arrays.some((k) => (d[k] as unknown[]).length > limit);
@@ -436,7 +446,12 @@ export async function runCatalogOperation(
   const W = id(g.workspaceId),
     N = count(a);
   const workspaceScope = g.resourceScope === "workspace";
-  const call = (method: Method, path: string, body?: Json) => send(g, f, method, path, body);
+  const call = (
+    method: Method,
+    path: string,
+    body?: Json,
+    responseMode: ResponseMode = "strict",
+  ) => send(g, f, method, path, body, responseMode);
   const task = async (k: string) => taskInWorkspace(g, f, a[k]);
   const list = async (k: string) => listInWorkspace(g, f, a[k]);
   const folder = async (k: string) => folderInWorkspace(g, f, a[k]);
@@ -730,6 +745,8 @@ export async function runCatalogOperation(
       return call(
         "POST",
         v2("task/" + val(a, "task_id") + "/tag/" + encodeURIComponent(txt(a["tag"], 160))),
+        undefined,
+        "empty-write-ack",
       );
     case "clickup_remove_tag_from_task":
       await task("task_id");
@@ -937,6 +954,8 @@ export async function runCatalogOperation(
           v3(
             "workspaces/" + W + "/docs/" + val(a, "document_id") + "/page_listing?max_page_depth=4",
           ),
+          undefined,
+          "document-page-list",
         ),
       );
     case "clickup_get_document_pages":
@@ -969,6 +988,7 @@ export async function runCatalogOperation(
           content_edit_mode: "replace",
           content_format: "text/md",
         },
+        "empty-write-ack",
       );
     case "clickup_get_task_time_in_status":
       await task("task_id");
