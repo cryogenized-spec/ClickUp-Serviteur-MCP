@@ -825,13 +825,20 @@ export async function runCatalogOperation(
           : null;
       if (!replies || replies.some((reply) => !obj(reply)))
         throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      const expected = parent["reply_count"];
+      const rawCount = parent["reply_count"];
+      const expected =
+        rawCount === undefined
+          ? undefined
+          : typeof rawCount === "number"
+            ? rawCount
+            : typeof rawCount === "string" && /^\\d+$/.test(rawCount)
+              ? Number(rawCount)
+              : NaN;
       if (
         expected !== undefined &&
-        (typeof expected !== "number" ||
-          !Number.isSafeInteger(expected) ||
+        (!Number.isSafeInteger(expected) ||
           expected < 0 ||
-          (Number(expected) > 0 && replies.length === 0))
+          (expected > 0 && replies.length === 0))
       )
         throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       return short(
@@ -840,7 +847,7 @@ export async function runCatalogOperation(
           comments: replies,
           parent_comment_id: val(a, "comment_id"),
           ...(expected === undefined ? {} : { parent_reply_count: expected }),
-          incomplete: expected !== undefined && Number(expected) > replies.length,
+          incomplete: expected !== undefined && expected > replies.length,
         },
         N,
       );
@@ -884,22 +891,25 @@ export async function runCatalogOperation(
           : Array.isArray(after["replies"])
             ? after["replies"]
             : [];
-        const newReply = replies
+        const matches = replies
           .map(obj)
-          .find(
-            (item) =>
-              item &&
-              typeof item["id"] === "string" &&
-              !previousIds.has(item["id"]) &&
-              (item["comment_text"] === comment.comment_text ||
-                (Array.isArray(item["comment"]) &&
-                  item["comment"].some((part) => obj(part)?.["text"] === comment.comment_text))),
-          );
-        if (newReply)
+          .filter((item): item is Json => item !== null)
+          .filter((item) => {
+            if (typeof item["id"] !== "string" || previousIds.has(item["id"])) return false;
+            const text =
+              typeof item["comment_text"] === "string"
+                ? item["comment_text"]
+                : Array.isArray(item["comment"]) &&
+                    item["comment"].every((part) => typeof obj(part)?.["text"] === "string")
+                  ? item["comment"].map((part) => String(obj(part)?.["text"])).join("")
+                  : null;
+            return text === comment.comment_text;
+          });
+        if (matches.length === 1)
           return {
             success: true,
             source: "clickup-api",
-            reply_id: newReply["id"],
+            reply_id: matches[0]!["id"],
             verified_by_readback: true,
           };
       } catch {
