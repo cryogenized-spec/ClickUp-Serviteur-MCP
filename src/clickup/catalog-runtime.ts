@@ -368,8 +368,7 @@ async function uploadAttachment(
       // Ambiguous 2xx response: verify exactly one new task attachment.
     }
   } catch (error) {
-    if (error instanceof ReadFailure && error.code !== "CLICKUP_WRITE_OUTCOME_UNKNOWN")
-      throw error;
+    if (error instanceof ReadFailure && error.code !== "CLICKUP_WRITE_OUTCOME_UNKNOWN") throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -841,9 +840,9 @@ export async function runCatalogOperation(
       await task("task_id");
       const comments = await call("GET", v2("task/" + val(a, "task_id") + "/comment"));
       if (!Array.isArray(comments["comments"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      const parent = comments["comments"].map(obj).find(
-        (comment) => String(comment?.["id"]) === String(a["comment_id"]),
-      );
+      const parent = comments["comments"]
+        .map(obj)
+        .find((comment) => String(comment?.["id"]) === String(a["comment_id"]));
       // Only comments verifiably belonging to the validated task are eligible.
       // Older comments outside the first upstream page fail closed.
       if (!parent) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
@@ -858,17 +857,22 @@ export async function runCatalogOperation(
       const expected = parent["reply_count"];
       if (
         expected !== undefined &&
-        (typeof expected !== "number" || !Number.isSafeInteger(expected) || expected < 0 ||
+        (typeof expected !== "number" ||
+          !Number.isSafeInteger(expected) ||
+          expected < 0 ||
           (Number(expected) > 0 && replies.length === 0))
       )
         throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      return short({
-        ...result,
-        comments: replies,
-        parent_comment_id: val(a, "comment_id"),
-        ...(expected === undefined ? {} : { parent_reply_count: expected }),
-        incomplete: expected !== undefined && Number(expected) > replies.length,
-      }, N);
+      return short(
+        {
+          ...result,
+          comments: replies,
+          parent_comment_id: val(a, "comment_id"),
+          ...(expected === undefined ? {} : { parent_reply_count: expected }),
+          incomplete: expected !== undefined && Number(expected) > replies.length,
+        },
+        N,
+      );
     }
     case "clickup_create_task_comment": {
       await task("task_id");
@@ -909,15 +913,17 @@ export async function runCatalogOperation(
           : Array.isArray(after["replies"])
             ? after["replies"]
             : [];
-        const newReply = replies.map(obj).find(
-          (item) =>
-            item &&
-            typeof item["id"] === "string" &&
-            !previousIds.has(item["id"]) &&
-            (item["comment_text"] === comment.comment_text ||
-              (Array.isArray(item["comment"]) &&
-                item["comment"].some((part) => obj(part)?.["text"] === comment.comment_text))),
-        );
+        const newReply = replies
+          .map(obj)
+          .find(
+            (item) =>
+              item &&
+              typeof item["id"] === "string" &&
+              !previousIds.has(item["id"]) &&
+              (item["comment_text"] === comment.comment_text ||
+                (Array.isArray(item["comment"]) &&
+                  item["comment"].some((part) => obj(part)?.["text"] === comment.comment_text))),
+          );
         if (newReply)
           return {
             success: true,
