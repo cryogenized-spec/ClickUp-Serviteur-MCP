@@ -124,6 +124,17 @@ describe("explicit per-user Workspace operations", () => {
     expect(unapproved.resourceScope).toBe("list");
   });
 
+  it("never falsely reports successful revocation when staging forces Workspace scope", async () => {
+    const { env, calls } = testRig();
+    const stage = { ...env, CLICKUP_RESOURCE_SCOPE: "workspace" };
+    await expect(setClickUpWorkspaceAccess(auth("11"), stage, "555", false)).rejects.toThrow(
+      "CLICKUP_WORKSPACE_CONFIG_ROLLBACK_REQUIRED",
+    );
+    expect(calls.some((entry) => entry.endsWith("/workspace-access"))).toBe(false);
+    const stillGranted = await requireReadGrant(auth("11"), stage);
+    expect(stillGranted.resourceScope).toBe("workspace");
+  });
+
   it("rejects extra permissions without owner approval, valid write scope and one-Workspace OAuth", async () => {
     const { env, flags, calls } = testRig();
     for (const [identity, config, workspace, code] of [
