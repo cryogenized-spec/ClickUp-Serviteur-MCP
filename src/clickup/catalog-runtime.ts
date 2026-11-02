@@ -858,7 +858,7 @@ export async function runCatalogOperation(
       const expected = parent["reply_count"];
       if (
         expected !== undefined &&
-        (!Number.isSafeInteger(expected) || Number(expected) < 0 ||
+        (typeof expected !== "number" || !Number.isSafeInteger(expected) || expected < 0 ||
           (Number(expected) > 0 && replies.length === 0))
       )
         throw new ReadFailure("CLICKUP_BAD_RESPONSE");
@@ -884,12 +884,51 @@ export async function runCatalogOperation(
         )
       )
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      return call(
-        "POST",
-        v2("comment/" + val(a, "parent_comment_id") + "/reply"),
-        comment,
-        "empty-write-ack",
-      );
+      const replyPath = v2("comment/" + val(a, "parent_comment_id") + "/reply");
+      const before = await call("GET", replyPath);
+      const repliesBefore = Array.isArray(before["comments"])
+        ? before["comments"]
+        : Array.isArray(before["replies"])
+          ? before["replies"]
+          : null;
+      if (!repliesBefore) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const previousIds = new Set(repliesBefore.map((item) => String(obj(item)?.["id"])));
+      try {
+        const response = await call("POST", replyPath, comment, "empty-write-ack");
+        if (typeof response["id"] === "string" && response["id"]) return response;
+      } catch (error) {
+        if (!(error instanceof ReadFailure) || error.code !== "CLICKUP_WRITE_OUTCOME_UNKNOWN")
+          throw error;
+      }
+      // An empty/unparseable successful response may conceal a committed reply.
+      // Read once to confirm a new reply with the requested exact text; never repost.
+      try {
+        const after = await call("GET", replyPath);
+        const replies = Array.isArray(after["comments"])
+          ? after["comments"]
+          : Array.isArray(after["replies"])
+            ? after["replies"]
+            : [];
+        const newReply = replies.map(obj).find(
+          (item) =>
+            item &&
+            typeof item["id"] === "string" &&
+            !previousIds.has(item["id"]) &&
+            (item["comment_text"] === comment.comment_text ||
+              (Array.isArray(item["comment"]) &&
+                item["comment"].some((part) => obj(part)?.["text"] === comment.comment_text))),
+        );
+        if (newReply)
+          return {
+            success: true,
+            source: "clickup-api",
+            reply_id: newReply["id"],
+            verified_by_readback: true,
+          };
+      } catch {
+        // A missing readback cannot establish that a reply was committed.
+      }
+      throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
     }
     case "clickup_add_tag_to_task":
       await task("task_id");
@@ -1054,18 +1093,25 @@ export async function runCatalogOperation(
       // Default to read-only field discovery, including for MCP clients still
       // advertising the original list_id-only input schema.
       if (a["include_custom_fields"] === false) return short(result);
-      const available = await call(
-        "GET",
-        v2("list/" + val(a, "list_id") + "/field?include_applied_objects=true"),
-      );
-      if (!Array.isArray(available["fields"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      const fields = available["fields"];
-      return short({
-        ...result,
-        custom_fields: fields.slice(0, 50),
-        custom_fields_count: fields.length,
-        incomplete: fields.length > 50 || hasClippedNestedArray(fields.slice(0, 50)),
-      });
+      try {
+        const available = await call(
+          "GET",
+          v2("list/" + val(a, "list_id") + "/field?include_applied_objects=true"),
+        );
+        if (!Array.isArray(available["fields"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        const fields = available["fields"];
+        return short({
+          ...result,
+          custom_fields: fields.slice(0, 50),
+          custom_fields_count: fields.length,
+          incomplete: fields.length > 50 || hasClippedNestedArray(fields.slice(0, 50)),
+        });
+      } catch (error) {
+        // Field metadata denial must not break otherwise authorized List reads.
+        if (error instanceof ReadFailure && error.code === "CLICKUP_UPSTREAM_DENIED")
+          return short({ ...result, custom_fields_unavailable: true });
+        throw error;
+      }
     }
     case "clickup_update_list":
       await list("list_id");
