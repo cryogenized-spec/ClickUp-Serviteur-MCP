@@ -453,6 +453,10 @@ export function createServer(deps?: ReadDependencies): McpServer {
         const candidate = { ...grant, listId: args.list_id };
         await verifyListWorkspace(candidate, dependencies.fetcher ?? fetch);
         const list = await getScopedList(candidate, dependencies.fetcher ?? fetch);
+        // getScopedList caps the displayed name at 180 characters. Refuse
+        // a boundary-length name rather than using a possibly truncated prefix.
+        if (String(list["name"]).length >= 180)
+          throw new ReadFailure("CLICKUP_TARGET_NAME_TOO_LONG");
         return toolSuccess({
           workspace_id: grant.workspaceId,
           list_id: list["list_id"],
@@ -510,6 +514,8 @@ export function createServer(deps?: ReadDependencies): McpServer {
         const candidate = { ...grant, listId: args.list_id };
         await verifyListWorkspace(candidate, dependencies.fetcher ?? fetch);
         const list = await getScopedList(candidate, dependencies.fetcher ?? fetch);
+        if (String(list["name"]).length >= 180)
+          throw new ReadFailure("CLICKUP_TARGET_NAME_TOO_LONG");
         if (list["name"] !== args.expected_list_name)
           throw new ReadFailure("CLICKUP_TARGET_NAME_CHANGED");
         const saved = await saveClickUpListTarget(
@@ -517,6 +523,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
           dependencies.bindings,
           grant.workspaceId,
           args.list_id,
+          grant.connectionGeneration,
         );
         return toolSuccess({
           ...saved,
