@@ -344,7 +344,7 @@ async function uploadAttachment(
     });
     if (res.status === 429) {
       const reset = res.headers.get("X-RateLimit-Reset");
-      if (reset && /^\\d{1,12}$/.test(reset)) {
+      if (reset && /^\d{1,12}$/.test(reset)) {
         const unix = Number(reset);
         if (unix > Date.now() / 1000 && unix < Date.now() / 1000 + 3600)
           await quotaCall(grant, "cooldown", unix * 1000);
