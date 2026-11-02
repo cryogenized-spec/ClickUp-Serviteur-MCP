@@ -5,6 +5,8 @@ export interface ReadGrant {
   readonly subject: string;
   readonly clickupUserId: string;
   readonly listId: string;
+  /** Private OAuth credential generation; never exposed to model/tool outputs. */
+  readonly connectionGeneration?: string | null;
   /** Explicit owner-controlled catalogue authority; unset is legacy single-List. */
   readonly resourceScope?: "list" | "workspace";
   readonly workspaceId: string;
@@ -105,6 +107,7 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
     // A user's selected List is scoped to the same OAuth Workspace and
     // never broadens their resourceScope. Stale/missing selections fall back.
     listId: effectiveScope === "workspace" ? (user.selectedListId ?? listId) : listId,
+    connectionGeneration: user.connectionGeneration,
     resourceScope: effectiveScope,
     workspaceId: user.workspaceId,
     apiToken: user.token,
