@@ -630,11 +630,12 @@ export async function runCatalogOperation(
       if (
         applied !== undefined &&
         (!Array.isArray(applied) ||
-          (applied.length > 0 && !applied.some(
-            (item) =>
-              String(obj(item)?.["object_type"]) === "19" &&
-              String(obj(item)?.["object_id"]) === String(target["custom_item_id"] ?? 0),
-          )))
+          (applied.length > 0 &&
+            !applied.some(
+              (item) =>
+                String(obj(item)?.["object_type"]) === "19" &&
+                String(obj(item)?.["object_id"]) === String(target["custom_item_id"] ?? 0),
+            )))
       )
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       const field = buildArgs(a, "field_value");
@@ -656,7 +657,7 @@ export async function runCatalogOperation(
         field["checked"] ??
         field["timestamp_ms"];
       if (value === undefined) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-      const variant = Object.keys(field)[0];
+      const variant = Object.keys(field)[0] ?? "";
       const fieldType = definition["type"];
       const supported: Record<string, readonly string[]> = {
         text: ["text", "short_text", "url", "email", "phone"],
