@@ -9,7 +9,7 @@
   "packageManager": "npm@10.9.2",
   "scripts": {
     "dev": "wrangler dev",
-    "format:check": "prettier --write src/clickup/catalog-runtime.ts tests/phase7-catalog.test.ts && git --no-pager diff -- src/clickup/catalog-runtime.ts tests/phase7-catalog.test.ts && prettier --check src tests package.json tsconfig*.json eslint.config.js wrangler.jsonc",
+    "format:check": "prettier --check src tests package.json tsconfig*.json eslint.config.js wrangler.jsonc",
     "lint": "eslint src tests --max-warnings 0",
     "typecheck": "tsc -p tsconfig.auth.json --noEmit && tsc -p tsconfig.mcp.json --noEmit && tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
