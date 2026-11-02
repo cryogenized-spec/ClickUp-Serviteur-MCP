@@ -648,6 +648,21 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     expect(result).toMatchObject({ incomplete: true, first_page_only: true });
   });
 
+  it("discloses when a Docs page contains more than 50 nested subpages", async () => {
+    const children = Array.from({ length: 60 }, (_, i) => ({ id: "child" + i }));
+    const f = vi.fn(async () => reply([{ id: "parent", pages: children }]));
+    const result = await runCatalogOperation(
+      "clickup_list_document_pages",
+      { document_id: "doc1" },
+      makeGrant(),
+      f as typeof fetch,
+    );
+    const root = result["pages"] as Array<{ pages: unknown[] }>;
+    expect(root).toHaveLength(1);
+    expect(root[0]?.pages).toHaveLength(50);
+    expect(result).toMatchObject({ incomplete: true, first_page_only: true });
+  });
+
   it("accepts successful empty tag-add acknowledgements without weakening task creation", async () => {
     for (const outcome of [new Response(null, { status: 204 }), reply({})]) {
       const f = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) =>
