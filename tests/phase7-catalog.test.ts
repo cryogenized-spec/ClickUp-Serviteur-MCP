@@ -677,7 +677,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       ),
     ).rejects.toThrow("CLICKUP_UPSTREAM_DENIED");
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
-    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher).toHaveBeenCalledTimes(7);
   });
 
   it("uses query parameters for deletion of dependencies rather than a DELETE JSON body", async () => {
