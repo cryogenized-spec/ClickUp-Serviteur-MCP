@@ -723,52 +723,47 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     expect(f).toHaveBeenCalledTimes(4);
   });
 
-  it("verifies an ambiguous attachment upload by a new attachment ID and exact filename", async () => {
+  it("does not misattribute an ambiguous attachment upload from a concurrent same-name writer", async () => {
     for (const response of [
       new Response(null, { status: 204 }),
       new Response("OK", { status: 200, headers: { "content-type": "text/plain" } }),
       reply({}),
     ]) {
-      let committed = false;
+      let posted = false;
       const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
         const path = new URL(String(request)).pathname;
         if (path === "/api/v2/task/abc123/attachment" && init?.method === "POST") {
-          committed = true;
+          posted = true;
           return response;
         }
-        if (path === "/api/v2/task/abc123") {
-          const attachments = [{ id: "old", title: "note.txt" }];
-          if (committed) attachments.push({ id: "new", title: "note.txt" });
-          return reply({ id: "abc123", list: { id: "12345" }, attachments });
-        }
+        if (path === "/api/v2/task/abc123")
+          return reply({
+            id: "abc123",
+            list: { id: "12345" },
+            attachments: [
+              { id: "old", title: "note.txt" },
+              ...(posted ? [{ id: "concurrent-upload", title: "note.txt" }] : []),
+            ],
+          });
         return reply(fixture(path));
       });
-      const result = await runCatalogOperation(
-        "clickup_attach_file_to_task",
-        { task_id: "abc123", file_name: "note.txt", file_base64: btoa("hello") },
-        makeGrant(),
-        fetcher as typeof fetch,
-      );
-      expect(result).toMatchObject({
-        success: true,
-        attachment_id: "new",
-        verified_by_readback: true,
-      });
+      await expect(
+        runCatalogOperation(
+          "clickup_attach_file_to_task",
+          { task_id: "abc123", file_name: "note.txt", file_base64: btoa("hello") },
+          makeGrant(),
+          fetcher as typeof fetch,
+        ),
+      ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
       expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
     }
   });
 
-  it("never certifies or retries an ambiguous attachment if no new filename-matched ID exists", async () => {
+  it("refuses false success when an attachment POST returns a JSON object without an ID", async () => {
     const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(request)).pathname;
       if (path === "/api/v2/task/abc123/attachment" && init?.method === "POST")
-        return new Response("Success", { status: 200, headers: { "content-type": "text/plain" } });
-      if (path === "/api/v2/task/abc123")
-        return reply({
-          id: "abc123",
-          list: { id: "12345" },
-          attachments: [{ id: "old", title: "note.txt" }],
-        });
+        return reply({ title: "note.txt", url: "https://example.com/same-name.txt" });
       return reply(fixture(path));
     });
     await expect(
@@ -1003,6 +998,67 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       incomplete: false,
     });
     expect(result["comments"]).toMatchObject([{ id: "reply-1" }, { id: "reply-2" }]);
+  });
+
+  it("accepts ClickUp's documented string reply_count and rejects malformed counts", async () => {
+    for (const count of ["1", "0"]) {
+      const fetcher = vi.fn(async (request: RequestInfo | URL) => {
+        const path = new URL(String(request)).pathname;
+        if (path === "/api/v2/task/abc123/comment") return reply({ comments: [{ id: "parent", reply_count: count }] });
+        if (path === "/api/v2/comment/parent/reply")
+          return reply({ comments: count === "1" ? [{ id: "reply", comment_text: "hello" }] : [] });
+        return reply(fixture(path));
+      });
+      const result = await runCatalogOperation(
+        "clickup_get_threaded_replies",
+        { task_id: "abc123", comment_id: "parent" },
+        makeGrant(),
+        fetcher as typeof fetch,
+      );
+      expect(result["parent_reply_count"]).toBe(Number(count));
+      expect(result["incomplete"]).toBe(false);
+    }
+    const f = vi.fn(async (request: RequestInfo | URL) => {
+      const path = new URL(String(request)).pathname;
+      if (path === "/api/v2/task/abc123/comment") return reply({ comments: [{ id: "parent", reply_count: "Infinity" }] });
+      if (path === "/api/v2/comment/parent/reply") return reply({ comments: [{ id: "reply" }] });
+      return reply(fixture(path));
+    });
+    await expect(runCatalogOperation(
+      "clickup_get_threaded_replies",
+      { task_id: "abc123", comment_id: "parent" },
+      makeGrant(),
+      f as typeof fetch,
+    )).rejects.toThrow("CLICKUP_BAD_RESPONSE");
+  });
+
+  it("never claims verified threaded write when reply matches are duplicated or only partial", async () => {
+    for (const replyArray of [
+      [{ id: "new-1", comment_text: "QA reply" }, { id: "new-2", comment_text: "QA reply" }],
+      [{ id: "new-1", comment: [{ text: "QA reply" }, { text: " unexpected suffix" }] }],
+    ]) {
+      let posted = false;
+      const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(String(request)).pathname;
+        if (path === "/api/v2/task/abc123/comment")
+          return reply({ comments: [{ id: "parent-1", reply_count: 0 }] });
+        if (path === "/api/v2/comment/parent-1/reply") {
+          if (init?.method === "POST") {
+            posted = true;
+            return reply({});
+          }
+          return reply({ comments: posted ? replyArray : [] });
+        }
+        return reply(fixture(path));
+      });
+      await expect(runCatalogOperation(
+        "clickup_create_task_comment",
+        { task_id: "abc123", parent_comment_id: "parent-1", text: "QA reply" },
+        makeGrant(),
+        fetcher as typeof fetch,
+      )).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    }
   });
 
   it("creates a threaded reply only beneath an independently verified same-task parent", async () => {
