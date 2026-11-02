@@ -793,12 +793,9 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
         path,
         ...(init?.body ? { body: JSON.parse(String(init.body)) as unknown } : {}),
       });
-      if (path === "/api/v2/folder/folder1")
-        return reply({ id: "folder1", space: { id: "777" } });
-      if (path === "/api/v2/team/555/space")
-        return reply({ spaces: [{ id: "777" }] });
-      if (init?.method === "POST")
-        return reply({ id: "doc-1", name: "QA placed Doc" }, 201);
+      if (path === "/api/v2/folder/folder1") return reply({ id: "folder1", space: { id: "777" } });
+      if (path === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
+      if (init?.method === "POST") return reply({ id: "doc-1", name: "QA placed Doc" }, 201);
       throw Error("Unexpected request: " + path);
     });
     const doc = await runCatalogOperation(
