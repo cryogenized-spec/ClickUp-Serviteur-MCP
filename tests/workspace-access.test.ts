@@ -102,15 +102,19 @@ describe("explicit per-user Workspace operations", () => {
       listId: "12345",
       resourceScope: "workspace",
     });
-    await expect(saveClickUpListTarget(owner, env, "777", "23456", baseline.connectionGeneration)).rejects.toThrow(
-      "CLICKUP_SCOPE_OR_SCHEMA_REJECTED",
-    );
-    await expect(saveClickUpListTarget(auth("11", false), env, "555", "23456", baseline.connectionGeneration)).rejects.toThrow(
-      "CLICKUP_SCOPE_OR_SCHEMA_REJECTED",
-    );
+    await expect(
+      saveClickUpListTarget(owner, env, "777", "23456", baseline.connectionGeneration),
+    ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    await expect(
+      saveClickUpListTarget(auth("11", false), env, "555", "23456", baseline.connectionGeneration),
+    ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     expect(selected.size).toBe(0);
-    await expect(saveClickUpListTarget(owner, env, "555", "23456", "BBBBBBBBBBBBBBBB")).rejects.toThrow("CLICKUP_TARGET_CONNECTION_CHANGED");
-    expect(await saveClickUpListTarget(owner, env, "555", "23456", baseline.connectionGeneration)).toMatchObject({
+    await expect(
+      saveClickUpListTarget(owner, env, "555", "23456", "BBBBBBBBBBBBBBBB"),
+    ).rejects.toThrow("CLICKUP_TARGET_CONNECTION_CHANGED");
+    expect(
+      await saveClickUpListTarget(owner, env, "555", "23456", baseline.connectionGeneration),
+    ).toMatchObject({
       persisted: true,
       workspace_id: "555",
       selected_list_id: "23456",
