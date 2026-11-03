@@ -38,13 +38,17 @@ if (
   parsed.hash ||
   parsed.username ||
   parsed.password ||
-  parsed.hostname.startsWith("neonsales-clickup-mcp-staging.")
+  parsed.hostname.includes("staging") ||
+  (process.env.STAGING_PUBLIC_ORIGIN !== undefined &&
+    parsed.origin === process.env.STAGING_PUBLIC_ORIGIN) ||
+  (parsed.hostname.endsWith(".workers.dev") &&
+    parsed.hostname.split(".")[0] !== "clickup-serviteur-company")
 )
   throw new Error("COMPANY_PUBLIC_ORIGIN must be the exact dedicated HTTPS Worker origin");
 if (workspace === "9012707978" || list === "901219425894")
   throw new Error("Refusing dummy Workspace/List as a company default");
 const profile = {
-  name: "neonsales-clickup-mcp-company",
+  name: "clickup-serviteur-company",
   main: "src/index.ts",
   compatibility_date: "2026-10-10",
   compatibility_flags: ["global_fetch_strictly_public"],
