@@ -181,7 +181,12 @@ export async function verifyListWorkspace(grant: ReadGrant, fetcher: typeof fetc
   // membership in its parent Space. Use ClickUp's Workspace-SCOPED shared
   // hierarchy as an independent authority, not mere List GET access.
   // Never accept items from another Workspace or a task-only share.
-  const hierarchy = await requestJson(grant, fetcher, "GET", "team/" + grant.workspaceId + "/shared");
+  const hierarchy = await requestJson(
+    grant,
+    fetcher,
+    "GET",
+    "team/" + grant.workspaceId + "/shared",
+  );
   const sharedLists = obj(hierarchy["shared"])?.["lists"];
   if (
     !Array.isArray(sharedLists) ||
