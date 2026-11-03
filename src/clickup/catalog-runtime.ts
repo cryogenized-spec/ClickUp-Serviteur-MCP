@@ -73,11 +73,13 @@ function plainBracketEscapesOnly(requested: string, stored: string): boolean {
   let count = 0;
   let unsafe = false;
   const canonical = requested.replace(
-    /\[([^\[\]\n]{1,240})\]/g,
+    /\[([^\n]{1,240}?)\]/g,
     (whole: string, text: string, index: number) => {
       const previous = requested[index - 1] ?? "";
       const following = requested[index + whole.length] ?? "";
       if (
+        text.includes("[") ||
+        text.includes("]") ||
         previous === "!" ||
         /[A-Za-z0-9_$]/.test(previous) ||
         /[A-Za-z0-9_$]/.test(following) ||
