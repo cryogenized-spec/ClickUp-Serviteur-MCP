@@ -61,42 +61,60 @@ const clip = (v: unknown): unknown => {
  * This is a narrow allowlist for independently observed plain-text annotations.
  */
 function plainBracketEscapesOnly(requested: string, stored: string): boolean {
-  if (
-    requested === stored ||
-    requested.includes("\\") ||
-    requested.includes(String.fromCharCode(96)) ||
-    /[*_<>|]/.test(requested) ||
-    /(^|\n)\s{0,3}(?:#{1,6}\s|[-+]\s|>\s|\d+[.)]\s)/.test(requested)
-  )
-    return false;
-
-  // Admit exactly ONE standalone annotation. Multiple brackets and markup
-  // constructs stay uncertain even if ClickUp may have committed the write.
-  const matches = [...requested.matchAll(/\[([^\n]{1,240}?)\]/g)];
-  if (matches.length !== 1) return false;
-  const match = matches[0]!;
-  const token = match[0];
-  const body = match[1] ?? "";
-  const offset = match.index;
-  const previous = requested[offset - 1] ?? "";
-  const following = requested[offset + token.length] ?? "";
-  if (
-    body.includes("[") ||
-    body.includes("]") ||
-    previous === "!" ||
-    /[A-Za-z0-9_$]/.test(previous) ||
-    /[A-Za-z0-9_$]/.test(following) ||
-    following === "(" ||
-    following === "[" ||
-    following === ":" ||
-    body.startsWith("^") ||
-    /^\d+$/.test(body)
-  )
-    return false;
-
-  const prefix = requested.slice(0, offset);
-  const suffix = requested.slice(offset + token.length);
-  return stored === prefix + "\\[" + body + "\\]" + suffix;
+  // The only accepted provider normalization is one complete, standalone,
+  // plain-text annotation line such as [QA note] -> \[QA note\].
+  // Any Markdown syntax or other difference remains an uncertain write.
+  const source = requested.split("\n");
+  const readback = stored.split("\n");
+  if (source.length !== readback.length) return false;
+  let confirmed = 0;
+  for (let i = 0; i < source.length; i++) {
+    const line = source[i]!;
+    const actual = readback[i]!;
+    if (
+      line.includes("\\") ||
+      line.includes(String.fromCharCode(96)) ||
+      line.includes("*") ||
+      line.includes("_") ||
+      line.includes("|") ||
+      line.includes("<") ||
+      line.includes(">") ||
+      line.includes("#") ||
+      line.includes("!") ||
+      line.includes("(") ||
+      line.includes(")") ||
+      line.includes("{") ||
+      line.includes("}") ||
+      line.includes("~") ||
+      line.includes("[") !== line.includes("]")
+    )
+      return false;
+    if (line === actual) {
+      // A second Markdown annotation, even unchanged, makes the document
+      // context ambiguous. No normalization claim in this case.
+      if (line.includes("[") || line.includes("]")) return false;
+      continue;
+    }
+    if (
+      confirmed !== 0 ||
+      line.length < 3 ||
+      line.length > 242 ||
+      !line.startsWith("[") ||
+      !line.endsWith("]")
+    )
+      return false;
+    const label = line.slice(1, -1);
+    if (!label.trim() || label.includes("[") || label.includes("]")) return false;
+    for (const character of label) {
+      const code = character.charCodeAt(0);
+      const letter = (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+      const digit = code >= 48 && code <= 57;
+      if (!letter && !digit && !"- ;:.,?/".includes(character)) return false;
+    }
+    if (actual !== "\\[" + label + "\\]") return false;
+    confirmed++;
+  }
+  return confirmed === 1;
 }
 
 function buildArgs(a: Json, key: string): Json {
