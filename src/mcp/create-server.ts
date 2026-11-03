@@ -54,7 +54,7 @@ function toolSuccess(value: Record<string, unknown>) {
 }
 
 export function createServer(deps?: ReadDependencies): McpServer {
-  const server = new McpServer({ name: "neonsales-clickup-mcp", version: "0.2.0" });
+  const server = new McpServer({ name: "clickup-serviteur-mcp", version: "0.2.0" });
 
   // Retain the historical Phase 3 diagnostic for a standalone SDK test,
   // but never misreport a configured Phase 6 Worker as Phase 3 read-only.
@@ -201,7 +201,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
     "disconnect_clickup_account",
     {
       description:
-        "Delete YOUR OWN locally stored ClickUp OAuth credential, preventing further NeonSales MCP requests on that account. This does NOT revoke the app in ClickUp itself; use ClickUp Connected Apps to revoke it there. Call only after explicit user instruction.",
+        "Delete YOUR OWN locally stored ClickUp OAuth credential, preventing further ClickUp Serviteur MCP requests on that account. This does NOT revoke the app in ClickUp itself; use ClickUp Connected Apps to revoke it there. Call only after explicit user instruction.",
       inputSchema: fromJsonSchema<Record<string, never>>({
         type: "object",
         properties: {},
@@ -303,7 +303,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
             spec.purpose +
             " Example: " +
             spec.example +
-            " This tool is not implemented in NeonSales. Do not call it for real ClickUp work; " +
+            " This tool is not implemented in ClickUp Serviteur. Do not call it for real ClickUp work; " +
             "ask for the approved implementation rather than claiming success.",
           inputSchema: fromJsonSchema<Record<string, unknown>>(spec.inputSchema),
           annotations: {
