@@ -214,6 +214,71 @@ describe("Phase 4 official SDK integration", () => {
     }
   });
 
+  it("updates an existing company task through the actual MCP protocol with an OAuth write grant", async () => {
+    const outbound = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/v2/task/task42" && init?.method === "GET")
+        return Response.json({ id: "task42", list: { id: "12345" } });
+      if (path === "/api/v2/list/12345")
+        return Response.json({ id: "12345", space: { id: "765" } });
+      if (path === "/api/v2/team/555/space")
+        return Response.json({ spaces: [{ id: "765" }] });
+      if (path === "/api/v2/task/task42" && init?.method === "PUT") {
+        expect(init?.headers).toMatchObject({ Authorization: "nonworking-personal-fixture" });
+        expect(JSON.parse(String(init.body))).toMatchObject({
+          status: "in progress",
+          priority: 2,
+          assignees: { add: [707], rem: [] },
+        });
+        return Response.json({ id: "task42", status: { status: "in progress" } });
+      }
+      throw Error("Unexpected ClickUp operation: " + (init?.method ?? "GET") + " " + path);
+    });
+    const handler = createProtocolHandler({
+      bindings: {
+        ...configuration(),
+        CLICKUP_COMPANY_PROFILE: "true",
+        CLICKUP_COMPANY_WRITE_MODE: "non_destructive",
+        CLICKUP_RESOURCE_SCOPE: "list",
+      },
+      fetcher: outbound as typeof fetch,
+    });
+    const client = new Client({ name: "company-task-edit", version: "0.1.0" });
+    const transport = new StreamableHTTPClientTransport(new URL("http://local.test/mcp"), {
+      fetch: async (input, init) =>
+        handler.fetch(new Request(input, init), {
+          authInfo: {
+            token: "test-mcp-oauth",
+            clientId: "company-client",
+            scopes: ["mcp:read", "mcp:write"],
+            extra: { subject: "github:11" },
+          },
+        }),
+    });
+    try {
+      await client.connect(transport);
+      const result = await client.callTool({
+        name: "clickup_update_task",
+        arguments: {
+          task_id: "task42",
+          changes: { status: "in progress", priority: 2, assignee_ids: ["707"] },
+        },
+      });
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({ id: "task42" });
+      expect(outbound.mock.calls.map(([input]) => new URL(String(input)).pathname)).toEqual([
+        "/api/v2/task/task42",
+        "/api/v2/list/12345",
+        "/api/v2/team/555/space",
+        "/api/v2/task/task42",
+      ]);
+      expect(outbound.mock.calls.at(-1)?.[1]?.method).toBe("PUT");
+    } finally {
+      await client.close();
+      await handler.close();
+    }
+  });
+
   it("reports verified write scope without exposing any OAuth token", async () => {
     const handler = createProtocolHandler({ bindings: configuration() });
     const client = new Client({ name: "write-scope-diagnostic", version: "0.1.0" });
