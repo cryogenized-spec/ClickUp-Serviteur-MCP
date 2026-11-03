@@ -157,12 +157,11 @@ describe("explicit per-user Workspace operations", () => {
       CLICKUP_RESOURCE_SCOPE: "workspace",
     });
     expect(restored.listId).toBe("12345");
-    expect(
-      (await clickUpConnectionStatus(owner, {
-        ...env,
-        CLICKUP_RESOURCE_SCOPE: "workspace",
-      }))["selected_list_is_override"],
-    ).toBe(false);
+    const finalStatus = await clickUpConnectionStatus(owner, {
+      ...env,
+      CLICKUP_RESOURCE_SCOPE: "workspace",
+    });
+    expect(finalStatus["selected_list_is_override"]).toBe(false);
     const other = await requireReadGrant(auth("22"), env);
     expect(other).toMatchObject({ workspaceId: "555", listId: "12345", resourceScope: "list" });
     expect(selected.get("github:22")).toBeUndefined();
