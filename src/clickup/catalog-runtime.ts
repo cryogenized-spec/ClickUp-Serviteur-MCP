@@ -54,6 +54,49 @@ const clip = (v: unknown): unknown => {
   if (typeof v === "string") return v.slice(0, 12000);
   return v;
 };
+/**
+ * ClickUp Docs can insert backslashes around standalone text brackets.
+ * Do not equate this with unchanged Markdown: links, code, tables, lists,
+ * headings, references and embedded syntax may change meaning when escaped.
+ * This is a narrow allowlist for independently observed plain-text annotations.
+ */
+function plainBracketEscapesOnly(requested: string, stored: string): boolean {
+  if (
+    requested === stored ||
+    requested.includes("\\") ||
+    requested.includes(String.fromCharCode(96)) ||
+    /[*_<>|]/.test(requested) ||
+    /(^|\n)\s{0,3}(?:#{1,6}\s|[-+]\s|>\s|\d+[.)]\s)/.test(requested)
+  )
+    return false;
+
+  let count = 0;
+  let unsafe = false;
+  const canonical = requested.replace(
+    /\[([^\[\]\n]{1,240})\]/g,
+    (whole: string, text: string, index: number) => {
+      const previous = requested[index - 1] ?? "";
+      const following = requested[index + whole.length] ?? "";
+      if (
+        previous === "!" ||
+        /[A-Za-z0-9_$]/.test(previous) ||
+        /[A-Za-z0-9_$]/.test(following) ||
+        following === "(" ||
+        following === "[" ||
+        following === ":" ||
+        text.startsWith("^") ||
+        /^\d+$/.test(text)
+      ) {
+        unsafe = true;
+        return whole;
+      }
+      count++;
+      return "\\[" + text + "\\]";
+    },
+  );
+  return count > 0 && !unsafe && canonical === stored;
+}
+
 function buildArgs(a: Json, key: string): Json {
   const b = obj(a[key]);
   if (!b) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
@@ -1242,8 +1285,7 @@ export async function runCatalogOperation(
           const stored = verified["content"];
           if (
             typeof stored === "string" &&
-            stored !== content &&
-            stored.replace(/\\([[\]])/g, "$1") === content
+            plainBracketEscapesOnly(content, stored)
           ) {
             return {
               success: true,

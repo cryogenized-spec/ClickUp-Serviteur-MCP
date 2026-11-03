@@ -1284,6 +1284,36 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     expect(calls).toEqual(["PUT", "GET"]);
   });
 
+  it("preserves uncertain writes when bracket escaping alters Markdown syntax or code", async () => {
+    const requests = [
+      "[Guide](https://example.test)",
+      "Code arr[0] value",
+      String.fromCharCode(96) + "arr[0]" + String.fromCharCode(96),
+      "![image]",
+      "# [heading]",
+      "- [x] checked",
+      "[^footnote]",
+      "[Guide][reference]",
+    ];
+    for (const content of requests) {
+      const stored = content.replace(/\[/g, "\\[").replace(/\]/g, "\\]");
+      const f = vi.fn(async (_req: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PUT")
+          return new Response("OK", { status: 200, headers: { "Content-Type": "text/plain" } });
+        return reply({ id: "page1", content: stored });
+      });
+      await expect(
+        runCatalogOperation(
+          "clickup_update_document_page",
+          { document_id: "doc1", page_id: "page1", doc_content: content },
+          makeGrant(),
+          f as typeof fetch,
+        ),
+      ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      expect(f.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1);
+    }
+  });
+
   it("does not accept other upstream Markdown transformations as exact confirmation", async () => {
     const f = vi.fn(async (_req: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "PUT")
