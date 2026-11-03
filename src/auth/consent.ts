@@ -57,15 +57,19 @@ export function renderConsentPage(
   // explicitly permits the human to select additional *supported* scopes.
   // Offer write as an optional, UNCHECKED choice; never add it invisibly.
   const scopes = [
-    ...details.scope.filter((scope) => !companyReadOnly || scope !== "mcp:write").map(
-      (scope) =>
-        '<label><input name="scope" type="checkbox" checked value="' +
-        escapeHtml(scope) +
-        '"> ' +
-        escapeHtml(scope) +
-        "</label>",
-    ),
-    ...(!companyReadOnly && details.scope.includes("mcp:read") && !details.scope.includes("mcp:write")
+    ...details.scope
+      .filter((scope) => !companyReadOnly || scope !== "mcp:write")
+      .map(
+        (scope) =>
+          '<label><input name="scope" type="checkbox" checked value="' +
+          escapeHtml(scope) +
+          '"> ' +
+          escapeHtml(scope) +
+          "</label>",
+      ),
+    ...(!companyReadOnly &&
+    details.scope.includes("mcp:read") &&
+    !details.scope.includes("mcp:write")
       ? [
           '<label><input name="scope" type="checkbox" value="mcp:write"><span>mcp:write <span class="permission-hint">Optional: create, change and delete authorized ClickUp records. Leave unchecked for read-only access.</span></span></label>',
         ]
@@ -181,7 +185,10 @@ ${loopbackWarning}
 }
 
 /** MCP OAuth distinguishes reads from mutations, without duplicating client-side tool approval. */
-export function validatedReadOnlyScopes(submitted: readonly string[], companyReadOnly = false): string[] {
+export function validatedReadOnlyScopes(
+  submitted: readonly string[],
+  companyReadOnly = false,
+): string[] {
   if (
     !submitted.includes("mcp:read") ||
     submitted.length < 1 ||
