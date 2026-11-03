@@ -1,4 +1,4 @@
-# NeonSales ClickUp MCP
+# ClickUp Serviteur MCP
 
 > **Current checkpoint — 3 November 2026 SAST:** The **custom** MCP is connected to the owner-approved **dummy** ClickUp Workspace; OAuth read/write grants and Workspace scope are enabled for that dummy identity. Multiple read routes and authorization denials have been validated live, but **not 48/48 verified**. GitHub `main` is CI-green; **the latest per-user List-target selector merged in PR #67 has not yet been manually deployed to staging**, so the connected ChatGPT tool list still lacks it. Never send company tasks through this staging profile. See the [3 November live audit](docs/MCP_LIVE_AUDIT_2026-11-03.md) and [release readiness roadmap](docs/RELEASE_READINESS_ROADMAP_2026-11-02.md).
 
@@ -12,11 +12,11 @@ A private, cloud-hosted [Model Context Protocol](https://modelcontextprotocol.io
 |---|---|
 | **ClickUp** | Task data, staff permissions, activity/history, native attribution, existing comments, updates and any recovery it natively supports |
 | **Claude / ChatGPT** | Per-tool allow/deny prompts, low-risk approvals and user-specific tool trust preferences |
-| **NeonSales MCP** | OAuth verification and account mapping, forwarding bounded ClickUp API calls under each user's own token, input validation, fixed-resource scoping and upstream ClickUp rate-limit response handling (no artificial per-user/shared request ceiling) |
+| **ClickUp Serviteur MCP** | OAuth verification and account mapping, forwarding bounded ClickUp API calls under each user's own token, input validation, fixed-resource scoping and upstream ClickUp rate-limit response handling (no artificial per-user/shared request ceiling) |
 | **Cloudflare Workers** | Permanent HTTPS remote MCP hosting and encrypted per-user credential storage |
 | **GitHub Actions** | Hosted CI and manual deployment to an isolated Cloudflare Worker; never hosts the persistent application |
 
-**There is no NeonSales activity journal, duplicate audit dashboard, rollback engine or additional per-tool approval settings.** The previously proposed journal/rollback design was rejected by the owner and removed from the current feature branch.
+**There is no Serviteur activity journal, duplicate audit dashboard, rollback engine or additional per-tool approval settings.** The previously proposed journal/rollback design was rejected by the owner and removed from the current feature branch.
 
 ## Implemented server tools
 
@@ -49,9 +49,9 @@ The separate **48-capability model-facing schema catalogue** is descriptive, but
 
 ## Deployment — cloud only
 
-1. Review and merge the stacked draft PRs in dependency order, preserving all OAuth and strict CI changes: [#17](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/pull/17) → [#18](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/pull/18) → [#20](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/pull/20) → [#21](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/pull/21) → [#22](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/pull/22) → [#23](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/pull/23). Their earlier Phase 3 bases must also be reconciled into `main` first. Alternative schema PR #19 is **not** part of this stack. Never merge merely because a unit test passed.
+1. Review and merge the stacked draft PRs in dependency order, preserving all OAuth and strict CI changes: [#17](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/17) → [#18](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/18) → [#20](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/20) → [#21](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/21) → [#22](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/22) → [#23](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/23). Their earlier Phase 3 bases must also be reconciled into `main` first. Alternative schema PR #19 is **not** part of this stack. Never merge merely because a unit test passed.
 2. Follow [Phase 5 individual OAuth and cloud-only setup](docs/PHASE5_USER_OAUTH_AND_CLOUD_CI.md): configure independent GitHub OAuth and ClickUp OAuth apps, the exact HTTPS callback origin, a dedicated staging KV, the required SQLite Durable Objects and per-user account mapping. Secrets belong in GitHub's protected staging environment and Cloudflare Worker Secrets, **not** in the repository, laptop or chat.
-3. Run [Deploy NeonSales MCP staging](.github/workflows/deploy-staging.yml) manually on reviewed `main` via GitHub Actions. This runs tests and uses a pinned Wrangler to deploy an isolated Cloudflare staging Worker. It does **not** require a local laptop service.
+3. Run [Deploy ClickUp Serviteur MCP staging](.github/workflows/deploy-staging.yml) manually on reviewed `main` via GitHub Actions. This runs tests and uses a pinned Wrangler to deploy an isolated Cloudflare staging Worker. It does **not** require a local laptop service.
 4. Only enable `CLICKUP_OAUTH_ENABLED` and `CLICKUP_LIVE_ENABLED` after owner-approved staging setup, appropriate ClickUp List and individual user grants. Each employee completes their own ClickUp consent. Confirm real user attribution in ClickUp's native Activity and verify read/write restrictions on a disposable test List before operational rollout.
 
 ## Adversarial testing

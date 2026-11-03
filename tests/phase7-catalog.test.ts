@@ -20,13 +20,14 @@ const makeGrant = (
   },
 });
 const makeListGrant = (): ReadGrant => ({ ...makeGrant(), resourceScope: "list" });
+const makeCompanyListGrant = (): ReadGrant => ({ ...makeListGrant(), companyListTaskAccess: true });
 const reply = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "Content-Type": "application/json" } });
 const fixture = (path: string) => {
   if (path === "/api/v2/list/12345") return { id: "12345", space: { id: "777" } };
   if (path === "/api/v2/list/99999") return { id: "99999", space: { id: "888" } };
   if (path === "/api/v2/list/12346") return { id: "12346", space: { id: "777" } };
-  if (path === "/api/v2/team/555/space") return { spaces: [{ id: "777", name: "NeonSales" }] };
+  if (path === "/api/v2/team/555/space") return { spaces: [{ id: "777", name: "Operations" }] };
   if (path === "/api/v2/task/abc123") return { id: "abc123", list: { id: "12345" }, name: "Order" };
   return { id: "new123", name: "Test" };
 };
@@ -136,6 +137,283 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       "/api/v2/team/555/space",
       "/api/v2/list/12345/task",
     ]);
+  });
+
+  it("accepts direct company List sharing consistently for catalogue reads", async () => {
+    const requests: string[] = [];
+    const f = vi.fn(async (req: RequestInfo | URL) => {
+      const path = new URL(String(req)).pathname;
+      requests.push(path);
+      if (path === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
+      if (path === "/api/v2/team/555/space") return reply({ spaces: [] });
+      if (path === "/api/v2/team/555/shared")
+        return reply({ shared: { lists: [{ id: "12345" }], tasks: [] } });
+      if (path === "/api/v2/task/abc123")
+        return reply({ id: "abc123", list: { id: "12345" }, name: "Order" });
+      if (path === "/api/v2/list/12345/task")
+        return reply({
+          tasks: [
+            {
+              id: "abc123",
+              name: "Order",
+              list: { id: "12345" },
+              custom_item_id: 9,
+              tags: [{ name: "QC" }],
+            },
+          ],
+        });
+      throw Error("Unexpected out-of-scope API request: " + path);
+    });
+    const g = makeListGrant();
+    const listing = await runCatalogOperation(
+      "clickup_get_list",
+      { list_id: "12345", include_custom_fields: false },
+      g,
+      f as typeof fetch,
+    );
+    expect(listing["id"]).toBe("12345");
+    const task = await runCatalogOperation(
+      "clickup_get_task",
+      { task_id: "abc123" },
+      g,
+      f as typeof fetch,
+    );
+    expect(task["id"]).toBe("abc123");
+    const search = await runCatalogOperation(
+      "clickup_search_workspace",
+      { query: "Order" },
+      g,
+      f as typeof fetch,
+    );
+    expect(search["tasks"]).toHaveLength(1);
+    const byTag = await runCatalogOperation(
+      "clickup_search_tasks_by_tag",
+      { tag: "QC" },
+      g,
+      f as typeof fetch,
+    );
+    expect(byTag["tasks"]).toHaveLength(1);
+    const byType = await runCatalogOperation(
+      "clickup_search_tasks_by_type",
+      { task_type: 9 },
+      g,
+      f as typeof fetch,
+    );
+    expect(byType["tasks"]).toHaveLength(1);
+    expect(requests.filter((path) => path === "/api/v2/team/555/shared")).toHaveLength(5);
+  });
+
+  it("edits a directly shared company List task, including status, assignees, priority and due time", async () => {
+    const requests: Array<{ path: string; method: string; body: unknown }> = [];
+    const f = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      const method = init?.method ?? "GET";
+      requests.push({
+        path,
+        method,
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+      if (path === "/api/v2/task/abc123" && method === "GET")
+        return reply({ id: "abc123", list: { id: "12345" }, name: "Old title" });
+      if (path === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
+      if (path === "/api/v2/team/555/space") return reply({ spaces: [] });
+      if (path === "/api/v2/team/555/shared")
+        return reply({ shared: { lists: [{ id: "12345" }], tasks: [] } });
+      if (path === "/api/v2/task/abc123" && method === "PUT")
+        return reply({ id: "abc123", name: "Updated task", status: { status: "in progress" } });
+      throw Error("Unexpected request: " + method + " " + path);
+    });
+    const due = Date.parse("2026-11-06T13:45:00.000Z");
+    const result = await runCatalogOperation(
+      "clickup_update_task",
+      {
+        task_id: "abc123",
+        changes: {
+          name: "Updated task",
+          status: "in progress",
+          priority: 2,
+          due_date_ms: due,
+          assignee_ids: ["707"],
+        },
+      },
+      makeCompanyListGrant(),
+      f as typeof fetch,
+    );
+    expect(result).toMatchObject({ id: "abc123", name: "Updated task" });
+    expect(requests.map((call) => call.path)).toEqual([
+      "/api/v2/task/abc123",
+      "/api/v2/list/12345",
+      "/api/v2/team/555/space",
+      "/api/v2/team/555/shared",
+      "/api/v2/task/abc123",
+    ]);
+    expect(requests.at(-1)).toMatchObject({
+      method: "PUT",
+      body: {
+        name: "Updated task",
+        status: "in progress",
+        priority: 2,
+        due_date: due,
+        due_date_time: true,
+        assignees: { add: [707], rem: [] },
+      },
+    });
+    expect(
+      f.mock.calls.every(
+        ([, init]) => (init?.headers as Record<string, string>)["Authorization"] === "person-707",
+      ),
+    ).toBe(true);
+  });
+
+  it("allows company List task comments, tag changes, custom fields and bulk updates", async () => {
+    const requests: Array<{ path: string; method: string }> = [];
+    const f = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      const method = init?.method ?? "GET";
+      requests.push({ path, method });
+      if (path === "/api/v2/task/abc123" && method === "GET")
+        return reply({ id: "abc123", list: { id: "12345" } });
+      if (path === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
+      if (path === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
+      if (path === "/api/v2/list/12345/field")
+        return reply({ fields: [{ id: "custom11", type: "text" }] });
+      if (path === "/api/v2/task/abc123/comment" && method === "POST")
+        return reply({ id: "comment1" });
+      if (path === "/api/v2/task/abc123/comment" && method === "GET")
+        return reply({ comments: [{ id: "comment1" }] });
+      if (path === "/api/v2/task/abc123/field/custom11" && method === "POST")
+        return reply({ success: true });
+      if (path === "/api/v2/task/abc123/tag/Reviewed" && method === "POST")
+        return reply({ success: true });
+      if (path === "/api/v2/task/abc123" && method === "PUT")
+        return reply({ id: "abc123", name: "Renamed" });
+      throw Error("Unexpected request: " + method + " " + path);
+    });
+    const g = makeCompanyListGrant();
+    await runCatalogOperation(
+      "clickup_create_task_comment",
+      { task_id: "abc123", text: "Progress reviewed" },
+      g,
+      f as typeof fetch,
+    );
+    await runCatalogOperation(
+      "clickup_add_tag_to_task",
+      { task_id: "abc123", tag: "Reviewed" },
+      g,
+      f as typeof fetch,
+    );
+    await runCatalogOperation(
+      "clickup_set_custom_field",
+      {
+        task_id: "abc123",
+        field_id: "custom11",
+        field_value: { text: "Approved" },
+      },
+      g,
+      f as typeof fetch,
+    );
+    const bulk = await runCatalogOperation(
+      "clickup_update_bulk_tasks",
+      {
+        task_updates: [{ task_id: "abc123", changes: { name: "Renamed" } }],
+      },
+      g,
+      f as typeof fetch,
+    );
+    expect(bulk["partial"]).toBe(false);
+    const comments = await runCatalogOperation(
+      "clickup_get_task_comments",
+      { task_id: "abc123" },
+      g,
+      f as typeof fetch,
+    );
+    expect(comments["comments"]).toHaveLength(1);
+    expect(requests.filter((item) => item.method === "PUT")).toHaveLength(1);
+    expect(requests.filter((item) => item.method === "POST")).toHaveLength(3);
+    expect(
+      requests.filter((item) => item.path === "/api/v2/task/abc123" && item.method === "GET"),
+    ).toHaveLength(5);
+    expect(requests.every((item) => item.method !== "DELETE")).toBe(true);
+  });
+
+  it("rejects foreign-home edits before any ClickUp write, including company List mode", async () => {
+    const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method !== "GET") throw Error("A foreign task must never be mutated");
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/v2/task/foreign") return reply({ id: "foreign", list: { id: "99999" } });
+      return reply({ id: "99999", space: { id: "888" } });
+    });
+    await expect(
+      runCatalogOperation(
+        "clickup_update_task",
+        { task_id: "foreign", changes: { status: "done" } },
+        makeCompanyListGrant(),
+        api as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    await expect(
+      runCatalogOperation(
+        "clickup_update_task",
+        { task_id: "abc123", changes: { status: "done" } },
+        makeListGrant(),
+        api as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
+    expect(api.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
+  });
+
+  it("rejects unrelated or task-only shares and cannot expand the configured List", async () => {
+    for (const shared of [
+      { lists: [{ id: "99999" }] },
+      { lists: [], tasks: [{ id: "abc123" }] },
+      { lists: "12345" },
+      null,
+    ]) {
+      const f = vi.fn(async (req: RequestInfo | URL) => {
+        const path = new URL(String(req)).pathname;
+        if (path === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
+        if (path === "/api/v2/team/555/space") return reply({ spaces: [] });
+        if (path === "/api/v2/team/555/shared") return reply({ shared });
+        if (path === "/api/v2/task/abc123") return reply({ id: "abc123", list: { id: "12345" } });
+        throw Error("Should fail before reading task list");
+      });
+      await expect(
+        runCatalogOperation(
+          "clickup_get_list",
+          { list_id: "12345" },
+          makeListGrant(),
+          f as typeof fetch,
+        ),
+      ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      await expect(
+        runCatalogOperation(
+          "clickup_get_task",
+          { task_id: "abc123" },
+          makeListGrant(),
+          f as typeof fetch,
+        ),
+      ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      await expect(
+        runCatalogOperation(
+          "clickup_search_workspace",
+          { query: "Order" },
+          makeListGrant(),
+          f as typeof fetch,
+        ),
+      ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    }
+    const f = vi.fn(async () => {
+      throw Error("Unexpected OAuth fetch");
+    });
+    await expect(
+      runCatalogOperation(
+        "clickup_get_list",
+        { list_id: "99999" },
+        makeListGrant(),
+        f as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    expect(f).not.toHaveBeenCalled();
   });
 
   it("requires explicit Workspace authority for out-of-List actions", async () => {

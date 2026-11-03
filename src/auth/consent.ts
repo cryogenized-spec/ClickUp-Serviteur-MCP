@@ -1,4 +1,4 @@
-import { chatGptGlyph, claudeGlyph, neonSalesMcpBadgeDataUri } from "./brand-assets.js";
+import { chatGptGlyph, claudeGlyph } from "./brand-assets.js";
 
 interface ConsentDisplay {
   readonly clientName: string;
@@ -42,7 +42,12 @@ function escapeHtml(text: string): string {
 }
 
 /** Browser binding, CSRF and frame headers are supplied by beginConsent(); this escapes the page. */
-export function renderConsentPage(details: ConsentDisplay, handle: string): string {
+export function renderConsentPage(
+  details: ConsentDisplay,
+  handle: string,
+  companyReadOnly = false,
+  companyNonDestructive = false,
+): string {
   const name = escapeHtml(details.clientName);
   const origin = details.clientDomain
     ? "Published by " + escapeHtml(details.clientDomain) + "."
@@ -53,17 +58,21 @@ export function renderConsentPage(details: ConsentDisplay, handle: string): stri
   // explicitly permits the human to select additional *supported* scopes.
   // Offer write as an optional, UNCHECKED choice; never add it invisibly.
   const scopes = [
-    ...details.scope.map(
-      (scope) =>
-        '<label><input name="scope" type="checkbox" checked value="' +
-        escapeHtml(scope) +
-        '"> ' +
-        escapeHtml(scope) +
-        "</label>",
-    ),
-    ...(details.scope.includes("mcp:read") && !details.scope.includes("mcp:write")
+    ...details.scope
+      .filter((scope) => !companyReadOnly || scope !== "mcp:write")
+      .map(
+        (scope) =>
+          '<label><input name="scope" type="checkbox" checked value="' +
+          escapeHtml(scope) +
+          '"> ' +
+          escapeHtml(scope) +
+          "</label>",
+      ),
+    ...(!companyReadOnly &&
+    details.scope.includes("mcp:read") &&
+    !details.scope.includes("mcp:write")
       ? [
-          '<label><input name="scope" type="checkbox" value="mcp:write"><span>mcp:write <span class="permission-hint">Optional: create, change and delete authorized ClickUp records. Leave unchecked for read-only access.</span></span></label>',
+          `<label><input name="scope" type="checkbox" value="mcp:write"><span>mcp:write <span class="permission-hint">${companyNonDestructive ? "Optional: create and edit authorized ClickUp records only. Deletion and destructive actions are disabled by the server." : "Optional: create, change and delete authorized ClickUp records. Leave unchecked for read-only access."}</span></span></label>`,
         ]
       : []),
   ].join("\n");
@@ -78,7 +87,7 @@ export function renderConsentPage(details: ConsentDisplay, handle: string): stri
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex,nofollow">
-<title>Review connection · NeonSales</title>
+<title>Review connection · ClickUp Serviteur</title>
 <style>
 :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color-scheme:dark;font-synthesis:none;background:#080e1b;color:#f6f8ff}
 *{box-sizing:border-box}
@@ -99,7 +108,7 @@ main{flex:1;display:flex;align-items:center;padding:8px 0 32px}
 .connection-tile{display:grid;place-items:center;width:92px;height:92px;border:1px solid #3a5277;border-radius:22px;background:#091428;box-shadow:0 12px 26px #0003}
 .connection-tile svg{width:49px;height:49px;color:#f8fbff}
 .connection-tile.mcp{background:radial-gradient(ellipse at center,#1a3e77 0%,#091428 74%)}
-.connection-tile img{width:78px;height:78px;object-fit:contain;display:block}
+.serviteur-mark{font-size:46px;font-weight:900;letter-spacing:-.08em;color:#a8d0ff}
 .connection-arrows{display:grid;place-items:center;color:#85b9ff;padding-bottom:24px}
 .connection-arrows svg{width:35px;height:35px;overflow:visible}
 .hero-icon{margin-top:25px;width:54px;height:54px;border-radius:16px;display:grid;place-items:center;background:#1a3561;border:1px solid #3b6096;color:#a8d0ff}
@@ -132,22 +141,22 @@ h1{font-size:clamp(26px,5vw,32px);line-height:1.16;letter-spacing:-.035em;margin
 .disclaimer{border-top:1px solid #293b56;margin-top:25px;padding-top:17px;display:flex;gap:10px;align-items:flex-start;color:#92a5c4;font-size:11px;line-height:1.65}
 .disclaimer svg{flex:none;margin-top:2px}
 .footer{padding:0 0 24px;text-align:center;color:#7187a8;font-size:11px}
-@media(max-width:520px){.masthead{padding:20px 0 12px}.card{padding:23px 19px;border-radius:17px}.detail{display:block}.detail-value{text-align:left;margin-top:5px}.detail-title{min-width:0}.hero-icon{margin-top:20px}.connection-flow{grid-template-columns:minmax(0,1fr) 38px minmax(0,1fr);gap:4px}.connection-tile{width:76px;height:76px;border-radius:18px}.connection-tile img{width:66px;height:66px}.connection-tile svg{width:42px;height:42px}.connection-arrows svg{width:28px;height:28px}.environment{font-size:9px}}
+@media(max-width:520px){.masthead{padding:20px 0 12px}.card{padding:23px 19px;border-radius:17px}.detail{display:block}.detail-value{text-align:left;margin-top:5px}.detail-title{min-width:0}.hero-icon{margin-top:20px}.connection-flow{grid-template-columns:minmax(0,1fr) 38px minmax(0,1fr);gap:4px}.connection-tile{width:76px;height:76px;border-radius:18px}.serviteur-mark{font-size:38px}.connection-tile svg{width:42px;height:42px}.connection-arrows svg{width:28px;height:28px}.environment{font-size:9px}}
 @media(prefers-reduced-motion:reduce){.actions button{transition:none}}
 </style>
 </head>
 <body>
 <header class="page masthead">
-<div class="brand"><span class="brand-mark" aria-hidden="true">N</span><span>NEONSALES</span></div>
-<span class="environment">MCP · STAGING</span>
+<div class="brand"><span class="brand-mark" aria-hidden="true">S</span><span>CLICKUP SERVITEUR</span></div>
+<span class="environment">MCP · ${companyReadOnly ? "READ ONLY" : companyNonDestructive ? "READ / WRITE" : "STAGING"}</span>
 </header>
 <main class="page">
 <section class="card" aria-labelledby="consent-heading">
 <div class="eyebrow">Secure authorization</div>
-<div class="connection-flow" role="group" aria-label="Client application connects to NeonSales ClickUp MCP Staging">
+<div class="connection-flow" role="group" aria-label="Client application connects to ClickUp Serviteur MCP">
 <div class="connection-endpoint"><div class="connection-tile" aria-hidden="true">${clientGlyph}</div><span>${name}</span></div>
 <div class="connection-arrows" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13h25m0 0-7-7m7 7-7 7M31 24H6m0 0 7-7m-7 7 7 7"/></svg></div>
-<div class="connection-endpoint"><div class="connection-tile mcp"><img width="78" height="78" src="${neonSalesMcpBadgeDataUri}" alt=""></div><span>NeonSales MCP</span></div>
+<div class="connection-endpoint"><div class="connection-tile mcp"><span class="serviteur-mark" aria-hidden="true">S</span></div><span>ClickUp Serviteur MCP</span></div>
 </div>
 <h1 id="consent-heading">Allow ${name} to connect?</h1>
 <p class="intro">Review the application, destination, and requested permission before continuing.</p>
@@ -158,7 +167,7 @@ h1{font-size:clamp(26px,5vw,32px);line-height:1.16;letter-spacing:-.035em;margin
 <p class="publisher">${origin}</p>
 ${loopbackWarning}
 <h2 class="permissions-title" id="permissions-heading">Requested permission</h2>
-<p class="permissions-intro">Review the permission requested by your client. Optional write access is not enabled unless you explicitly check it. Per-tool approvals are handled by your client.</p>
+<p class="permissions-intro">${companyReadOnly ? "This connection is read-only. Creating, changing and deleting ClickUp records is disabled by the server." : companyNonDestructive ? "This work connection permits explicitly approved creation and edits within your authorized scope. Deletion, removal, moves and other destructive actions are blocked by the server. Optional write permission is not enabled without your consent." : "Review the permission requested by your client. Optional write access is not enabled unless you explicitly check it. Per-tool approvals are handled by your client."}</p>
 <form method="post" action="/authorize" aria-labelledby="permissions-heading">
 <input type="hidden" name="handle" value="${escapeHtml(handle)}">
 <div class="permission-list">${scopes}</div>
@@ -171,19 +180,23 @@ ${loopbackWarning}
 <div class="disclaimer"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.5"/></svg><span>Authorization grants access to the capabilities shown above. Never approve a request you do not recognize.</span></div>
 </section>
 </main>
-<footer class="footer page">NeonSales ClickUp MCP · Secure staging environment</footer>
+<footer class="footer page">ClickUp Serviteur MCP · ${companyReadOnly ? "Read-only work connection" : companyNonDestructive ? "Non-destructive work connection" : "Secure staging environment"}</footer>
 </body>
 </html>`;
 }
 
 /** MCP OAuth distinguishes reads from mutations, without duplicating client-side tool approval. */
-export function validatedReadOnlyScopes(submitted: readonly string[]): string[] {
+export function validatedReadOnlyScopes(
+  submitted: readonly string[],
+  companyReadOnly = false,
+): string[] {
   if (
     !submitted.includes("mcp:read") ||
     submitted.length < 1 ||
     submitted.length > 2 ||
     new Set(submitted).size !== submitted.length ||
-    submitted.some((scope) => scope !== "mcp:read" && scope !== "mcp:write")
+    submitted.some((scope) => scope !== "mcp:read" && scope !== "mcp:write") ||
+    (companyReadOnly && submitted.includes("mcp:write"))
   ) {
     throw new Error("Invalid MCP consent scope");
   }

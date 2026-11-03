@@ -9,6 +9,8 @@ export interface ReadGrant {
   readonly connectionGeneration?: string | null;
   /** Explicit owner-controlled catalogue authority; unset is legacy single-List. */
   readonly resourceScope?: "list" | "workspace";
+  /** Runtime-proven company List-only mode; permits preflight-verified task edits. */
+  readonly companyListTaskAccess?: boolean;
   readonly workspaceId: string;
   readonly apiToken: string;
   readonly quota: {
@@ -109,14 +111,93 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
     listId: effectiveScope === "workspace" ? (user.selectedListId ?? listId) : listId,
     connectionGeneration: user.connectionGeneration,
     resourceScope: effectiveScope,
+    companyListTaskAccess:
+      env["CLICKUP_COMPANY_PROFILE"] === "true" &&
+      env["CLICKUP_COMPANY_WRITE_MODE"] === "non_destructive" &&
+      effectiveScope === "list",
     workspaceId: user.workspaceId,
     apiToken: user.token,
     quota: quota as unknown as ReadGrant["quota"],
   };
 }
 
-/** OAuth write scope: the AI client owns its tool-by-tool permission settings. */
-export async function requireWriteGrant(auth: unknown, bindings: unknown): Promise<ReadGrant> {
+/**
+ * Explicit company-only, non-destructive mutation policy. This list does not
+ * grant Workspace rights. Task-ID edits are allowed only after a verified
+ * home-List preflight using the connected employee's own OAuth permission.
+ *
+ * Deletions, removals, moves, document-content replacement and authority
+ * expansion are deliberately absent. Every name must be reviewed individually.
+ */
+export const COMPANY_SAFE_WRITE_OPERATIONS: ReadonlySet<string> = new Set([
+  "create_scoped_task",
+  "clickup_create_task",
+  "clickup_create_bulk_tasks",
+  "clickup_update_task",
+  "clickup_set_custom_field",
+  "clickup_update_bulk_tasks",
+  "clickup_attach_file_to_task",
+  "clickup_create_task_comment",
+  "clickup_add_tag_to_task",
+  "clickup_add_task_link",
+  "clickup_add_dependency",
+  "clickup_start_time_tracking",
+  "clickup_stop_time_tracking",
+  "clickup_add_time_entry",
+  "clickup_create_list",
+  "clickup_create_list_in_folder",
+  "clickup_update_list",
+  "clickup_create_folder",
+  "clickup_update_folder",
+  "clickup_send_chat_message",
+  "clickup_create_document",
+  "clickup_create_document_page",
+]);
+
+/**
+ * Operations whose target task (and any second task) is checked against the
+ * configured List immediately before access. No cross-List write or Workspace
+ * authority is implied. Existing task fields, comments and assignments are
+ * ordinary edits, not destructive actions.
+ */
+export const COMPANY_LIST_TASK_OPERATIONS: ReadonlySet<string> = new Set([
+  "clickup_create_task",
+  "clickup_create_bulk_tasks",
+  "clickup_update_task",
+  "clickup_set_custom_field",
+  "clickup_update_bulk_tasks",
+  "clickup_attach_file_to_task",
+  "clickup_create_task_comment",
+  "clickup_add_tag_to_task",
+  "clickup_add_task_link",
+  "clickup_add_dependency",
+  "clickup_start_time_tracking",
+  "clickup_add_time_entry",
+  "clickup_get_task_comments",
+  "clickup_get_threaded_replies",
+  "clickup_get_task_time_entries",
+  "clickup_get_task_time_in_status",
+]);
+
+export function isCompanyNonDestructiveOperation(name: string): boolean {
+  return COMPANY_SAFE_WRITE_OPERATIONS.has(name);
+}
+
+/** Enforced before obtaining the per-user token, including direct MCP calls. */
+export async function requireWriteGrant(
+  auth: unknown,
+  bindings: unknown,
+  operation?: string,
+): Promise<ReadGrant> {
+  const env = record(bindings);
+  if (env?.["CLICKUP_COMPANY_READ_ONLY"] === "true")
+    throw new ReadFailure("CLICKUP_COMPANY_WRITE_DISABLED");
+  if (env?.["CLICKUP_COMPANY_PROFILE"] === "true") {
+    if (env["CLICKUP_COMPANY_WRITE_MODE"] !== "non_destructive")
+      throw new ReadFailure("CLICKUP_COMPANY_WRITE_DISABLED");
+    if (!operation || !isCompanyNonDestructiveOperation(operation))
+      throw new ReadFailure("CLICKUP_COMPANY_OPERATION_DISABLED");
+  }
   const details = record(auth);
   const scopes = details?.["scopes"];
   if (!Array.isArray(scopes) || !scopes.includes("mcp:write")) {

@@ -142,6 +142,142 @@ describe("Phase 4 official SDK integration", () => {
     }
   });
 
+  it("exposes List-bound company task creation and editing while withholding destructive tools", async () => {
+    const outbound = vi.fn(async () => {
+      throw Error("No real company requests permitted in this test");
+    });
+    const handler = createProtocolHandler({
+      bindings: {
+        ...configuration(),
+        CLICKUP_COMPANY_PROFILE: "true",
+        CLICKUP_COMPANY_WRITE_MODE: "non_destructive",
+        CLICKUP_RESOURCE_SCOPE: "list",
+      },
+      fetcher: outbound as typeof fetch,
+    });
+    const client = new Client({ name: "company-safe-tools", version: "0.1.0" });
+    const transport = new StreamableHTTPClientTransport(new URL("http://local.test/mcp"), {
+      fetch: async (input, init) =>
+        handler.fetch(new Request(input, init), {
+          authInfo: {
+            token: "synthetic-mcp-token",
+            clientId: "test",
+            scopes: ["mcp:read", "mcp:write"],
+            extra: { subject: "github:11" },
+          },
+        }),
+    });
+    try {
+      await client.connect(transport);
+      const tools = (await client.listTools()).tools;
+      const names = tools.map((tool) => tool.name);
+      for (const name of [
+        "create_scoped_task",
+        "clickup_create_task",
+        "clickup_create_bulk_tasks",
+        "clickup_update_task",
+        "clickup_set_custom_field",
+        "clickup_update_bulk_tasks",
+        "clickup_create_task_comment",
+        "clickup_attach_file_to_task",
+        "clickup_add_tag_to_task",
+        "clickup_add_dependency",
+      ]) {
+        expect(names).toContain(name);
+        expect(tools.find((tool) => tool.name === name)?.annotations?.destructiveHint).toBe(false);
+      }
+      for (const name of [
+        "clickup_delete_task",
+        "clickup_remove_tag_from_task",
+        "clickup_remove_dependency",
+        "clickup_move_task_to_list",
+        "clickup_update_document_page",
+        "clickup_set_workspace_access",
+        "clickup_select_target",
+      ])
+        expect(names).not.toContain(name);
+      expect(
+        (await client.callTool({ name: "service_info", arguments: {} })).structuredContent,
+      ).toMatchObject({
+        company_write_mode: "non_destructive",
+        destructive_actions_enabled: false,
+      });
+      const page = await client.callTool({
+        name: "clickup_tool_catalog",
+        arguments: { group: "tasks", max_results: 20 },
+      });
+      expect(JSON.stringify(page.structuredContent)).toContain("company_disabled");
+      expect(outbound).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+      await handler.close();
+    }
+  });
+
+  it("updates an existing company task through the actual MCP protocol with an OAuth write grant", async () => {
+    const outbound = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/v2/task/task42" && init?.method === "GET")
+        return Response.json({ id: "task42", list: { id: "12345" } });
+      if (path === "/api/v2/list/12345")
+        return Response.json({ id: "12345", space: { id: "765" } });
+      if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "765" }] });
+      if (path === "/api/v2/task/task42" && init?.method === "PUT") {
+        expect(init?.headers).toMatchObject({ Authorization: "nonworking-personal-fixture" });
+        expect(JSON.parse(String(init.body))).toMatchObject({
+          status: "in progress",
+          priority: 2,
+          assignees: { add: [707], rem: [] },
+        });
+        return Response.json({ id: "task42", status: { status: "in progress" } });
+      }
+      throw Error("Unexpected ClickUp operation: " + (init?.method ?? "GET") + " " + path);
+    });
+    const handler = createProtocolHandler({
+      bindings: {
+        ...configuration(),
+        CLICKUP_COMPANY_PROFILE: "true",
+        CLICKUP_COMPANY_WRITE_MODE: "non_destructive",
+        CLICKUP_RESOURCE_SCOPE: "list",
+      },
+      fetcher: outbound as typeof fetch,
+    });
+    const client = new Client({ name: "company-task-edit", version: "0.1.0" });
+    const transport = new StreamableHTTPClientTransport(new URL("http://local.test/mcp"), {
+      fetch: async (input, init) =>
+        handler.fetch(new Request(input, init), {
+          authInfo: {
+            token: "test-mcp-oauth",
+            clientId: "company-client",
+            scopes: ["mcp:read", "mcp:write"],
+            extra: { subject: "github:11" },
+          },
+        }),
+    });
+    try {
+      await client.connect(transport);
+      const result = await client.callTool({
+        name: "clickup_update_task",
+        arguments: {
+          task_id: "task42",
+          changes: { status: "in progress", priority: 2, assignee_ids: ["707"] },
+        },
+      });
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({ id: "task42" });
+      expect(outbound.mock.calls.map(([input]) => new URL(String(input)).pathname)).toEqual([
+        "/api/v2/task/task42",
+        "/api/v2/list/12345",
+        "/api/v2/team/555/space",
+        "/api/v2/task/task42",
+      ]);
+      expect(outbound.mock.calls.at(-1)?.[1]?.method).toBe("PUT");
+    } finally {
+      await client.close();
+      await handler.close();
+    }
+  });
+
   it("reports verified write scope without exposing any OAuth token", async () => {
     const handler = createProtocolHandler({ bindings: configuration() });
     const client = new Client({ name: "write-scope-diagnostic", version: "0.1.0" });
@@ -266,6 +402,7 @@ describe("Phase 4 official SDK integration", () => {
       if (options?.method === "POST") throw new Error("FORBIDDEN_WRITE");
       if (target.endsWith("/list/12345")) return Response.json({ id: "12345", space: { id: 999 } });
       if (target.includes("/team/555/space")) return Response.json({ spaces: [{ id: 765 }] });
+      if (target.endsWith("/team/555/shared")) return Response.json({ shared: { lists: [] } });
       throw new Error("unexpected request");
     });
     const handler = createProtocolHandler({
@@ -292,7 +429,7 @@ describe("Phase 4 official SDK integration", () => {
       });
       expect(result.isError).toBe(true);
       expect(JSON.stringify(result.content)).toContain("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      expect(outbound).toHaveBeenCalledTimes(2);
+      expect(outbound).toHaveBeenCalledTimes(3);
       expect(outbound.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
       const names = (await client.listTools()).tools.map((tool) => tool.name);
       expect(names).not.toContain("update_scoped_task");
