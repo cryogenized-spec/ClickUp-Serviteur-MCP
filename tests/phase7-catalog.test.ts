@@ -330,7 +330,9 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     expect(comments["comments"]).toHaveLength(1);
     expect(requests.filter((item) => item.method === "PUT")).toHaveLength(1);
     expect(requests.filter((item) => item.method === "POST")).toHaveLength(3);
-    expect(requests.filter((item) => item.path === "/api/v2/task/abc123")).toHaveLength(5);
+    expect(
+      requests.filter((item) => item.path === "/api/v2/task/abc123" && item.method === "GET"),
+    ).toHaveLength(5);
     expect(requests.every((item) => item.method !== "DELETE")).toBe(true);
   });
 
