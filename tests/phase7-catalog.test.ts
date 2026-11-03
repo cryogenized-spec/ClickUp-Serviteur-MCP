@@ -26,7 +26,7 @@ const fixture = (path: string) => {
   if (path === "/api/v2/list/12345") return { id: "12345", space: { id: "777" } };
   if (path === "/api/v2/list/99999") return { id: "99999", space: { id: "888" } };
   if (path === "/api/v2/list/12346") return { id: "12346", space: { id: "777" } };
-  if (path === "/api/v2/team/555/space") return { spaces: [{ id: "777", name: "NeonSales" }] };
+  if (path === "/api/v2/team/555/space") return { spaces: [{ id: "777", name: "Operations" }] };
   if (path === "/api/v2/task/abc123") return { id: "abc123", list: { id: "12345" }, name: "Order" };
   return { id: "new123", name: "Test" };
 };
