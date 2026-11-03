@@ -1,4 +1,4 @@
-# AGENTS.md — NeonSales ClickUp MCP
+# AGENTS.md — ClickUp Serviteur MCP
 <!-- Root-level instructions; nested AGENTS.md, if added, may provide stricter local guidance. -->
 <!-- Open format: https://agents.md; cross-vendor, not OpenAI-exclusive. -->
 
