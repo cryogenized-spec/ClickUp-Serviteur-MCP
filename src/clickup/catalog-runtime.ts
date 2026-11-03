@@ -1250,7 +1250,7 @@ export async function runCatalogOperation(
               source: "clickup-api",
               verified_by_readback: true,
               provider_normalized: true,
-              warning: "ClickUp escaped Markdown brackets; stored content differs from submitted text.",
+              warning: "ClickUp escaped Markdown brackets; saved text differs.",
             };
           }
         } catch {
