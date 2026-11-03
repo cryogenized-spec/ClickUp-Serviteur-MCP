@@ -70,33 +70,33 @@ function plainBracketEscapesOnly(requested: string, stored: string): boolean {
   )
     return false;
 
-  let count = 0;
-  let unsafe = false;
-  const canonical = requested.replace(
-    /\[([^\n]{1,240}?)\]/g,
-    (whole: string, text: string, index: number) => {
-      const previous = requested[index - 1] ?? "";
-      const following = requested[index + whole.length] ?? "";
-      if (
-        text.includes("[") ||
-        text.includes("]") ||
-        previous === "!" ||
-        /[A-Za-z0-9_$]/.test(previous) ||
-        /[A-Za-z0-9_$]/.test(following) ||
-        following === "(" ||
-        following === "[" ||
-        following === ":" ||
-        text.startsWith("^") ||
-        /^\d+$/.test(text)
-      ) {
-        unsafe = true;
-        return whole;
-      }
-      count++;
-      return "\\[" + text + "\\]";
-    },
-  );
-  return count > 0 && !unsafe && canonical === stored;
+  // Admit exactly ONE standalone annotation. Multiple brackets and markup
+  // constructs stay uncertain even if ClickUp may have committed the write.
+  const matches = [...requested.matchAll(/\[([^\n]{1,240}?)\]/g)];
+  if (matches.length !== 1) return false;
+  const match = matches[0]!;
+  const token = match[0];
+  const body = match[1] ?? "";
+  const offset = match.index;
+  const previous = requested[offset - 1] ?? "";
+  const following = requested[offset + token.length] ?? "";
+  if (
+    body.includes("[") ||
+    body.includes("]") ||
+    previous === "!" ||
+    /[A-Za-z0-9_$]/.test(previous) ||
+    /[A-Za-z0-9_$]/.test(following) ||
+    following === "(" ||
+    following === "[" ||
+    following === ":" ||
+    body.startsWith("^") ||
+    /^\d+$/.test(body)
+  )
+    return false;
+
+  const prefix = requested.slice(0, offset);
+  const suffix = requested.slice(offset + token.length);
+  return stored === prefix + "\\[" + body + "\\]" + suffix;
 }
 
 function buildArgs(a: Json, key: string): Json {
