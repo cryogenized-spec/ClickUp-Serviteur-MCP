@@ -12,10 +12,10 @@ ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = ROOT / "scripts/generate-company-config.mjs"
 VALID = {
     "COMPANY_OAUTH_KV_ID": "b" * 32,
-    "COMPANY_WORKSPACE_ID": "9005168750",
-    "COMPANY_LIST_ID": "901202442802",
-    "COMPANY_GITHUB_OWNER_ID": "256972168",
-    "COMPANY_CLICKUP_USER_ID": "74510260",
+    "COMPANY_WORKSPACE_ID": "5555555555",
+    "COMPANY_LIST_ID": "6666666666",
+    "COMPANY_GITHUB_OWNER_ID": "77777777",
+    "COMPANY_CLICKUP_USER_ID": "88888888",
     "COMPANY_PUBLIC_ORIGIN": "https://neonsales-clickup-mcp-company.example.workers.dev",
     "STAGING_OAUTH_KV_ID": "a" * 32,
 }
@@ -44,12 +44,12 @@ class CompanyManifestTests(unittest.TestCase):
         self.assertIsNotNone(config)
         assert config is not None
         self.assertEqual("neonsales-clickup-mcp-company", config["name"])
-        self.assertEqual("9005168750", config["vars"]["CLICKUP_WORKSPACE_ID"])
-        self.assertEqual("901202442802", config["vars"]["CLICKUP_LIST_ID"])
+        self.assertEqual("5555555555", config["vars"]["CLICKUP_WORKSPACE_ID"])
+        self.assertEqual("6666666666", config["vars"]["CLICKUP_LIST_ID"])
         self.assertEqual("list", config["vars"]["CLICKUP_RESOURCE_SCOPE"])
         self.assertEqual("true", config["vars"]["CLICKUP_COMPANY_READ_ONLY"])
-        self.assertEqual("256972168", config["vars"]["ALLOWED_GITHUB_IDS"])
-        self.assertEqual({"256972168": "74510260"},
+        self.assertEqual("77777777", config["vars"]["ALLOWED_GITHUB_IDS"])
+        self.assertEqual({"77777777": "88888888"},
                          json.loads(config["vars"]["CLICKUP_STAFF_USER_MAP"]))
         self.assertEqual(VALID["COMPANY_OAUTH_KV_ID"], config["kv_namespaces"][0]["id"])
         for secret in ("CLICKUP_TOKEN_KEY", "CLICKUP_CLIENT_SECRET", "GITHUB_CLIENT_SECRET"):
