@@ -46,6 +46,7 @@ export function renderConsentPage(
   details: ConsentDisplay,
   handle: string,
   companyReadOnly = false,
+  companyNonDestructive = false,
 ): string {
   const name = escapeHtml(details.clientName);
   const origin = details.clientDomain
@@ -71,7 +72,7 @@ export function renderConsentPage(
     details.scope.includes("mcp:read") &&
     !details.scope.includes("mcp:write")
       ? [
-          '<label><input name="scope" type="checkbox" value="mcp:write"><span>mcp:write <span class="permission-hint">Optional: create, change and delete authorized ClickUp records. Leave unchecked for read-only access.</span></span></label>',
+          '<label><input name="scope" type="checkbox" value="mcp:write"><span>mcp:write <span class="permission-hint">${companyNonDestructive ? "Optional: create and edit authorized ClickUp records only. Deletion and destructive actions are disabled by the server." : "Optional: create, change and delete authorized ClickUp records. Leave unchecked for read-only access."}</span></span></label>',
         ]
       : []),
   ].join("\n");
@@ -147,7 +148,7 @@ h1{font-size:clamp(26px,5vw,32px);line-height:1.16;letter-spacing:-.035em;margin
 <body>
 <header class="page masthead">
 <div class="brand"><span class="brand-mark" aria-hidden="true">S</span><span>CLICKUP SERVITEUR</span></div>
-<span class="environment">MCP · ${companyReadOnly ? "READ ONLY" : "STAGING"}</span>
+<span class="environment">MCP · ${companyReadOnly ? "READ ONLY" : companyNonDestructive ? "READ / WRITE" : "STAGING"}</span>
 </header>
 <main class="page">
 <section class="card" aria-labelledby="consent-heading">
@@ -166,7 +167,7 @@ h1{font-size:clamp(26px,5vw,32px);line-height:1.16;letter-spacing:-.035em;margin
 <p class="publisher">${origin}</p>
 ${loopbackWarning}
 <h2 class="permissions-title" id="permissions-heading">Requested permission</h2>
-<p class="permissions-intro">${companyReadOnly ? "This connection is read-only. Creating, changing and deleting ClickUp records is disabled by the server." : "Review the permission requested by your client. Optional write access is not enabled unless you explicitly check it. Per-tool approvals are handled by your client."}</p>
+<p class="permissions-intro">${companyReadOnly ? "This connection is read-only. Creating, changing and deleting ClickUp records is disabled by the server." : companyNonDestructive ? "This work connection permits explicitly approved creation and edits within your authorized scope. Deletion, removal, moves and other destructive actions are blocked by the server. Optional write permission is not enabled without your consent." : "Review the permission requested by your client. Optional write access is not enabled unless you explicitly check it. Per-tool approvals are handled by your client."}</p>
 <form method="post" action="/authorize" aria-labelledby="permissions-heading">
 <input type="hidden" name="handle" value="${escapeHtml(handle)}">
 <div class="permission-list">${scopes}</div>
@@ -179,7 +180,7 @@ ${loopbackWarning}
 <div class="disclaimer"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.5"/></svg><span>Authorization grants access to the capabilities shown above. Never approve a request you do not recognize.</span></div>
 </section>
 </main>
-<footer class="footer page">ClickUp Serviteur MCP · ${companyReadOnly ? "Read-only work connection" : "Secure staging environment"}</footer>
+<footer class="footer page">ClickUp Serviteur MCP · ${companyReadOnly ? "Read-only work connection" : companyNonDestructive ? "Non-destructive work connection" : "Secure staging environment"}</footer>
 </body>
 </html>`;
 }
