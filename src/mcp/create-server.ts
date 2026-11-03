@@ -1,6 +1,6 @@
 import { McpServer, fromJsonSchema, requireScopes } from "@modelcontextprotocol/server";
 import { getScopedTask, findScopedTasks } from "../clickup/client.js";
-import { ReadFailure, requireReadGrant, requireWriteGrant } from "../clickup/policy.js";
+import { ReadFailure, requireReadGrant, requireWriteGrant, isCompanyNonDestructiveOperation } from "../clickup/policy.js";
 import {
   createScopedTask,
   getScopedList,
@@ -62,6 +62,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
     deps?.bindings && typeof deps.bindings === "object"
       ? (deps.bindings as Record<string, unknown>)
       : null;
+  const companyProfile = settings?.["CLICKUP_COMPANY_PROFILE"] === "true";
   const runtimeInfo = settings
     ? {
         phase: 6,
@@ -69,6 +70,12 @@ export function createServer(deps?: ReadDependencies): McpServer {
           settings["CLICKUP_LIVE_ENABLED"] === "true" &&
           settings["CLICKUP_OAUTH_ENABLED"] === "true",
         authentication: "github-oauth-plus-individual-clickup-oauth",
+        ...(companyProfile
+          ? {
+              company_write_mode: settings["CLICKUP_COMPANY_WRITE_MODE"],
+              destructive_actions_enabled: false,
+            }
+          : {}),
         note: "Activation flags only, NOT evidence of a completed ClickUp connection. Task activity stays in ClickUp; tool approvals stay in the MCP client.",
       }
     : SERVICE_INFO;
@@ -97,9 +104,9 @@ export function createServer(deps?: ReadDependencies): McpServer {
   // Single authorization path: verified MCP identity, personal ClickUp token
   // and live List ancestry in the designated Workspace BEFORE data access.
   // Client-side tool confirmations are intentionally not replicated here.
-  async function scopedGrant(auth: unknown, write = false) {
+  async function scopedGrant(auth: unknown, write = false, operation?: string) {
     const grant = write
-      ? await requireWriteGrant(auth, dependencies.bindings)
+      ? await requireWriteGrant(auth, dependencies.bindings, operation)
       : await requireReadGrant(auth, dependencies.bindings);
     await verifyListWorkspace(grant, dependencies.fetcher ?? fetch);
     return grant;
@@ -354,6 +361,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
     for (const spec of CLICKUP_MODEL_TOOL_CATALOG) {
       if (!OPERATIONAL_CATALOG_NAMES.includes(spec.name)) continue;
       const write = spec.effect !== "read";
+      if (companyProfile && write && !isCompanyNonDestructiveOperation(spec.name)) continue;
       server.registerTool(
         spec.name,
         {
@@ -368,14 +376,14 @@ export function createServer(deps?: ReadDependencies): McpServer {
           ...(write ? { scopeChallenge: requireScopes("mcp:read", "mcp:write") } : {}),
           annotations: {
             readOnlyHint: !write,
-            destructiveHint: write && !additiveWrites.has(spec.name),
+            destructiveHint: write && !additiveWrites.has(spec.name) && !companyProfile,
             idempotentHint: !write,
           },
         },
         async (args, extra) => {
           try {
             const grant = write
-              ? await requireWriteGrant(extra.http?.authInfo, dependencies.bindings)
+              ? await requireWriteGrant(extra.http?.authInfo, dependencies.bindings, spec.name)
               : await requireReadGrant(extra.http?.authInfo, dependencies.bindings);
             return toolSuccess(
               await runCatalogOperation(spec.name, args, grant, dependencies.fetcher ?? fetch),
@@ -579,7 +587,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
     },
     async (args, extra) => {
       try {
-        const grant = await scopedGrant(extra.http?.authInfo, true);
+        const grant = await scopedGrant(extra.http?.authInfo, true, "create_scoped_task");
         return toolSuccess(await createScopedTask(grant, args, dependencies.fetcher ?? fetch));
       } catch (error) {
         return toolError(error);
