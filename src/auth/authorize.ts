@@ -9,13 +9,20 @@ import { exchangeGithubIdentity, githubAuthorizeUrl, pkceChallenge } from "./git
 import { oauthUserIdForGitHub, parseStaffAllowlist, requireActivePrincipal } from "./staff.js";
 import type { OAuthEnv } from "./env.js";
 
-async function showConsent(request: Request, oauth: OAuthHelpers, env: OAuthEnv): Promise<Response> {
+async function showConsent(
+  request: Request,
+  oauth: OAuthHelpers,
+  env: OAuthEnv,
+): Promise<Response> {
   const authorization = await oauth.parseAuthRequest(request);
   const details = await oauth.describeConsent(authorization);
   const consent = await oauth.beginConsent(authorization);
   consent.headers.set("Content-Type", "text/html; charset=utf-8");
   consent.headers.set("Cache-Control", "no-store");
-  return new Response(renderConsentPage(details, consent.handle, env.CLICKUP_COMPANY_READ_ONLY === "true"), { headers: consent.headers });
+  return new Response(
+    renderConsentPage(details, consent.handle, env.CLICKUP_COMPANY_READ_ONLY === "true"),
+    { headers: consent.headers },
+  );
 }
 
 async function submitConsent(
@@ -34,7 +41,10 @@ async function submitConsent(
   }
   let approvedScopes: string[];
   try {
-    approvedScopes = validatedReadOnlyScopes(form.getAll("scope").map(String), env.CLICKUP_COMPANY_READ_ONLY === "true");
+    approvedScopes = validatedReadOnlyScopes(
+      form.getAll("scope").map(String),
+      env.CLICKUP_COMPANY_READ_ONLY === "true",
+    );
   } catch {
     return new Response("Invalid consent scope", {
       status: 400,
@@ -89,7 +99,10 @@ async function finishGitHub(
     return new Response(null, { status: 302, headers: upstream.headers });
   }
   // Check the exact subject before storing the grant. No GitHub access token is persisted.
-  const consentedScopes = validatedReadOnlyScopes(upstream.request.scope, env.CLICKUP_COMPANY_READ_ONLY === "true");
+  const consentedScopes = validatedReadOnlyScopes(
+    upstream.request.scope,
+    env.CLICKUP_COMPANY_READ_ONLY === "true",
+  );
   requireActivePrincipal({ userId: subject }, oauthUserId, consentedScopes, env.ALLOWED_GITHUB_IDS);
   const completed = await oauth.completeAuthorization({
     request: upstream.request,
