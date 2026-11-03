@@ -142,7 +142,7 @@ describe("Phase 4 official SDK integration", () => {
     }
   });
 
-  it("exposes only non-destructive List-bound writes in the company MCP", async () => {
+  it("exposes List-bound company task creation and editing while withholding destructive tools", async () => {
     const outbound = vi.fn(async () => {
       throw Error("No real company requests permitted in this test");
     });
@@ -175,17 +175,25 @@ describe("Phase 4 official SDK integration", () => {
         "create_scoped_task",
         "clickup_create_task",
         "clickup_create_bulk_tasks",
+        "clickup_update_task",
+        "clickup_set_custom_field",
+        "clickup_update_bulk_tasks",
+        "clickup_create_task_comment",
+        "clickup_attach_file_to_task",
+        "clickup_add_tag_to_task",
+        "clickup_add_dependency",
       ]) {
         expect(names).toContain(name);
         expect(tools.find((tool) => tool.name === name)?.annotations?.destructiveHint).toBe(false);
       }
       for (const name of [
         "clickup_delete_task",
-        "clickup_update_task",
         "clickup_remove_tag_from_task",
         "clickup_remove_dependency",
         "clickup_move_task_to_list",
         "clickup_update_document_page",
+        "clickup_set_workspace_access",
+        "clickup_select_target",
       ])
         expect(names).not.toContain(name);
       expect(
