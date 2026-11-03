@@ -13,6 +13,8 @@ export interface OAuthEnv {
   readonly CLICKUP_LIVE_ENABLED?: string;
   /** Individually consented ClickUp accounts; no shared API token. */
   readonly CLICKUP_OAUTH_ENABLED?: string;
+  /** A dedicated work profile can block all mutations at the server boundary. */
+  readonly CLICKUP_COMPANY_READ_ONLY?: string;
   readonly CLICKUP_CLIENT_ID?: string;
   readonly CLICKUP_CLIENT_SECRET?: string;
   readonly CLICKUP_STATE_KEY?: string;
