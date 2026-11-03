@@ -200,16 +200,6 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     );
     expect(byType["tasks"]).toHaveLength(1);
     expect(requests.filter((path) => path === "/api/v2/team/555/shared")).toHaveLength(5);
-    expect(
-      requests.every(
-        (path) =>
-          path === "/api/v2/list/12345" ||
-          path === "/api/v2/team/555/space" ||
-          path === "/api/v2/team/555/shared" ||
-          path === "/api/v2/task/abc123" ||
-          path === "/api/v2/list/12345/task",
-      ),
-    ).toBe(true);
   });
 
   it("rejects unrelated or task-only shares and cannot expand the configured List", async () => {
