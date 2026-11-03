@@ -62,7 +62,8 @@ const profile = {
     CLICKUP_WORKSPACE_ID: workspace,
     CLICKUP_LIST_ID: list,
     CLICKUP_RESOURCE_SCOPE: "list",
-    CLICKUP_COMPANY_READ_ONLY: "true",
+    CLICKUP_COMPANY_PROFILE: "true",
+    CLICKUP_COMPANY_WRITE_MODE: "non_destructive",
     CLICKUP_OAUTH_ENABLED: "true",
     CLICKUP_LIVE_ENABLED: "true",
   },
@@ -81,4 +82,4 @@ const profile = {
 writeFileSync(".wrangler-company.generated.jsonc", JSON.stringify(profile, null, 2) + "\n", {
   mode: 0o600,
 });
-console.log("Isolated company read-only Worker manifest generated (values redacted).");
+console.log("Isolated company non-destructive read/write Worker manifest generated (values redacted).");
