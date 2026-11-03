@@ -146,6 +146,37 @@ function responseId(payload: Record<string, unknown>, expected?: string): string
  * This guards mistaken cross-Workspace LIST_ID configuration. It does not
  * claim to lock a List against concurrent Workspace moves.
  */
+/**
+ * Shared-with-me List authority. Both scoped and catalogue readers must use
+ * exactly this Workspace-bound check; the List GET alone is not permission.
+ */
+export async function verifySharedListWorkspace(
+  grant: ReadGrant,
+  fetcher: typeof fetch,
+  listId: string,
+): Promise<void> {
+  // Shared-List fallback is NEVER a way to gain a second List, even if an
+  // individual OAuth token can read it.
+  if (listId !== grant.listId || !/^[1-9]\d{0,17}$/.test(listId))
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  const hierarchy = await requestJson(
+    grant,
+    fetcher,
+    "GET",
+    "team/" + grant.workspaceId + "/shared",
+  );
+  const sharedLists = obj(hierarchy["shared"])?.["lists"];
+  if (
+    !Array.isArray(sharedLists) ||
+    sharedLists.length > 500 ||
+    !sharedLists.some((value) => {
+      const entry = obj(value);
+      return entry !== null && String(entry["id"]) === listId;
+    })
+  )
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+}
+
 export async function verifyListWorkspace(grant: ReadGrant, fetcher: typeof fetch): Promise<void> {
   if (!/^[1-9]\d{0,17}$/.test(grant.workspaceId) || !/^[1-9]\d{0,17}$/.test(grant.listId)) {
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
@@ -177,26 +208,7 @@ export async function verifyListWorkspace(grant: ReadGrant, fetcher: typeof fetc
   )
     return;
 
-  // A limited member may be given a List through "Shared with me" without
-  // membership in its parent Space. Use ClickUp's Workspace-SCOPED shared
-  // hierarchy as an independent authority, not mere List GET access.
-  // Never accept items from another Workspace or a task-only share.
-  const hierarchy = await requestJson(
-    grant,
-    fetcher,
-    "GET",
-    "team/" + grant.workspaceId + "/shared",
-  );
-  const sharedLists = obj(hierarchy["shared"])?.["lists"];
-  if (
-    !Array.isArray(sharedLists) ||
-    sharedLists.length > 500 ||
-    !sharedLists.some((value) => {
-      const entry = obj(value);
-      return entry !== null && String(entry["id"]) === grant.listId;
-    })
-  )
-    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  await verifySharedListWorkspace(grant, fetcher, grant.listId);
 }
 
 export async function createScopedTask(
