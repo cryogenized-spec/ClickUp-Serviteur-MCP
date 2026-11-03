@@ -1,3 +1,13 @@
+# 3 November 2026 SAST — company read/write requested, destructive mutations blocked
+
+**Updated requirement:** The operator explicitly requested read and write access but **no destructive actions**. PR #73 now prepares a dedicated `clickup-serviteur-company` Worker with `CLICKUP_COMPANY_PROFILE=true` and `CLICKUP_COMPANY_WRITE_MODE=non_destructive`. It advertises optional `mcp:write` only with explicit consent, and the MCP enforces named safe operations server-side before fetching a user credential. Delete/remove/move, document-content replacement, workspace-access expansion and retargeting are disabled in this company profile. Staging remains unchanged.
+
+**Actual shared-List write reach:** The new company List-only profile can read, create a task or create a bounded batch of tasks in the verified List. **Editing an existing task is still blocked** because task-ID mutation endpoints have no atomic home-List condition and the employee's OAuth authorization cannot be assumed Workspace-exclusive. The tool catalogue reports such operations as `company_disabled` instead of claiming they work. Broader editing remains a separate permission/scope engineering milestone.
+
+**Activation:** PR #73 is source-only; no company Worker is deployed and no company tasks have been changed. Complete exact-head CI and Codex review, protected Cloudflare/OAuth setup, a company MCP connection, read-only smoke and owner-approved disposable QA creation before any production work writes. The review and deployment checklist is in [company cutover](COMPANY_WORKSPACE_CUTOVER.md).
+
+---
+
 # 3 November 2026 SAST — company cutover code gates passed on PR #73
 
 **Candidate:** PR #73 in the renamed public repository `cryogenized-spec/ClickUp-Serviteur-MCP`. A shared-List preflight inconsistency identified by Codex at original head `7d2c875` was addressed by centralizing `verifySharedListWorkspace` in `operations.ts` and calling it from catalogue List reads when direct Workspace Space ancestry is absent. The helper accepts **only the configured List ID** in the connected Workspace's `shared.lists`, not a task-only share or unrelated List. Positive and negative tests now cover catalogue List, task, full-text, type and tag reads, malformed and unrelated shares, and rejection before out-of-scope fetch.
