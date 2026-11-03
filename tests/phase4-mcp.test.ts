@@ -266,6 +266,7 @@ describe("Phase 4 official SDK integration", () => {
       if (options?.method === "POST") throw new Error("FORBIDDEN_WRITE");
       if (target.endsWith("/list/12345")) return Response.json({ id: "12345", space: { id: 999 } });
       if (target.includes("/team/555/space")) return Response.json({ spaces: [{ id: 765 }] });
+      if (target.endsWith("/team/555/shared")) return Response.json({ shared: { lists: [] } });
       throw new Error("unexpected request");
     });
     const handler = createProtocolHandler({
@@ -292,7 +293,7 @@ describe("Phase 4 official SDK integration", () => {
       });
       expect(result.isError).toBe(true);
       expect(JSON.stringify(result.content)).toContain("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      expect(outbound).toHaveBeenCalledTimes(2);
+      expect(outbound).toHaveBeenCalledTimes(3);
       expect(outbound.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
       const names = (await client.listTools()).tools.map((tool) => tool.name);
       expect(names).not.toContain("update_scoped_task");
