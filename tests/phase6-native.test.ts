@@ -107,8 +107,7 @@ describe("native ClickUp endpoints: no duplicate journal or server approval sett
       expect(init?.method).toBe("GET");
       expect(init?.headers).toMatchObject({ Authorization: authToken });
       if (String(url).endsWith("/list/12345")) return json({ id: "12345", space: { id: "765" } });
-      if (String(url).endsWith("/team/555/space?archived=false"))
-        return json({ spaces: [] });
+      if (String(url).endsWith("/team/555/space?archived=false")) return json({ spaces: [] });
       if (String(url).endsWith("/team/555/shared"))
         return json({
           shared: { lists: [{ id: "12345", name: "Shared list" }], folders: [], tasks: [] },
@@ -128,8 +127,7 @@ describe("native ClickUp endpoints: no duplicate journal or server approval sett
       null,
     ]) {
       const outbound = vi.fn(async (url: RequestInfo | URL) => {
-        if (String(url).endsWith("/list/12345"))
-          return json({ id: "12345", space: { id: "765" } });
+        if (String(url).endsWith("/list/12345")) return json({ id: "12345", space: { id: "765" } });
         if (String(url).includes("/team/555/space")) return json({ spaces: [] });
         if (String(url).endsWith("/team/555/shared")) return json({ shared });
         throw new Error("wrong endpoint");
