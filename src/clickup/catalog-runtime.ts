@@ -1285,10 +1285,7 @@ export async function runCatalogOperation(
           // with an explicit warning that bytes changed. Unknown mutations
           // must remain uncertain; NEVER blindly retry the original PUT.
           const stored = verified["content"];
-          if (
-            typeof stored === "string" &&
-            plainBracketEscapesOnly(content, stored)
-          ) {
+          if (typeof stored === "string" && plainBracketEscapesOnly(content, stored)) {
             return {
               success: true,
               source: "clickup-api",
