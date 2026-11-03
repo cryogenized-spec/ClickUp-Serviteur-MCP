@@ -1,4 +1,5 @@
 import { quotaCall } from "./client.js";
+import { verifySharedListWorkspace } from "./operations.js";
 import { ReadFailure, type ReadGrant } from "./policy.js";
 
 /** REST-backed ClickUp tool catalogue. No extra approval controls, state journal,
@@ -179,7 +180,15 @@ async function listInWorkspace(grant: ReadGrant, f: typeof fetch, listId: unknow
   const list = await send(grant, f, "GET", v2("list/" + id(listId)));
   if (String(list["id"]) !== String(listId))
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-  await inWorkspace(grant, f, obj(list["space"])?.["id"]);
+  try {
+    await inWorkspace(grant, f, obj(list["space"])?.["id"]);
+  } catch (error) {
+    if (!(error instanceof ReadFailure) || error.code !== "CLICKUP_SCOPE_OR_SCHEMA_REJECTED")
+      throw error;
+    // Shared-with-me members can lack Space ancestry. Accept only the
+    // *configured* List if ClickUp's Workspace-scoped shared hierarchy proves it.
+    await verifySharedListWorkspace(grant, f, String(listId));
+  }
   return list;
 }
 async function taskInWorkspace(grant: ReadGrant, f: typeof fetch, taskId: unknown): Promise<Json> {
