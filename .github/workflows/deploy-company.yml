@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: neonsales-mcp-company-deploy
+  group: clickup-serviteur-company-deploy
   cancel-in-progress: false
 
 jobs:
@@ -48,6 +48,7 @@ jobs:
           COMPANY_CLICKUP_USER_ID: ${{ vars.COMPANY_CLICKUP_USER_ID }}
           COMPANY_PUBLIC_ORIGIN: ${{ vars.COMPANY_PUBLIC_ORIGIN }}
           STAGING_OAUTH_KV_ID: ${{ vars.STAGING_OAUTH_KV_ID }}
+          STAGING_PUBLIC_ORIGIN: ${{ vars.STAGING_PUBLIC_ORIGIN }}
         run: node scripts/generate-company-config.mjs
       - name: Deploy only the isolated company read-only Worker
         env:
