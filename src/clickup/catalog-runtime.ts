@@ -1234,6 +1234,25 @@ export async function runCatalogOperation(
           const verified = await call("GET", pagePath + "?content_format=text%2Fmd");
           if (verified["content"] === content)
             return { success: true, source: "clickup-api", verified_by_readback: true };
+          // ClickUp's Docs Markdown round-trip can escape square brackets
+          // in plain text, e.g. "[QA]" is saved/read back as "\\[QA\\]".
+          // Only this specifically observed canonicalisation is accepted,
+          // with an explicit warning that bytes changed. Unknown mutations
+          // must remain uncertain; NEVER blindly retry the original PUT.
+          const stored = verified["content"];
+          if (
+            typeof stored === "string" &&
+            stored !== content &&
+            stored.replace(/\\([\[\]])/g, "$1") === content
+          ) {
+            return {
+              success: true,
+              source: "clickup-api",
+              verified_by_readback: true,
+              provider_normalized: true,
+              warning: "ClickUp escaped Markdown brackets; stored content differs from submitted text.",
+            };
+          }
         } catch {
           // Preserve the original uncertain-write error if verification fails.
         }

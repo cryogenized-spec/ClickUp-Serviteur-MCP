@@ -1,3 +1,13 @@
+# 3 November 2026 SAST — Docs normalized Markdown response repair candidate
+
+**Live reproduction in the approved dummy ClickUp Workspace:** After staging deployed main `51dc4295278bb33b78fa555a4a1a8b1d8399a038` ([deployment 41626361578](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/actions/runs/41626361578)), `clickup_update_document_page` on disposable Doc `8ck60ma-1472`, page `8ck60ma-592` accepted a transient text containing `[MCP-QA live round trip...]` but returned `CLICKUP_WRITE_OUTCOME_UNKNOWN`. An immediate readback confirmed ClickUp had persisted the content with escaped Markdown brackets `\\[...\\]`, so the existing exact-string comparison was too narrow. **The page was intentionally restored to its exact original content and independently re-read successfully. No blind repeat of the failed write, production content or external notifications.**
+
+**Narrow source change proposed:** Recognize only the observed ClickUp-added backslash escaping of square brackets after independent GET readback, return `success:true, provider_normalized:true` with a warning that stored bytes differ. Other mismatches and upstream errors remain `CLICKUP_WRITE_OUTCOME_UNKNOWN`; never auto-retry a potentially committed PUT. Add positive and negative Vitest regressions. This is **not yet merged, deployed or live-verified** until exact-HEAD CI and Codex review pass. See [issue #54](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/issues/54).
+
+**All other live QA this session:** Single/bulk update and restoration, task link add/remove, dependency add/remove, move between two approved dummy Lists and back, non-billable timer start/stop with a ~8-second dummy entry, and Docs read/readback worked. The new board **target selector** is still absent from the ChatGPT connector's 58 exposed tools despite 61 registered in source and a successful latest staging deploy; it cannot yet be called from this chat. No company Workspace changed.
+
+---
+
 # 3 November 2026 SAST — merged MCP maintenance and live read-only QA
 
 **Current main baseline:** `fe0c8c8422cafa5dfb6539c8eda6cca1a9944584`, after three safe PR merges: **#28** (`@eslint/js`), **#29** (`eslint`), and **#51** (labelled historical smoke evidence). Both [Strict CI #41613957871](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/actions/runs/41613957871) and [CodeQL #41613957627](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/actions/runs/41613957627) passed on that exact commit.
