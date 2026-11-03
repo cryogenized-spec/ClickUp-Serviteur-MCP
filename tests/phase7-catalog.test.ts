@@ -211,12 +211,10 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     ]) {
       const f = vi.fn(async (req: RequestInfo | URL) => {
         const path = new URL(String(req)).pathname;
-        if (path === "/api/v2/list/12345")
-          return reply({ id: "12345", space: { id: "777" } });
+        if (path === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
         if (path === "/api/v2/team/555/space") return reply({ spaces: [] });
         if (path === "/api/v2/team/555/shared") return reply({ shared });
-        if (path === "/api/v2/task/abc123")
-          return reply({ id: "abc123", list: { id: "12345" } });
+        if (path === "/api/v2/task/abc123") return reply({ id: "abc123", list: { id: "12345" } });
         throw Error("Should fail before reading task list");
       });
       await expect(
