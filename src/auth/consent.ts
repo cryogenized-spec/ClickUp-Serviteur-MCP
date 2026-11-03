@@ -72,7 +72,7 @@ export function renderConsentPage(
     details.scope.includes("mcp:read") &&
     !details.scope.includes("mcp:write")
       ? [
-          '<label><input name="scope" type="checkbox" value="mcp:write"><span>mcp:write <span class="permission-hint">${companyNonDestructive ? "Optional: create and edit authorized ClickUp records only. Deletion and destructive actions are disabled by the server." : "Optional: create, change and delete authorized ClickUp records. Leave unchecked for read-only access."}</span></span></label>',
+          `<label><input name="scope" type="checkbox" value="mcp:write"><span>mcp:write <span class="permission-hint">${companyNonDestructive ? "Optional: create and edit authorized ClickUp records only. Deletion and destructive actions are disabled by the server." : "Optional: create, change and delete authorized ClickUp records. Leave unchecked for read-only access."}</span></span></label>`,
         ]
       : []),
   ].join("\n");
