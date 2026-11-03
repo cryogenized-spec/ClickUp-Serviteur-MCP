@@ -1,10 +1,10 @@
 # Company ClickUp MCP cutover — isolated, owner-controlled
 
-**3 November 2026 SAST.** The owner approved the company Workspace and confirmed its exact ID. The separate first-party *work* ClickUp account was verified against the company Workspace and could read the shared Team NeonSales List. That is not an authorization for writes or evidence the custom company MCP is deployed.
+**3 November 2026 SAST.** The owner approved the company Workspace and confirmed its exact ID. The separate first-party *work* ClickUp account was verified against the company Workspace and could read the shared work List. That is not an authorization for writes or evidence the custom company MCP is deployed.
 
 ## Deployment boundaries
 
-The existing staging/serviteur Worker, personal dummy Workspace, OAuth account, encrypted Durable Objects and KV remain unchanged. Provision a **second** company Cloudflare Worker named `neonsales-clickup-mcp-company`, with a dedicated OAuth KV namespace and independently scoped GitHub/ClickUp OAuth clients, company-only Cloudflare secrets and per-user encrypted Durable Objects.
+The existing staging/serviteur Worker, personal dummy Workspace, OAuth account, encrypted Durable Objects and KV remain unchanged. Provision a **second** company Cloudflare Worker named `clickup-serviteur-company`, with a dedicated OAuth KV namespace and independently scoped GitHub/ClickUp OAuth clients, company-only Cloudflare secrets and per-user encrypted Durable Objects.
 
 The new company profile is **read-only** by default: resource scope is `list`, and `CLICKUP_COMPANY_READ_ONLY=true` denies all MCP write routes server-side, even when a client grants `mcp:write`. It does not allow Workspace-wide authority or arbitrary List IDs. The company employee's OAuth account need not be exclusive to one ClickUp Workspace for this List-only mode.
 
@@ -12,7 +12,9 @@ The work List appears under **Shared with me**. A verified List may therefore be
 
 ## GitHub and Cloudflare setup (owner actions)
 
-1. Create a protected GitHub **company** Environment, restricting deployment to the reviewed main branch. Add **variables**: `COMPANY_WORKSPACE_ID`, `COMPANY_LIST_ID`, `COMPANY_GITHUB_OWNER_ID`, `COMPANY_CLICKUP_USER_ID`, `COMPANY_OAUTH_KV_ID`, `COMPANY_PUBLIC_ORIGIN`, and (if available) `STAGING_OAUTH_KV_ID` for independent-KV validation. The Workspace/List/user IDs must be those independently verified in the work ClickUp connection; do not use the dummy IDs.
+1. Create a protected GitHub **company** Environment, restricting deployment to the reviewed main branch. Add **variables**: `COMPANY_WORKSPACE_ID`, `COMPANY_LIST_ID`, `COMPANY_GITHUB_OWNER_ID`, `COMPANY_CLICKUP_USER_ID`, `COMPANY_OAUTH_KV_ID`, `COMPANY_PUBLIC_ORIGIN`, and (if available) `STAGING_OAUTH_KV_ID` and `STAGING_PUBLIC_ORIGIN` for independent-KV/origin validation. The Workspace/List/user IDs must be those independently verified in the work ClickUp connection; do not use the dummy IDs.
+The company Worker hostname should remain generic, for example `https://clickup-serviteur-company.<your-worker-subdomain>.workers.dev`. Use the actual assigned HTTPS origin for `COMPANY_PUBLIC_ORIGIN`; do not place the employer's name or company account IDs in GitHub source or public documentation.
+
 2. Create a fresh Cloudflare OAuth KV namespace only for the company Worker. Create separate OAuth applications/credentials with callbacks bound to the **company-specific exact HTTPS origin**; never reuse dummy OAuth client secrets, token encryption keys or KV. In the GitHub company Environment, set **secrets** `COMPANY_CLOUDFLARE_API_TOKEN` (least-privilege) and `COMPANY_CLOUDFLARE_ACCOUNT_ID`. Do not put any keys in source, PRs or ChatGPT.
 3. Configure the company Worker's **secrets** through Cloudflare: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `CLICKUP_CLIENT_ID`, `CLICKUP_CLIENT_SECRET`, `CLICKUP_STATE_KEY`, `CLICKUP_TOKEN_KEY`. Use independent company OAuth applications and account-bound identity mapping. The manifest generator supplies only non-secret configuration variables and reserves separate Worker/KV/DO bindings.
 4. After exact-head CI, CodeQL and Codex review, **manually** run GitHub Actions **Deploy ClickUp MCP company (manual, read-only)** from reviewed main. It runs strict security/TypeScript/Vitest checks again before deploying. This is a company-only deployment; it does NOT overwrite staging.
