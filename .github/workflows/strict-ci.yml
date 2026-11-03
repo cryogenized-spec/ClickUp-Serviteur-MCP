@@ -61,16 +61,6 @@ jobs:
         if: steps.stage.outputs.application == 'true'
         run: npm run format:check
 
-      # Temporary diagnostics for the current PR's formatting-only failure.
-      - name: Print exact formatting diff for company regression tests
-        if: failure() && steps.stage.outputs.application == 'true'
-        shell: bash
-        run: |
-          ./node_modules/.bin/prettier tests/phase7-catalog.test.ts > /tmp/company-formatted.ts
-          if ! diff -u tests/phase7-catalog.test.ts /tmp/company-formatted.ts; then
-            echo "Temporary formatting diagnostic above (CI remains failed)"
-          fi
-
       - name: Enforce ESLint
         if: steps.stage.outputs.application == 'true'
         run: npm run lint
