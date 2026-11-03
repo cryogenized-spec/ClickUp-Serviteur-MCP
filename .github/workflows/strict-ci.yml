@@ -61,6 +61,13 @@ jobs:
         if: steps.stage.outputs.application == 'true'
         run: npm run format:check
 
+      # Temporary formatting diagnostic; removed after applying its exact patch.
+      - name: Print company write policy Prettier patch after failed format gate
+        if: failure()
+        run: |
+          ./node_modules/.bin/prettier --write src/mcp/create-server.ts tests/phase4-mcp.test.ts tests/phase6-native.test.ts
+          git diff -- src/mcp/create-server.ts tests/phase4-mcp.test.ts tests/phase6-native.test.ts
+
       - name: Enforce ESLint
         if: steps.stage.outputs.application == 'true'
         run: npm run lint
