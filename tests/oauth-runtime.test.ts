@@ -129,6 +129,25 @@ describe("Codex P1 OAuth integration regressions", () => {
     ]);
   });
 
+  it("advertises read and write as separately consented scopes on the non-destructive company profile", async () => {
+    await handleOAuthRequest(
+      new Request(origin + "/mcp", { method: "POST" }),
+      {
+        ...env,
+        CLICKUP_COMPANY_PROFILE: "true",
+        CLICKUP_COMPANY_WRITE_MODE: "non_destructive",
+      },
+      verifiedContext("11"),
+      origin,
+    );
+    expect(captures.providerSettings).toEqual([
+      {
+        requiredScopes: ["mcp:read"],
+        scopesSupported: ["mcp:read", "mcp:write"],
+      },
+    ]);
+  });
+
   it("constructs the pinned OAuth provider without conflicting resource scope settings", async () => {
     const response = await handleOAuthRequest(
       new Request(origin + "/mcp", { method: "POST" }),
