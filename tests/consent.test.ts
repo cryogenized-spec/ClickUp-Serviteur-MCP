@@ -229,6 +229,33 @@ describe("company read-only OAuth consent boundary", () => {
   });
 });
 
+describe("company non-destructive write consent", () => {
+  it("offers optional write without promising deletion, and keeps unchecked default", () => {
+    const html = renderConsentPage(
+      {
+        clientName: "ChatGPT",
+        clientDomain: "chatgpt.com",
+        redirectHost: "chatgpt.com",
+        redirectIsLoopback: false,
+        scope: ["mcp:read"],
+      },
+      "work-consent-handle",
+      false,
+      true,
+    );
+    expect(html).toContain("MCP · READ / WRITE");
+    expect(html).toContain("Non-destructive work connection");
+    expect(html).toContain('name="scope" type="checkbox" value="mcp:write"');
+    expect(html).not.toContain('checked value="mcp:write"');
+    expect(html).toContain("Deletion and destructive actions are disabled by the server.");
+    expect(html).not.toContain("Optional: create, change and delete");
+    expect(validatedReadOnlyScopes(["mcp:read", "mcp:write"], false)).toEqual([
+      "mcp:read",
+      "mcp:write",
+    ]);
+  });
+});
+
 describe("read-only OAuth consent scope enforcement", () => {
   it.each([[["mcp:read", "offline_access"]], [["mcp:read", "mcp:read"]], [[""]], [[]]])(
     "rejects forged, duplicate and empty scopes: %j",
