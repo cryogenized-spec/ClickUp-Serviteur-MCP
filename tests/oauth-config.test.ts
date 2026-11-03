@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import worker from "../src/index.js";
 import { validatedOAuthOrigin } from "../src/auth/env.js";
 
-const origin = "https://neonsales-mcp.example.org";
+const origin = "https://serviteur-mcp.example.org";
 function configuration(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     OAUTH_KV: { get: async () => null, put: async () => {} },
@@ -21,16 +21,16 @@ describe("OAuth deployment configuration adversarial boundary", () => {
       validatedOAuthOrigin(
         configuration(),
         new Request("https://other.example.org/mcp", {
-          headers: { "X-Forwarded-Host": "neonsales-mcp.example.org" },
+          headers: { "X-Forwarded-Host": "serviteur-mcp.example.org" },
         }),
       ),
     ).toBeNull();
   });
 
   it.each([
-    { MCP_PUBLIC_ORIGIN: "http://neonsales-mcp.example.org" },
-    { MCP_PUBLIC_ORIGIN: "https://neonsales-mcp.example.org/authorize" },
-    { MCP_PUBLIC_ORIGIN: "https://neonsales-mcp.example.org/?debug=true" },
+    { MCP_PUBLIC_ORIGIN: "http://serviteur-mcp.example.org" },
+    { MCP_PUBLIC_ORIGIN: "https://serviteur-mcp.example.org/authorize" },
+    { MCP_PUBLIC_ORIGIN: "https://serviteur-mcp.example.org/?debug=true" },
     { ALLOWED_GITHUB_IDS: "11,11" },
     { ALLOWED_GITHUB_IDS: "11,22,33,44,55" },
     { OAUTH_KV: {} },
