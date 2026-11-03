@@ -110,7 +110,9 @@ describe("native ClickUp endpoints: no duplicate journal or server approval sett
       if (String(url).endsWith("/team/555/space?archived=false"))
         return json({ spaces: [] });
       if (String(url).endsWith("/team/555/shared"))
-        return json({ shared: { lists: [{ id: "12345", name: "Shared list" }], folders: [], tasks: [] } });
+        return json({
+          shared: { lists: [{ id: "12345", name: "Shared list" }], folders: [], tasks: [] },
+        });
       throw new Error("unexpected endpoint");
     });
     await expect(verifyListWorkspace(grant, outbound as typeof fetch)).resolves.toBeUndefined();
