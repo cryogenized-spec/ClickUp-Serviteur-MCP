@@ -115,7 +115,7 @@ describe("professional consent page invariants", () => {
 });
 
 describe("branded consent identity diagram", () => {
-  it("renders a self-contained Claude glyph and the approved NeonSales staging badge", () => {
+  it("renders a self-contained Claude glyph and neutral Serviteur endpoint mark", () => {
     const html = renderConsentPage(
       {
         clientName: "Claude",
@@ -129,10 +129,11 @@ describe("branded consent identity diagram", () => {
     expect(html).toContain('class="connection-flow"');
     expect(html).toContain('class="connection-arrows"');
     expect(html).toContain('class="connection-tile mcp"');
-    expect(html).toContain('src="data:image/webp;base64,UklG');
+    expect(html).toContain('class="serviteur-mark"');
+    expect(html).not.toContain('src="data:image/webp');
     expect(html).toContain('viewBox="0 0 256 257"');
-    expect(html).toContain("NeonSales MCP");
-    expect(html).toContain("NEONSALES");
+    expect(html).toContain("ClickUp Serviteur MCP");
+    expect(html).toContain("CLICKUP SERVITEUR");
     expect(html).not.toContain("Cryogenized MCP");
     expect(html).toContain("@media(max-width:520px)");
     expect(html).not.toContain('src="https://');
@@ -202,6 +203,29 @@ describe("branded consent identity diagram", () => {
       expect(html).toContain('viewBox="0 0 24 24"');
       expect(html).toContain('name="decision" value="deny"');
     }
+  });
+});
+
+describe("company read-only OAuth consent boundary", () => {
+  it("does not offer, preselect or accept write permissions on the company profile", () => {
+    const html = renderConsentPage(
+      {
+        clientName: "ChatGPT",
+        clientDomain: "chatgpt.com",
+        redirectHost: "chatgpt.com",
+        redirectIsLoopback: false,
+        scope: ["mcp:read", "mcp:write"],
+      },
+      "work-consent-handle",
+      true,
+    );
+    expect(html).toContain("MCP · READ ONLY");
+    expect(html).toContain("disabled by the server");
+    expect(html).toContain("ClickUp Serviteur MCP");
+    expect(html).not.toContain('value="mcp:write"');
+    expect(html).not.toContain("NEONSALES");
+    expect(validatedReadOnlyScopes(["mcp:read"], true)).toEqual(["mcp:read"]);
+    expect(() => validatedReadOnlyScopes(["mcp:read", "mcp:write"], true)).toThrow();
   });
 });
 
