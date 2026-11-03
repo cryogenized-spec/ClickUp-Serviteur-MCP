@@ -20,7 +20,13 @@ async function showConsent(
   consent.headers.set("Content-Type", "text/html; charset=utf-8");
   consent.headers.set("Cache-Control", "no-store");
   return new Response(
-    renderConsentPage(details, consent.handle, env.CLICKUP_COMPANY_READ_ONLY === "true"),
+    renderConsentPage(
+      details,
+      consent.handle,
+      env.CLICKUP_COMPANY_READ_ONLY === "true",
+      env.CLICKUP_COMPANY_PROFILE === "true" &&
+        env.CLICKUP_COMPANY_WRITE_MODE === "non_destructive",
+    ),
     { headers: consent.headers },
   );
 }
