@@ -307,19 +307,30 @@ export async function saveClickUpListTarget(
     personal.connectionGeneration !== expectedGeneration
   )
     throw new ReadFailure("CLICKUP_TARGET_CONNECTION_CHANGED");
+  // Re-selecting the Worker default clears the per-user override rather than
+  // pinning a redundant override indefinitely. The caller already verified
+  // this List's live Workspace ancestry and exact name before saving.
+  const resetToDefault = listId === decimal(obj(env)?.["CLICKUP_LIST_ID"]);
   const saved = await internalCall(staffStub(settings.binding, subject), "target-list", {
     subject,
     workspaceId,
     listId,
     connectionGeneration: expectedGeneration,
+    resetToDefault,
   });
   if (
     saved["selected"] !== true ||
     saved["workspaceId"] !== workspaceId ||
-    saved["listId"] !== listId
+    saved["listId"] !== listId ||
+    saved["resetToDefault"] !== resetToDefault
   )
     throw new ReadFailure("CLICKUP_ACCOUNT_STORE_UNAVAILABLE");
-  return { workspace_id: workspaceId, selected_list_id: listId, persisted: true };
+  return {
+    workspace_id: workspaceId,
+    selected_list_id: listId,
+    selected_list_is_override: !resetToDefault,
+    persisted: true,
+  };
 }
 
 export async function disconnectClickUp(auth: unknown, env: unknown): Promise<Json> {
