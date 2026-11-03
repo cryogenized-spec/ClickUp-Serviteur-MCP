@@ -1,6 +1,6 @@
 import { quotaCall } from "./client.js";
 import { verifySharedListWorkspace } from "./operations.js";
-import { ReadFailure, type ReadGrant } from "./policy.js";
+import { COMPANY_LIST_TASK_OPERATIONS, ReadFailure, type ReadGrant } from "./policy.js";
 
 /** REST-backed ClickUp tool catalogue. No extra approval controls, state journal,
  * rollback engine or background watcher. ClickUp itself owns all task history.
@@ -431,10 +431,10 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_get_task_time_in_status",
   "clickup_get_list_time_in_status",
 ];
-// Task-ID follow-up endpoints cannot atomically honour a single home-List
-// grant if an external ClickUp actor moves the task between preflight and use.
-// Preserve all 48 registrations, but execute this subset only after the owner
-// explicitly enables Workspace authority and exclusive one-Workspace OAuth.
+// Ordinary staging List grants retain the original Workspace-only policy.
+// The explicit company read/write mode permits normal task-ID modifications
+// after a same-Workspace, exact-home-List preflight. Other Workspace-wide
+// operations remain blocked. ClickUp owns task history and enforces its ACL.
 const WORKSPACE_SCOPE_OPERATIONS = new Set([
   // These tools have Workspace-wide effects or return data outside the home List.
   "clickup_get_workspace_hierarchy",
@@ -484,7 +484,11 @@ export async function runCatalogOperation(
   g: ReadGrant,
   f: typeof fetch,
 ): Promise<Json> {
-  if (g.resourceScope !== "workspace" && WORKSPACE_SCOPE_OPERATIONS.has(name))
+  if (
+    g.resourceScope !== "workspace" &&
+    WORKSPACE_SCOPE_OPERATIONS.has(name) &&
+    !(g.companyListTaskAccess === true && COMPANY_LIST_TASK_OPERATIONS.has(name))
+  )
     throw new ReadFailure("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
   const W = id(g.workspaceId),
     N = count(a);
