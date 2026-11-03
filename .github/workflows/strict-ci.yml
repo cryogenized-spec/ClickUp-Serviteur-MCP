@@ -61,13 +61,6 @@ jobs:
         if: steps.stage.outputs.application == 'true'
         run: npm run format:check
 
-      # Temporary diagnostics; removed after matching Prettier exactly.
-      - name: Print consent formatting patch after a failed format gate
-        if: failure() && steps.stage.outputs.application == 'true'
-        run: |
-          ./node_modules/.bin/prettier --write src/auth/authorize.ts src/auth/consent.ts src/auth/oauth-runtime.ts
-          git diff -- src/auth/authorize.ts src/auth/consent.ts src/auth/oauth-runtime.ts
-
       - name: Enforce ESLint
         if: steps.stage.outputs.application == 'true'
         run: npm run lint
