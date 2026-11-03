@@ -1243,7 +1243,7 @@ export async function runCatalogOperation(
           if (
             typeof stored === "string" &&
             stored !== content &&
-            stored.replace(/\\([\[\]])/g, "$1") === content
+            stored.replace(/\\([[\]])/g, "$1") === content
           ) {
             return {
               success: true,
