@@ -284,7 +284,12 @@ describe("actual encrypted SQLite per-user token vault", () => {
       listId: "23456",
       connectionGeneration: generation,
     });
-    expect(changed.data).toEqual({ selected: true, workspaceId: "999", listId: "23456" });
+    expect(changed.data).toEqual({
+      selected: true,
+      workspaceId: "999",
+      listId: "23456",
+      resetToDefault: false,
+    });
     expect((await call(vault, "credential", { subject: "github:11" })).data).toMatchObject({
       targetListId: "23456",
       workspaceId: "999",
