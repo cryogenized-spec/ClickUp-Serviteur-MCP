@@ -187,13 +187,25 @@ describe("native ClickUp endpoints: no duplicate journal or server approval sett
       ),
     ).rejects.toThrow("CLICKUP_WRITE_SCOPE_REQUIRED");
     await expect(
-      requireWriteGrant(auth, { ...company, CLICKUP_COMPANY_WRITE_MODE: "unrestricted" }, "clickup_create_task"),
+      requireWriteGrant(
+        auth,
+        { ...company, CLICKUP_COMPANY_WRITE_MODE: "unrestricted" },
+        "clickup_create_task",
+      ),
     ).rejects.toThrow("CLICKUP_COMPANY_WRITE_DISABLED");
     await expect(
-      requireWriteGrant(auth, { ...company, CLICKUP_COMPANY_WRITE_MODE: "" }, "clickup_create_task"),
+      requireWriteGrant(
+        auth,
+        { ...company, CLICKUP_COMPANY_WRITE_MODE: "" },
+        "clickup_create_task",
+      ),
     ).rejects.toThrow("CLICKUP_COMPANY_WRITE_DISABLED");
     await expect(
-      requireWriteGrant(auth, { ...company, CLICKUP_COMPANY_READ_ONLY: "true" }, "clickup_create_task"),
+      requireWriteGrant(
+        auth,
+        { ...company, CLICKUP_COMPANY_READ_ONLY: "true" },
+        "clickup_create_task",
+      ),
     ).rejects.toThrow("CLICKUP_COMPANY_WRITE_DISABLED");
   });
 
