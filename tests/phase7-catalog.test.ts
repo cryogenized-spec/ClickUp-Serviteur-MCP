@@ -166,7 +166,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     const g = makeListGrant();
     const listing = await runCatalogOperation(
       "clickup_get_list",
-      { list_id: "12345" },
+      { list_id: "12345", include_custom_fields: false },
       g,
       f as typeof fetch,
     );
