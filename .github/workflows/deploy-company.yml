@@ -1,0 +1,65 @@
+name: Deploy isolated ClickUp MCP company (manual, read-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neonsales-mcp-company-deploy
+  cancel-in-progress: false
+
+jobs:
+  company:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: company
+    timeout-minutes: 20
+    steps:
+      - name: Checkout reviewed main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install pinned dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Mandatory strict validation
+        run: |
+          python3 scripts/check_repo_policy.py
+          python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v
+          npm run format:check
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build
+          node scripts/staging-local-smoke.mjs
+          npm audit --audit-level=high
+      - name: Generate company manifest from protected environment
+        env:
+          COMPANY_OAUTH_KV_ID: ${{ vars.COMPANY_OAUTH_KV_ID }}
+          COMPANY_WORKSPACE_ID: ${{ vars.COMPANY_WORKSPACE_ID }}
+          COMPANY_LIST_ID: ${{ vars.COMPANY_LIST_ID }}
+          COMPANY_OWNER_GITHUB_ID: ${{ vars.COMPANY_OWNER_GITHUB_ID }}
+          COMPANY_CLICKUP_USER_ID: ${{ vars.COMPANY_CLICKUP_USER_ID }}
+          STAGING_OAUTH_KV_ID: ${{ vars.STAGING_OAUTH_KV_ID }}
+          STAGING_WORKSPACE_ID: ${{ vars.STAGING_WORKSPACE_ID }}
+        run: node scripts/generate-company-config.mjs
+      - name: Check independent read-only company profile
+        run: |
+          node -e 'const fs=require("node:fs");const c=JSON.parse(fs.readFileSync(".wrangler-company.generated.jsonc","utf8"));if(c.name!=="neonsales-clickup-mcp-company"||c.vars.CLICKUP_COMPANY_READ_ONLY!=="true"||c.vars.CLICKUP_RESOURCE_SCOPE!=="list"||c.vars.CLICKUP_WORKSPACE_GITHUB_IDS)process.exit(1);'
+      - name: Deploy independent company Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.COMPANY_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.COMPANY_CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          npx wrangler deploy --config .wrangler-company.generated.jsonc
+      - name: Remove generated configuration
+        if: always()
+        run: rm -f .wrangler-company.generated.jsonc

@@ -167,16 +167,31 @@ export async function verifyListWorkspace(grant: ReadGrant, fetcher: typeof fetc
     "team/" + grant.workspaceId + "/space?archived=false",
   );
   const spaces = workspace["spaces"];
+  if (!Array.isArray(spaces) || spaces.length > 500)
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   if (
-    !Array.isArray(spaces) ||
-    spaces.length > 500 ||
-    !spaces.some((value) => {
+    spaces.some((value) => {
       const entry = obj(value);
       return entry !== null && String(entry["id"]) === String(spaceId);
     })
-  ) {
+  )
+    return;
+
+  // A user can receive a List directly in "Shared with me" without
+  // access to its parent Space. Require independent proof from the
+  // Workspace-scoped shared hierarchy before allowing that List.
+  // A shared task or unrelated List is not sufficient.
+  const hierarchy = await requestJson(grant, fetcher, "GET", "team/" + grant.workspaceId + "/shared");
+  const sharedLists = obj(hierarchy["shared"])?.["lists"];
+  if (
+    !Array.isArray(sharedLists) ||
+    sharedLists.length > 500 ||
+    !sharedLists.some((value) => {
+      const entry = obj(value);
+      return entry !== null && String(entry["id"]) === grant.listId;
+    })
+  )
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-  }
 }
 
 export async function createScopedTask(

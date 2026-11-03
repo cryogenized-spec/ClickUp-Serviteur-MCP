@@ -117,6 +117,10 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
 
 /** OAuth write scope: the AI client owns its tool-by-tool permission settings. */
 export async function requireWriteGrant(auth: unknown, bindings: unknown): Promise<ReadGrant> {
+  // Distinct company deployment begins strictly read-only. Deny
+  // mutations even with client-approved mcp:write credentials.
+  if (record(bindings)?.["CLICKUP_COMPANY_READ_ONLY"] === "true")
+    throw new ReadFailure("CLICKUP_COMPANY_WRITE_DISABLED");
   const details = record(auth);
   const scopes = details?.["scopes"];
   if (!Array.isArray(scopes) || !scopes.includes("mcp:write")) {
