@@ -38,8 +38,15 @@ function targetRig() {
               body["connectionGeneration"] !== connectionGeneration
             )
               return new Response(null, { status: 403 });
-            selected.set(subject, String(body["listId"]));
-            return Response.json({ selected: true, workspaceId: "555", listId: body["listId"] });
+            const resetToDefault = body["resetToDefault"] === true;
+            if (resetToDefault) selected.delete(subject);
+            else selected.set(subject, String(body["listId"]));
+            return Response.json({
+              selected: true,
+              workspaceId: "555",
+              listId: body["listId"],
+              resetToDefault,
+            });
           }
           if (path === "/credential" || path === "/status")
             return Response.json({
@@ -195,6 +202,40 @@ describe("owner-controlled ClickUp target selector, no production Workspace leak
       expect(status.structuredContent).toMatchObject({
         selected_list_id: "23456",
         selected_list_is_override: true,
+      });
+      // Selecting the configured home List must clear the override completely.
+      // It is still a write gated by exact List-name confirmation.
+      const restored = await owner.client.callTool({
+        name: "clickup_select_target",
+        arguments: {
+          workspace_id: "555",
+          list_id: "12345",
+          expected_list_name: "Sandbox",
+          confirm: true,
+        },
+      });
+      expect(restored.isError).not.toBe(true);
+      expect(restored.structuredContent).toMatchObject({
+        persisted: true,
+        selected_list_id: "12345",
+        selected_list_is_override: false,
+      });
+      const restoredStatus = await owner.client.callTool({
+        name: "get_clickup_connection_status",
+        arguments: {},
+      });
+      expect(restoredStatus.structuredContent).toMatchObject({
+        selected_list_id: "12345",
+        selected_list_is_override: false,
+      });
+      expect(rig.selected.size).toBe(0);
+      const restoredList = await owner.client.callTool({
+        name: "get_scoped_list",
+        arguments: {},
+      });
+      expect(restoredList.structuredContent).toMatchObject({
+        list_id: "12345",
+        name: "Sandbox",
       });
       const colleagueList = await coworker.client.callTool({
         name: "get_scoped_list",

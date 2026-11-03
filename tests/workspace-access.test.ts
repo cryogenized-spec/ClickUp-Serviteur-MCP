@@ -57,8 +57,15 @@ function testRig() {
             !/^[1-9]\d{0,17}$/.test(String(body["listId"]))
           )
             return new Response(null, { status: 403 });
-          selected.set(subject, String(body["listId"]));
-          return Response.json({ selected: true, workspaceId: "555", listId: body["listId"] });
+          const resetToDefault = body["resetToDefault"] === true;
+          if (resetToDefault) selected.delete(subject);
+          else selected.set(subject, String(body["listId"]));
+          return Response.json({
+            selected: true,
+            workspaceId: "555",
+            listId: body["listId"],
+            resetToDefault,
+          });
         }
         if (endpoint === "/workspace-access") {
           if (body["workspaceId"] !== "555" || (body["enabled"] && !state.exclusive))
@@ -137,6 +144,24 @@ describe("explicit per-user Workspace operations", () => {
     ).toBe(true);
     expect((await clickUpConnectionStatus(owner, env))["selected_list_id"]).toBe("12345");
     expect((await clickUpConnectionStatus(owner, env))["selected_list_is_override"]).toBe(false);
+    expect(
+      await saveClickUpListTarget(owner, env, "555", "12345", baseline.connectionGeneration),
+    ).toMatchObject({
+      persisted: true,
+      selected_list_id: "12345",
+      selected_list_is_override: false,
+    });
+    expect(selected.size).toBe(0);
+    const restored = await requireReadGrant(owner, {
+      ...env,
+      CLICKUP_RESOURCE_SCOPE: "workspace",
+    });
+    expect(restored.listId).toBe("12345");
+    const finalStatus = await clickUpConnectionStatus(owner, {
+      ...env,
+      CLICKUP_RESOURCE_SCOPE: "workspace",
+    });
+    expect(finalStatus["selected_list_is_override"]).toBe(false);
     const other = await requireReadGrant(auth("22"), env);
     expect(other).toMatchObject({ workspaceId: "555", listId: "12345", resourceScope: "list" });
     expect(selected.get("github:22")).toBeUndefined();

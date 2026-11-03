@@ -1,3 +1,11 @@
+# 3 November 2026 SAST — default target reset and ChatGPT discovery root cause
+
+The selector pair `clickup_preview_target` / `clickup_select_target` is already registered in server source and covered by official MCP Streamable HTTP `tools/list`, positive List switch, independent readback, per-user isolation and denial tests. Successful protected staging deployment `41626361578` at main `51dc4295` is confirmed by new `selected_list_id` output. Yet this ChatGPT conversation has a **frozen, previously approved 58-tool snapshot**, excluding the three tool additions/changes. Per OpenAI's documented custom MCP mechanics, the app must be refreshed under Plugins, and any new actions enabled before use. No source-only patch can force ChatGPT to authorize missing actions. [User steps](TARGET_CONFIGURATION.md).
+
+One genuine reset usability issue was addressed as an additive source repair: re-selecting the Worker default now **clears** the per-user List-target record instead of leaving a redundant override. The original Workspace/Space ancestry checks, exact List name, mcp:write scope, owner approval and OAuth connection generation are unchanged. Tests cover selection to another List and resetting to the default, including Vault SQL state and status readback. This code patch is **not live** until reviewed, merged and separately deployed.
+
+---
+
 # 3 November 2026 SAST — merged MCP maintenance and live read-only QA
 
 **Current main baseline:** `fe0c8c8422cafa5dfb6539c8eda6cca1a9944584`, after three safe PR merges: **#28** (`@eslint/js`), **#29** (`eslint`), and **#51** (labelled historical smoke evidence). Both [Strict CI #41613957871](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/actions/runs/41613957871) and [CodeQL #41613957627](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/actions/runs/41613957627) passed on that exact commit.

@@ -284,7 +284,12 @@ describe("actual encrypted SQLite per-user token vault", () => {
       listId: "23456",
       connectionGeneration: generation,
     });
-    expect(changed.data).toEqual({ selected: true, workspaceId: "999", listId: "23456" });
+    expect(changed.data).toEqual({
+      selected: true,
+      workspaceId: "999",
+      listId: "23456",
+      resetToDefault: false,
+    });
     expect((await call(vault, "credential", { subject: "github:11" })).data).toMatchObject({
       targetListId: "23456",
       workspaceId: "999",
@@ -296,6 +301,28 @@ describe("actual encrypted SQLite per-user token vault", () => {
       subject: "github:11",
       workspaceId: "999",
       listId: "23456",
+    });
+    const reset = await call(vault, "target-list", {
+      subject: "github:11",
+      workspaceId: "999",
+      listId: "12345",
+      connectionGeneration: generation,
+      resetToDefault: true,
+    });
+    expect(reset.data).toMatchObject({
+      selected: true,
+      listId: "12345",
+      resetToDefault: true,
+    });
+    expect(backing.target()).toBeUndefined();
+    expect((await call(vault, "status", { subject: "github:11" })).data).toMatchObject({
+      targetListId: null,
+    });
+    await call(vault, "target-list", {
+      subject: "github:11",
+      workspaceId: "999",
+      listId: "23456",
+      connectionGeneration: generation,
     });
     await call(vault, "store", own);
     expect(backing.target()).toBeUndefined();

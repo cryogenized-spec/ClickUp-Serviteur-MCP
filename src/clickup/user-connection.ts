@@ -200,17 +200,22 @@ export class ClickUpUserConnection {
       // Generation is this OAuth credential's random AES-GCM IV. It changes
       // whenever /store replaces the account. Do not accept stale selections.
       if (body["connectionGeneration"] !== stored.iv) return new Response(null, { status: 409 });
+      const resetToDefault = body["resetToDefault"] === true;
       this.state.storage.transactionSync(() => {
-        this.state.storage.sql.exec(
-          "INSERT OR REPLACE INTO list_target(id,subject,workspace_id,list_id,changed_at_ms) VALUES(1,?,?,?,?)",
-          principal,
-          stored.workspace_id,
-          selected,
-          now,
-        );
+        if (resetToDefault) {
+          this.state.storage.sql.exec("DELETE FROM list_target WHERE subject = ?", principal);
+        } else {
+          this.state.storage.sql.exec(
+            "INSERT OR REPLACE INTO list_target(id,subject,workspace_id,list_id,changed_at_ms) VALUES(1,?,?,?,?)",
+            principal,
+            stored.workspace_id,
+            selected,
+            now,
+          );
+        }
       });
       return Response.json(
-        { selected: true, workspaceId: stored.workspace_id, listId: selected },
+        { selected: true, workspaceId: stored.workspace_id, listId: selected, resetToDefault },
         { headers: metadataHeaders() },
       );
     }
