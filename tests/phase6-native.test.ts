@@ -102,6 +102,52 @@ describe("native ClickUp endpoints: no duplicate journal or server approval sett
     expect(outbound).toHaveBeenCalledTimes(2);
   });
 
+  it("accepts a directly shared List only from the matching Workspace shared hierarchy", async () => {
+    const outbound = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.method).toBe("GET");
+      expect(init?.headers).toMatchObject({ Authorization: authToken });
+      if (String(url).endsWith("/list/12345")) return json({ id: "12345", space: { id: "765" } });
+      if (String(url).endsWith("/team/555/space?archived=false"))
+        return json({ spaces: [] });
+      if (String(url).endsWith("/team/555/shared"))
+        return json({ shared: { lists: [{ id: "12345", name: "Shared list" }], folders: [], tasks: [] } });
+      throw new Error("unexpected endpoint");
+    });
+    await expect(verifyListWorkspace(grant, outbound as typeof fetch)).resolves.toBeUndefined();
+    expect(outbound).toHaveBeenCalledTimes(3);
+    expect(outbound.mock.calls[2]?.[0].toString()).toContain("/team/555/shared");
+  });
+
+  it("rejects unrelated shared Lists and malformed shared hierarchy", async () => {
+    for (const shared of [
+      { lists: [{ id: "77777" }] },
+      { tasks: [{ id: "12345" }], lists: [] },
+      { lists: "12345" },
+      null,
+    ]) {
+      const outbound = vi.fn(async (url: RequestInfo | URL) => {
+        if (String(url).endsWith("/list/12345"))
+          return json({ id: "12345", space: { id: "765" } });
+        if (String(url).includes("/team/555/space")) return json({ spaces: [] });
+        if (String(url).endsWith("/team/555/shared")) return json({ shared });
+        throw new Error("wrong endpoint");
+      });
+      await expect(verifyListWorkspace(grant, outbound as typeof fetch)).rejects.toThrow(
+        "CLICKUP_SCOPE_OR_SCHEMA_REJECTED",
+      );
+      expect(outbound).toHaveBeenCalledTimes(3);
+    }
+  });
+
+  it("denies company mutations before OAuth access despite mcp write scope", async () => {
+    await expect(
+      requireWriteGrant(
+        { scopes: ["mcp:read", "mcp:write"], extra: { subject: "github:11" } },
+        { CLICKUP_COMPANY_READ_ONLY: "true" },
+      ),
+    ).rejects.toThrow("CLICKUP_COMPANY_WRITE_DISABLED");
+  });
+
   it("fails closed on foreign Workspace, absent space, mismatched List or malformed response", async () => {
     for (const payload of [
       { id: "12345", space: { id: 765 } },
@@ -114,7 +160,7 @@ describe("native ClickUp endpoints: no duplicate journal or server approval sett
       await expect(verifyListWorkspace(grant, upstream as typeof fetch)).rejects.toThrow(
         "CLICKUP_SCOPE_OR_SCHEMA_REJECTED",
       );
-      expect(upstream.mock.calls.length).toBeLessThanOrEqual(2);
+      expect(upstream.mock.calls.length).toBeLessThanOrEqual(3);
     }
     const wrongWorkspace = vi.fn(async (url: RequestInfo | URL) =>
       String(url).includes("/team/555/space")

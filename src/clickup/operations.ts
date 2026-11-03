@@ -167,16 +167,31 @@ export async function verifyListWorkspace(grant: ReadGrant, fetcher: typeof fetc
     "team/" + grant.workspaceId + "/space?archived=false",
   );
   const spaces = workspace["spaces"];
+  if (!Array.isArray(spaces) || spaces.length > 500)
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   if (
-    !Array.isArray(spaces) ||
-    spaces.length > 500 ||
-    !spaces.some((value) => {
+    spaces.some((value) => {
       const entry = obj(value);
       return entry !== null && String(entry["id"]) === String(spaceId);
     })
-  ) {
+  )
+    return;
+
+  // A limited member may be given a List through "Shared with me" without
+  // membership in its parent Space. Use ClickUp's Workspace-SCOPED shared
+  // hierarchy as an independent authority, not mere List GET access.
+  // Never accept items from another Workspace or a task-only share.
+  const hierarchy = await requestJson(grant, fetcher, "GET", "team/" + grant.workspaceId + "/shared");
+  const sharedLists = obj(hierarchy["shared"])?.["lists"];
+  if (
+    !Array.isArray(sharedLists) ||
+    sharedLists.length > 500 ||
+    !sharedLists.some((value) => {
+      const entry = obj(value);
+      return entry !== null && String(entry["id"]) === grant.listId;
+    })
+  )
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-  }
 }
 
 export async function createScopedTask(

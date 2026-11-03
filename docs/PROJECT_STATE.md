@@ -1,3 +1,10 @@
+# 3 November 2026 SAST — isolated company ClickUp cutover candidate
+
+The owner confirmed company Workspace and authorized preparing a company-specific MCP profile. A distinct first-party *work* ClickUp account (different user from the dummy account) positively resolves the Team NeonSales List under 'Shared with me'; normal Spaces hierarchy returns no visible Spaces for this user. The existing custom MCP's list ancestry would deny this case. Code candidate adds a fail-closed Workspace-scoped Shared Hierarchy fallback for explicitly shared Lists, a company-read-only server-side write gate, a separate Cloudflare company Worker manifest generator and manual GitHub deployment, plus positive/negative tests. No user token, company task write, company Worker, KV, OAuth secrets or company plugin has been created in this code-only step.
+
+The existing personal dummy staging MCP remains independently connected and must not be repointed. Exact company configuration belongs in a protected GitHub 'company' environment and independent Cloudflare Worker secrets, with reviewed main and manual deployment only. The candidate needs exact-head CI, CodeQL, Codex and a real company read-only OAuth/List smoke before claiming ready. See [cutover instructions](COMPANY_WORKSPACE_CUTOVER.md) and issue #68.
+
+---
 # 3 November 2026 SAST — default target reset and ChatGPT discovery root cause
 
 The selector pair `clickup_preview_target` / `clickup_select_target` is already registered in server source and covered by official MCP Streamable HTTP `tools/list`, positive List switch, independent readback, per-user isolation and denial tests. Successful protected staging deployment `41626361578` at main `51dc4295` is confirmed by new `selected_list_id` output. Yet this ChatGPT conversation has a **frozen, previously approved 58-tool snapshot**, excluding the three tool additions/changes. Per OpenAI's documented custom MCP mechanics, the app must be refreshed under Plugins, and any new actions enabled before use. No source-only patch can force ChatGPT to authorize missing actions. [User steps](TARGET_CONFIGURATION.md).
