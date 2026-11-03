@@ -16,8 +16,9 @@ VALID = {
     "COMPANY_LIST_ID": "6666666666",
     "COMPANY_GITHUB_OWNER_ID": "77777777",
     "COMPANY_CLICKUP_USER_ID": "88888888",
-    "COMPANY_PUBLIC_ORIGIN": "https://neonsales-clickup-mcp-company.example.workers.dev",
+    "COMPANY_PUBLIC_ORIGIN": "https://clickup-serviteur-company.example.workers.dev",
     "STAGING_OAUTH_KV_ID": "a" * 32,
+    "STAGING_PUBLIC_ORIGIN": "https://clickup-serviteur-staging.example.workers.dev",
 }
 
 
@@ -43,7 +44,7 @@ class CompanyManifestTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIsNotNone(config)
         assert config is not None
-        self.assertEqual("neonsales-clickup-mcp-company", config["name"])
+        self.assertEqual("clickup-serviteur-company", config["name"])
         self.assertEqual("5555555555", config["vars"]["CLICKUP_WORKSPACE_ID"])
         self.assertEqual("6666666666", config["vars"]["CLICKUP_LIST_ID"])
         self.assertEqual("list", config["vars"]["CLICKUP_RESOURCE_SCOPE"])
@@ -57,7 +58,7 @@ class CompanyManifestTests(unittest.TestCase):
 
     def test_missing_required_config_rejected(self):
         for key in VALID:
-            if key == "STAGING_OAUTH_KV_ID":
+            if key in ("STAGING_OAUTH_KV_ID", "STAGING_PUBLIC_ORIGIN"):
                 continue
             with self.subTest(key=key):
                 result, config = self.generate({key: ""})
@@ -70,7 +71,8 @@ class CompanyManifestTests(unittest.TestCase):
             {"COMPANY_LIST_ID": "901219425894"},
             {"COMPANY_OAUTH_KV_ID": VALID["STAGING_OAUTH_KV_ID"]},
             {"COMPANY_PUBLIC_ORIGIN": "http://example.com"},
-            {"COMPANY_PUBLIC_ORIGIN": "https://neonsales-clickup-mcp-staging.example.workers.dev"},
+            {"COMPANY_PUBLIC_ORIGIN": VALID["STAGING_PUBLIC_ORIGIN"]},
+            {"COMPANY_PUBLIC_ORIGIN": "https://unrelated-worker.example.workers.dev"},
         )
         for value in bad:
             with self.subTest(value=value):
