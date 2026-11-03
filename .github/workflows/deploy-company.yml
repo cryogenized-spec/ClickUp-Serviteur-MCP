@@ -1,4 +1,4 @@
-name: Deploy ClickUp MCP company (manual, read-only)
+name: Deploy ClickUp MCP company (manual, non-destructive read-write)
 
 on:
   workflow_dispatch:
@@ -50,7 +50,7 @@ jobs:
           STAGING_OAUTH_KV_ID: ${{ vars.STAGING_OAUTH_KV_ID }}
           STAGING_PUBLIC_ORIGIN: ${{ vars.STAGING_PUBLIC_ORIGIN }}
         run: node scripts/generate-company-config.mjs
-      - name: Deploy only the isolated company read-only Worker
+      - name: Deploy only the isolated company non-destructive Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.COMPANY_CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.COMPANY_CLOUDFLARE_ACCOUNT_ID }}
