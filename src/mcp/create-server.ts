@@ -1,6 +1,7 @@
 import { McpServer, fromJsonSchema, requireScopes } from "@modelcontextprotocol/server";
 import { getScopedTask, findScopedTasks } from "../clickup/client.js";
 import {
+  COMPANY_LIST_TASK_OPERATIONS,
   ReadFailure,
   requireReadGrant,
   requireWriteGrant,
@@ -69,11 +70,14 @@ export function createServer(deps?: ReadDependencies): McpServer {
       : null;
   const companyProfile = settings?.["CLICKUP_COMPANY_PROFILE"] === "true";
   const companyListOnly = companyProfile && settings?.["CLICKUP_RESOURCE_SCOPE"] !== "workspace";
-  const companyListWrites = new Set(["clickup_create_task", "clickup_create_bulk_tasks"]);
+  const companyWritesEnabled =
+    !companyProfile || settings?.["CLICKUP_COMPANY_WRITE_MODE"] === "non_destructive";
   const companyCatalogAllows = (name: string, effect: string): boolean =>
     !companyProfile ||
     effect === "read" ||
-    (isCompanyNonDestructiveOperation(name) && (!companyListOnly || companyListWrites.has(name)));
+    (companyWritesEnabled &&
+      isCompanyNonDestructiveOperation(name) &&
+      (!companyListOnly || COMPANY_LIST_TASK_OPERATIONS.has(name)));
   const runtimeInfo = settings
     ? {
         phase: 6,
