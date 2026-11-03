@@ -63,6 +63,13 @@ export function createServer(deps?: ReadDependencies): McpServer {
       ? (deps.bindings as Record<string, unknown>)
       : null;
   const companyProfile = settings?.["CLICKUP_COMPANY_PROFILE"] === "true";
+  const companyListOnly = companyProfile && settings?.["CLICKUP_RESOURCE_SCOPE"] !== "workspace";
+  const companyListWrites = new Set(["clickup_create_task", "clickup_create_bulk_tasks"]);
+  const companyCatalogAllows = (name: string, effect: string): boolean =>
+    !companyProfile ||
+    effect === "read" ||
+    (isCompanyNonDestructiveOperation(name) &&
+      (!companyListOnly || companyListWrites.has(name)));
   const runtimeInfo = settings
     ? {
         phase: 6,
@@ -284,7 +291,9 @@ export function createServer(deps?: ReadDependencies): McpServer {
               dependencies.schemaPreview === true
                 ? "schema_only"
                 : OPERATIONAL_CATALOG_NAMES.includes(String(entry["name"]))
-                  ? "operational"
+                  ? companyCatalogAllows(String(entry["name"]), String(entry["effect"]))
+                    ? "operational"
+                    : "company_disabled"
                   : "schema_only",
           })),
         });
@@ -361,7 +370,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
     for (const spec of CLICKUP_MODEL_TOOL_CATALOG) {
       if (!OPERATIONAL_CATALOG_NAMES.includes(spec.name)) continue;
       const write = spec.effect !== "read";
-      if (companyProfile && write && !isCompanyNonDestructiveOperation(spec.name)) continue;
+      if (!companyCatalogAllows(spec.name, spec.effect)) continue;
       server.registerTool(
         spec.name,
         {
