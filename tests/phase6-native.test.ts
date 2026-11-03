@@ -148,6 +148,55 @@ describe("native ClickUp endpoints: no duplicate journal or server approval sett
     ).rejects.toThrow("CLICKUP_COMPANY_WRITE_DISABLED");
   });
 
+  it("allows company read/write scope only for explicitly named non-destructive mutations", async () => {
+    const auth = { scopes: ["mcp:read", "mcp:write"], extra: { subject: "github:11" } };
+    const company = {
+      CLICKUP_COMPANY_PROFILE: "true",
+      CLICKUP_COMPANY_WRITE_MODE: "non_destructive",
+    };
+    for (const operation of [
+      "clickup_delete_task",
+      "clickup_remove_tag_from_task",
+      "clickup_remove_task_link",
+      "clickup_remove_dependency",
+      "clickup_move_task_to_list",
+      "clickup_update_document_page",
+      "clickup_set_workspace_access",
+      "unknown_new_write",
+    ]) {
+      await expect(requireWriteGrant(auth, company, operation)).rejects.toThrow(
+        "CLICKUP_COMPANY_OPERATION_DISABLED",
+      );
+    }
+    await expect(requireWriteGrant(auth, company)).rejects.toThrow(
+      "CLICKUP_COMPANY_OPERATION_DISABLED",
+    );
+    // The authorization gate accepts safe tasks and then fails only because this
+    // fixture deliberately has no live OAuth/storage bindings.
+    await expect(requireWriteGrant(auth, company, "create_scoped_task")).rejects.toThrow(
+      "CLICKUP_NOT_CONFIGURED",
+    );
+    await expect(requireWriteGrant(auth, company, "clickup_update_task")).rejects.toThrow(
+      "CLICKUP_NOT_CONFIGURED",
+    );
+    await expect(
+      requireWriteGrant(
+        { scopes: ["mcp:read"], extra: { subject: "github:11" } },
+        company,
+        "clickup_create_task",
+      ),
+    ).rejects.toThrow("CLICKUP_WRITE_SCOPE_REQUIRED");
+    await expect(
+      requireWriteGrant(auth, { ...company, CLICKUP_COMPANY_WRITE_MODE: "unrestricted" }, "clickup_create_task"),
+    ).rejects.toThrow("CLICKUP_COMPANY_WRITE_DISABLED");
+    await expect(
+      requireWriteGrant(auth, { ...company, CLICKUP_COMPANY_WRITE_MODE: "" }, "clickup_create_task"),
+    ).rejects.toThrow("CLICKUP_COMPANY_WRITE_DISABLED");
+    await expect(
+      requireWriteGrant(auth, { ...company, CLICKUP_COMPANY_READ_ONLY: "true" }, "clickup_create_task"),
+    ).rejects.toThrow("CLICKUP_COMPANY_WRITE_DISABLED");
+  });
+
   it("fails closed on foreign Workspace, absent space, mismatched List or malformed response", async () => {
     for (const payload of [
       { id: "12345", space: { id: 765 } },
