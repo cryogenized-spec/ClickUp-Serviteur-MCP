@@ -167,6 +167,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
     },
   );
 
+  if (!companyProfile) {
   server.registerTool(
     "clickup_set_workspace_access",
     {
@@ -210,6 +211,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
       }
     },
   );
+  }
 
   server.registerTool(
     "disconnect_clickup_account",
@@ -489,6 +491,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
     },
   );
 
+  if (!companyProfile) {
   server.registerTool(
     "clickup_select_target",
     {
@@ -552,6 +555,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
       }
     },
   );
+  }
 
   server.registerTool(
     "get_scoped_list",
