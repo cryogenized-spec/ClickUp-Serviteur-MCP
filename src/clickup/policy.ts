@@ -9,6 +9,8 @@ export interface ReadGrant {
   readonly connectionGeneration?: string | null;
   /** Explicit owner-controlled catalogue authority; unset is legacy single-List. */
   readonly resourceScope?: "list" | "workspace";
+  /** Runtime-proven company List-only mode; permits preflight-verified task edits. */
+  readonly companyListTaskAccess?: boolean;
   readonly workspaceId: string;
   readonly apiToken: string;
   readonly quota: {
@@ -109,6 +111,10 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
     listId: effectiveScope === "workspace" ? (user.selectedListId ?? listId) : listId,
     connectionGeneration: user.connectionGeneration,
     resourceScope: effectiveScope,
+    companyListTaskAccess:
+      env["CLICKUP_COMPANY_PROFILE"] === "true" &&
+      env["CLICKUP_COMPANY_WRITE_MODE"] === "non_destructive" &&
+      effectiveScope === "list",
     workspaceId: user.workspaceId,
     apiToken: user.token,
     quota: quota as unknown as ReadGrant["quota"],
@@ -117,8 +123,8 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
 
 /**
  * Explicit company-only, non-destructive mutation policy. This list does not
- * broaden the separate List/Workspace authorization boundary: many task-ID
- * writes remain unavailable to List-only company credentials.
+ * grant Workspace rights. Task-ID edits are allowed only after a verified
+ * home-List preflight using the connected employee's own OAuth permission.
  *
  * Deletions, removals, moves, document-content replacement and authority
  * expansion are deliberately absent. Every name must be reviewed individually.
@@ -146,6 +152,31 @@ export const COMPANY_SAFE_WRITE_OPERATIONS: ReadonlySet<string> = new Set([
   "clickup_send_chat_message",
   "clickup_create_document",
   "clickup_create_document_page",
+]);
+
+/**
+ * Operations whose target task (and any second task) is checked against the
+ * configured List immediately before access. No cross-List write or Workspace
+ * authority is implied. Existing task fields, comments and assignments are
+ * ordinary edits, not destructive actions.
+ */
+export const COMPANY_LIST_TASK_OPERATIONS: ReadonlySet<string> = new Set([
+  "clickup_create_task",
+  "clickup_create_bulk_tasks",
+  "clickup_update_task",
+  "clickup_set_custom_field",
+  "clickup_update_bulk_tasks",
+  "clickup_attach_file_to_task",
+  "clickup_create_task_comment",
+  "clickup_add_tag_to_task",
+  "clickup_add_task_link",
+  "clickup_add_dependency",
+  "clickup_start_time_tracking",
+  "clickup_add_time_entry",
+  "clickup_get_task_comments",
+  "clickup_get_threaded_replies",
+  "clickup_get_task_time_entries",
+  "clickup_get_task_time_in_status",
 ]);
 
 export function isCompanyNonDestructiveOperation(name: string): boolean {
