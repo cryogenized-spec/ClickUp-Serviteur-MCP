@@ -221,8 +221,7 @@ describe("Phase 4 official SDK integration", () => {
         return Response.json({ id: "task42", list: { id: "12345" } });
       if (path === "/api/v2/list/12345")
         return Response.json({ id: "12345", space: { id: "765" } });
-      if (path === "/api/v2/team/555/space")
-        return Response.json({ spaces: [{ id: "765" }] });
+      if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "765" }] });
       if (path === "/api/v2/task/task42" && init?.method === "PUT") {
         expect(init?.headers).toMatchObject({ Authorization: "nonworking-personal-fixture" });
         expect(JSON.parse(String(init.body))).toMatchObject({
