@@ -114,6 +114,21 @@ describe("Codex P1 OAuth integration regressions", () => {
     ]);
   });
 
+  it("advertises read-only scopes on the isolated company Worker", async () => {
+    await handleOAuthRequest(
+      new Request(origin + "/mcp", { method: "POST" }),
+      { ...env, CLICKUP_COMPANY_READ_ONLY: "true" },
+      verifiedContext("11"),
+      origin,
+    );
+    expect(captures.providerSettings).toEqual([
+      {
+        requiredScopes: ["mcp:read"],
+        scopesSupported: ["mcp:read"],
+      },
+    ]);
+  });
+
   it("constructs the pinned OAuth provider without conflicting resource scope settings", async () => {
     const response = await handleOAuthRequest(
       new Request(origin + "/mcp", { method: "POST" }),
