@@ -2,6 +2,9 @@
 
 > **Do not confuse tool-registration and permission enforcement with full tool correctness.** This report records only real operations performed through the user's connected ChatGPT custom NeonSales MCP against their fictional/dummy offshore project. No production staff tasks were modified.
 
+
+> **Historical test record, not a current MCP capability or quota declaration (3 November 2026 update).** The snapshot below records the previous List-mode behavior as it was on 2 November; current staging runs in the owner's approved dummy Workspace mode, and newer deployment/review information supersedes it. The former MCP-imposed 30-per-user/80-shared request throttles were removed in subsequent source changes; do **not** treat the old quota paragraph below as a live limit. ClickUp's own upstream 429 limits still apply. The current main commit's per-user List-target selector has **not** yet been deployed; see the newest project checkpoint. No company Workspace is used here.
+
 ## Environment
 
 - Cloudflare staging Worker deployed from main `f0485c2c3fa327bfdccfe42cd858dd73087c84f3`; [successful deployment run](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/actions/runs/41485760603).
