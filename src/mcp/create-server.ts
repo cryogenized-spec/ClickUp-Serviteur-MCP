@@ -1,6 +1,11 @@
 import { McpServer, fromJsonSchema, requireScopes } from "@modelcontextprotocol/server";
 import { getScopedTask, findScopedTasks } from "../clickup/client.js";
-import { ReadFailure, requireReadGrant, requireWriteGrant, isCompanyNonDestructiveOperation } from "../clickup/policy.js";
+import {
+  ReadFailure,
+  requireReadGrant,
+  requireWriteGrant,
+  isCompanyNonDestructiveOperation,
+} from "../clickup/policy.js";
 import {
   createScopedTask,
   getScopedList,
@@ -68,8 +73,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
   const companyCatalogAllows = (name: string, effect: string): boolean =>
     !companyProfile ||
     effect === "read" ||
-    (isCompanyNonDestructiveOperation(name) &&
-      (!companyListOnly || companyListWrites.has(name)));
+    (isCompanyNonDestructiveOperation(name) && (!companyListOnly || companyListWrites.has(name)));
   const runtimeInfo = settings
     ? {
         phase: 6,
@@ -168,49 +172,50 @@ export function createServer(deps?: ReadDependencies): McpServer {
   );
 
   if (!companyProfile) {
-  server.registerTool(
-    "clickup_set_workspace_access",
-    {
-      description:
-        "Explicitly enable or disable Workspace-wide ClickUp operations for YOUR connected account. Requires mcp:write, exact approved Workspace ID, separately owner-allowlisted GitHub identity and an OAuth token exclusively authorized for this one Workspace. This expands access to tasks and other ClickUp resources your own token permits, including updates, comments, dependencies and deletion; other staff remain List-restricted. No task is changed by this tool. In forced Workspace staging mode, disabling requires a server configuration rollback and is rejected here.",
-      scopeChallenge: requireScopes("mcp:read", "mcp:write"),
-      inputSchema: fromJsonSchema<{ workspace_id: string; enabled: boolean }>({
-        type: "object",
-        properties: {
-          workspace_id: {
-            type: "string",
-            pattern: "^[1-9]\\d{0,17}$",
-            description:
-              "Exact owner-approved ClickUp Workspace ID, never inferred from task content.",
+    server.registerTool(
+      "clickup_set_workspace_access",
+      {
+        description:
+          "Explicitly enable or disable Workspace-wide ClickUp operations for YOUR connected account. Requires mcp:write, exact approved Workspace ID, separately owner-allowlisted GitHub identity and an OAuth token exclusively authorized for this one Workspace. This expands access to tasks and other ClickUp resources your own token permits, including updates, comments, dependencies and deletion; other staff remain List-restricted. No task is changed by this tool. In forced Workspace staging mode, disabling requires a server configuration rollback and is rejected here.",
+        scopeChallenge: requireScopes("mcp:read", "mcp:write"),
+        inputSchema: fromJsonSchema<{ workspace_id: string; enabled: boolean }>({
+          type: "object",
+          properties: {
+            workspace_id: {
+              type: "string",
+              pattern: "^[1-9]\\d{0,17}$",
+              description:
+                "Exact owner-approved ClickUp Workspace ID, never inferred from task content.",
+            },
+            enabled: {
+              type: "boolean",
+              description:
+                "True explicitly enables broader access; false revokes your prior opt-in.",
+            },
           },
-          enabled: {
-            type: "boolean",
-            description: "True explicitly enables broader access; false revokes your prior opt-in.",
-          },
-        },
-        required: ["workspace_id", "enabled"],
-        additionalProperties: false,
-      }),
-      annotations: { readOnlyHint: false, destructiveHint: true },
-    },
-    async (args, extra) => {
-      try {
-        // Server-side write authorization remains mandatory even if the client
-        // omits or ignores tool confirmation metadata.
-        await requireWriteGrant(extra.http?.authInfo, dependencies.bindings);
-        return toolSuccess(
-          await setClickUpWorkspaceAccess(
-            extra.http?.authInfo,
-            dependencies.bindings,
-            args.workspace_id,
-            args.enabled,
-          ),
-        );
-      } catch (error) {
-        return toolError(error);
-      }
-    },
-  );
+          required: ["workspace_id", "enabled"],
+          additionalProperties: false,
+        }),
+        annotations: { readOnlyHint: false, destructiveHint: true },
+      },
+      async (args, extra) => {
+        try {
+          // Server-side write authorization remains mandatory even if the client
+          // omits or ignores tool confirmation metadata.
+          await requireWriteGrant(extra.http?.authInfo, dependencies.bindings);
+          return toolSuccess(
+            await setClickUpWorkspaceAccess(
+              extra.http?.authInfo,
+              dependencies.bindings,
+              args.workspace_id,
+              args.enabled,
+            ),
+          );
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
   }
 
   server.registerTool(
@@ -492,69 +497,69 @@ export function createServer(deps?: ReadDependencies): McpServer {
   );
 
   if (!companyProfile) {
-  server.registerTool(
-    "clickup_select_target",
-    {
-      description:
-        "Change YOUR default ClickUp List for scoped operations, not the OAuth Workspace. Enter a verified Workspace ID, List ID, exact previewed List name and confirm=true. Requires mcp:write and owner-authorized Workspace scope. Persisted separately per signed-in user. Reconnection resets selection. Does NOT create, update or delete ClickUp records. Company Workspace switching is never enabled by entering its ID here.",
-      inputSchema: fromJsonSchema<{
-        workspace_id: string;
-        list_id: string;
-        expected_list_name: string;
-        confirm: boolean;
-      }>({
-        type: "object",
-        properties: {
-          workspace_id: { type: "string", pattern: "^[1-9]\\d{0,17}$" },
-          list_id: { type: "string", pattern: "^[1-9]\\d{0,17}$" },
-          expected_list_name: {
-            type: "string",
-            minLength: 1,
-            maxLength: 180,
-            description:
-              "Exact name from clickup_preview_target; protects against accidental ID selection.",
+    server.registerTool(
+      "clickup_select_target",
+      {
+        description:
+          "Change YOUR default ClickUp List for scoped operations, not the OAuth Workspace. Enter a verified Workspace ID, List ID, exact previewed List name and confirm=true. Requires mcp:write and owner-authorized Workspace scope. Persisted separately per signed-in user. Reconnection resets selection. Does NOT create, update or delete ClickUp records. Company Workspace switching is never enabled by entering its ID here.",
+        inputSchema: fromJsonSchema<{
+          workspace_id: string;
+          list_id: string;
+          expected_list_name: string;
+          confirm: boolean;
+        }>({
+          type: "object",
+          properties: {
+            workspace_id: { type: "string", pattern: "^[1-9]\\d{0,17}$" },
+            list_id: { type: "string", pattern: "^[1-9]\\d{0,17}$" },
+            expected_list_name: {
+              type: "string",
+              minLength: 1,
+              maxLength: 180,
+              description:
+                "Exact name from clickup_preview_target; protects against accidental ID selection.",
+            },
+            confirm: {
+              type: "boolean",
+              description: "Must be explicitly true to save the default List selection.",
+            },
           },
-          confirm: {
-            type: "boolean",
-            description: "Must be explicitly true to save the default List selection.",
-          },
-        },
-        required: ["workspace_id", "list_id", "expected_list_name", "confirm"],
-        additionalProperties: false,
-      }),
-      scopeChallenge: requireScopes("mcp:read", "mcp:write"),
-      annotations: { readOnlyHint: false, destructiveHint: false },
-    },
-    async (args, extra) => {
-      try {
-        const grant = await requireWriteGrant(extra.http?.authInfo, dependencies.bindings);
-        if (args.confirm !== true) throw new ReadFailure("CLICKUP_TARGET_CONFIRM_REQUIRED");
-        if (args.workspace_id !== grant.workspaceId || grant.resourceScope !== "workspace")
-          throw new ReadFailure("CLICKUP_TARGET_WORKSPACE_NOT_AUTHORIZED");
-        const candidate = { ...grant, listId: args.list_id };
-        await verifyListWorkspace(candidate, dependencies.fetcher ?? fetch);
-        const list = await getScopedList(candidate, dependencies.fetcher ?? fetch);
-        if (String(list["name"]).length >= 180)
-          throw new ReadFailure("CLICKUP_TARGET_NAME_TOO_LONG");
-        if (list["name"] !== args.expected_list_name)
-          throw new ReadFailure("CLICKUP_TARGET_NAME_CHANGED");
-        const saved = await saveClickUpListTarget(
-          extra.http?.authInfo,
-          dependencies.bindings,
-          grant.workspaceId,
-          args.list_id,
-          grant.connectionGeneration,
-        );
-        return toolSuccess({
-          ...saved,
-          list_name: list["name"],
-          note: "Your default scoped List target was saved. Explicit List IDs in the 48 native catalogue tools remain independently validated, and your OAuth Workspace authorization has NOT changed.",
-        });
-      } catch (error) {
-        return toolError(error);
-      }
-    },
-  );
+          required: ["workspace_id", "list_id", "expected_list_name", "confirm"],
+          additionalProperties: false,
+        }),
+        scopeChallenge: requireScopes("mcp:read", "mcp:write"),
+        annotations: { readOnlyHint: false, destructiveHint: false },
+      },
+      async (args, extra) => {
+        try {
+          const grant = await requireWriteGrant(extra.http?.authInfo, dependencies.bindings);
+          if (args.confirm !== true) throw new ReadFailure("CLICKUP_TARGET_CONFIRM_REQUIRED");
+          if (args.workspace_id !== grant.workspaceId || grant.resourceScope !== "workspace")
+            throw new ReadFailure("CLICKUP_TARGET_WORKSPACE_NOT_AUTHORIZED");
+          const candidate = { ...grant, listId: args.list_id };
+          await verifyListWorkspace(candidate, dependencies.fetcher ?? fetch);
+          const list = await getScopedList(candidate, dependencies.fetcher ?? fetch);
+          if (String(list["name"]).length >= 180)
+            throw new ReadFailure("CLICKUP_TARGET_NAME_TOO_LONG");
+          if (list["name"] !== args.expected_list_name)
+            throw new ReadFailure("CLICKUP_TARGET_NAME_CHANGED");
+          const saved = await saveClickUpListTarget(
+            extra.http?.authInfo,
+            dependencies.bindings,
+            grant.workspaceId,
+            args.list_id,
+            grant.connectionGeneration,
+          );
+          return toolSuccess({
+            ...saved,
+            list_name: list["name"],
+            note: "Your default scoped List target was saved. Explicit List IDs in the 48 native catalogue tools remain independently validated, and your OAuth Workspace authorization has NOT changed.",
+          });
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
   }
 
   server.registerTool(
