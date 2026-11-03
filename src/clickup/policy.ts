@@ -115,13 +115,58 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
   };
 }
 
-/** OAuth write scope: the AI client owns its tool-by-tool permission settings. */
-export async function requireWriteGrant(auth: unknown, bindings: unknown): Promise<ReadGrant> {
-  // A separate company Worker begins in read-only mode. Deny ALL
-  // ClickUp mutations before requesting personal OAuth credentials,
-  // regardless of the model client's mcp:write approval.
-  if (record(bindings)?.["CLICKUP_COMPANY_READ_ONLY"] === "true")
+/**
+ * Explicit company-only, non-destructive mutation policy. This list does not
+ * broaden the separate List/Workspace authorization boundary: many task-ID
+ * writes remain unavailable to List-only company credentials.
+ *
+ * Deletions, removals, moves, document-content replacement and authority
+ * expansion are deliberately absent. Every name must be reviewed individually.
+ */
+export const COMPANY_SAFE_WRITE_OPERATIONS: ReadonlySet<string> = new Set([
+  "create_scoped_task",
+  "clickup_create_task",
+  "clickup_create_bulk_tasks",
+  "clickup_update_task",
+  "clickup_set_custom_field",
+  "clickup_update_bulk_tasks",
+  "clickup_attach_file_to_task",
+  "clickup_create_task_comment",
+  "clickup_add_tag_to_task",
+  "clickup_add_task_link",
+  "clickup_add_dependency",
+  "clickup_start_time_tracking",
+  "clickup_stop_time_tracking",
+  "clickup_add_time_entry",
+  "clickup_create_list",
+  "clickup_create_list_in_folder",
+  "clickup_update_list",
+  "clickup_create_folder",
+  "clickup_update_folder",
+  "clickup_send_chat_message",
+  "clickup_create_document",
+  "clickup_create_document_page",
+]);
+
+export function isCompanyNonDestructiveOperation(name: string): boolean {
+  return COMPANY_SAFE_WRITE_OPERATIONS.has(name);
+}
+
+/** Enforced before obtaining the per-user token, including direct MCP calls. */
+export async function requireWriteGrant(
+  auth: unknown,
+  bindings: unknown,
+  operation?: string,
+): Promise<ReadGrant> {
+  const env = record(bindings);
+  if (env?.["CLICKUP_COMPANY_READ_ONLY"] === "true")
     throw new ReadFailure("CLICKUP_COMPANY_WRITE_DISABLED");
+  if (env?.["CLICKUP_COMPANY_PROFILE"] === "true") {
+    if (env["CLICKUP_COMPANY_WRITE_MODE"] !== "non_destructive")
+      throw new ReadFailure("CLICKUP_COMPANY_WRITE_DISABLED");
+    if (!operation || !isCompanyNonDestructiveOperation(operation))
+      throw new ReadFailure("CLICKUP_COMPANY_OPERATION_DISABLED");
+  }
   const details = record(auth);
   const scopes = details?.["scopes"];
   if (!Array.isArray(scopes) || !scopes.includes("mcp:write")) {
