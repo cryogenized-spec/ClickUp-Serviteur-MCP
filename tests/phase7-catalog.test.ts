@@ -1259,14 +1259,14 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
 
   it("reports provider-normalized Markdown brackets on an otherwise verified Docs write", async () => {
     const calls: string[] = [];
-    const content = "QA baseline\\n[disposable test]";
+    const content = "QA baseline\n[disposable test]";
     const f = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) => {
       const method = init?.method ?? "GET";
       calls.push(method);
       if (method === "PUT")
         return new Response("OK", { status: 200, headers: { "Content-Type": "text/plain" } });
       // Actual live ClickUp Docs round-tripped [test] as \\[test\\].
-      return reply({ id: "page1", content: "QA baseline\\n\\\\[disposable test\\\\]" });
+      return reply({ id: "page1", content: "QA baseline\n\\[disposable test\\]" });
     });
     const result = await runCatalogOperation(
       "clickup_update_document_page",
@@ -1288,12 +1288,12 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     const f = vi.fn(async (_req: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "PUT")
         return new Response("OK", { status: 200, headers: { "Content-Type": "text/plain" } });
-      return reply({ id: "page1", content: "QA baseline\\n[unrelated content]" });
+      return reply({ id: "page1", content: "QA baseline\n[unrelated content]" });
     });
     await expect(
       runCatalogOperation(
         "clickup_update_document_page",
-        { document_id: "doc1", page_id: "page1", doc_content: "QA baseline\\n[disposable test]" },
+        { document_id: "doc1", page_id: "page1", doc_content: "QA baseline\n[disposable test]" },
         makeGrant(),
         f as typeof fetch,
       ),
