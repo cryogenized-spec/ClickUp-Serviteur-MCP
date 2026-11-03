@@ -142,6 +142,63 @@ describe("Phase 4 official SDK integration", () => {
     }
   });
 
+  it("exposes only non-destructive List-bound writes in the company MCP", async () => {
+    const outbound = vi.fn(async () => {
+      throw Error("No real company requests permitted in this test");
+    });
+    const handler = createProtocolHandler({
+      bindings: {
+        ...configuration(),
+        CLICKUP_COMPANY_PROFILE: "true",
+        CLICKUP_COMPANY_WRITE_MODE: "non_destructive",
+        CLICKUP_RESOURCE_SCOPE: "list",
+      },
+      fetcher: outbound as typeof fetch,
+    });
+    const client = new Client({ name: "company-safe-tools", version: "0.1.0" });
+    const transport = new StreamableHTTPClientTransport(new URL("http://local.test/mcp"), {
+      fetch: async (input, init) =>
+        handler.fetch(new Request(input, init), {
+          authInfo: {
+            token: "synthetic-mcp-token",
+            clientId: "test",
+            scopes: ["mcp:read", "mcp:write"],
+            extra: { subject: "github:11" },
+          },
+        }),
+    });
+    try {
+      await client.connect(transport);
+      const tools = (await client.listTools()).tools;
+      const names = tools.map((tool) => tool.name);
+      for (const name of ["create_scoped_task", "clickup_create_task", "clickup_create_bulk_tasks"]) {
+        expect(names).toContain(name);
+        expect(tools.find((tool) => tool.name === name)?.annotations?.destructiveHint).toBe(false);
+      }
+      for (const name of [
+        "clickup_delete_task",
+        "clickup_update_task",
+        "clickup_remove_tag_from_task",
+        "clickup_remove_dependency",
+        "clickup_move_task_to_list",
+        "clickup_update_document_page",
+      ]) expect(names).not.toContain(name);
+      expect((await client.callTool({ name: "service_info", arguments: {} })).structuredContent).toMatchObject({
+        company_write_mode: "non_destructive",
+        destructive_actions_enabled: false,
+      });
+      const page = await client.callTool({
+        name: "clickup_tool_catalog",
+        arguments: { group: "tasks", max_results: 20 },
+      });
+      expect(JSON.stringify(page.structuredContent)).toContain("company_disabled");
+      expect(outbound).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+      await handler.close();
+    }
+  });
+
   it("reports verified write scope without exposing any OAuth token", async () => {
     const handler = createProtocolHandler({ bindings: configuration() });
     const client = new Client({ name: "write-scope-diagnostic", version: "0.1.0" });
