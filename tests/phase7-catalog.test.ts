@@ -258,8 +258,11 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
         assignees: { add: [707], rem: [] },
       },
     });
-    expect(f.mock.calls.every(([, init]) =>
-      (init?.headers as Record<string, string>)["Authorization"] === "person-707")).toBe(true);
+    expect(
+      f.mock.calls.every(
+        ([, init]) => (init?.headers as Record<string, string>)["Authorization"] === "person-707",
+      ),
+    ).toBe(true);
   });
 
   it("allows company List task comments, tag changes, custom fields and bulk updates", async () => {
@@ -271,8 +274,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       if (path === "/api/v2/task/abc123" && method === "GET")
         return reply({ id: "abc123", list: { id: "12345" } });
       if (path === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
-      if (path === "/api/v2/team/555/space")
-        return reply({ spaces: [{ id: "777" }] });
+      if (path === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
       if (path === "/api/v2/list/12345/field")
         return reply({ fields: [{ id: "custom11", type: "text" }] });
       if (path === "/api/v2/task/abc123/comment" && method === "POST")
@@ -288,18 +290,43 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       throw Error("Unexpected request: " + method + " " + path);
     });
     const g = makeCompanyListGrant();
-    await runCatalogOperation("clickup_create_task_comment", { task_id: "abc123", text: "Progress reviewed" }, g, f as typeof fetch);
-    await runCatalogOperation("clickup_add_tag_to_task", { task_id: "abc123", tag: "Reviewed" }, g, f as typeof fetch);
-    await runCatalogOperation("clickup_set_custom_field", {
-      task_id: "abc123",
-      field_id: "custom11",
-      field_value: { text: "Approved" },
-    }, g, f as typeof fetch);
-    const bulk = await runCatalogOperation("clickup_update_bulk_tasks", {
-      task_updates: [{ task_id: "abc123", changes: { name: "Renamed" } }],
-    }, g, f as typeof fetch);
+    await runCatalogOperation(
+      "clickup_create_task_comment",
+      { task_id: "abc123", text: "Progress reviewed" },
+      g,
+      f as typeof fetch,
+    );
+    await runCatalogOperation(
+      "clickup_add_tag_to_task",
+      { task_id: "abc123", tag: "Reviewed" },
+      g,
+      f as typeof fetch,
+    );
+    await runCatalogOperation(
+      "clickup_set_custom_field",
+      {
+        task_id: "abc123",
+        field_id: "custom11",
+        field_value: { text: "Approved" },
+      },
+      g,
+      f as typeof fetch,
+    );
+    const bulk = await runCatalogOperation(
+      "clickup_update_bulk_tasks",
+      {
+        task_updates: [{ task_id: "abc123", changes: { name: "Renamed" } }],
+      },
+      g,
+      f as typeof fetch,
+    );
     expect(bulk["partial"]).toBe(false);
-    const comments = await runCatalogOperation("clickup_get_task_comments", { task_id: "abc123" }, g, f as typeof fetch);
+    const comments = await runCatalogOperation(
+      "clickup_get_task_comments",
+      { task_id: "abc123" },
+      g,
+      f as typeof fetch,
+    );
     expect(comments["comments"]).toHaveLength(1);
     expect(requests.filter((item) => item.method === "PUT")).toHaveLength(1);
     expect(requests.filter((item) => item.method === "POST")).toHaveLength(3);
@@ -311,8 +338,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method !== "GET") throw Error("A foreign task must never be mutated");
       const path = new URL(String(input)).pathname;
-      if (path === "/api/v2/task/foreign")
-        return reply({ id: "foreign", list: { id: "99999" } });
+      if (path === "/api/v2/task/foreign") return reply({ id: "foreign", list: { id: "99999" } });
       return reply({ id: "99999", space: { id: "888" } });
     });
     await expect(
