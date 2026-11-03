@@ -1,5 +1,7 @@
 # Release-readiness and 48-tool truth-in-advertising roadmap
 
+> **Current evidence (3 November 2026):** [Latest custom MCP live audit](MCP_LIVE_AUDIT_2026-11-03.md). The 2 November table below is historical: today's dummy Workspace access is enabled, multiple read operations succeed, and Time-in-Status remains plan-dependent. Tool discovery is **still 58 vs expected 61** until the merged target selector is deployed and client tools refreshed. No production Workspace was used.
+
 > **Updated live evidence:** [2 November MCP smoke test: 3 new tasks, 11 catalogue tools passing in limited scenarios, 13 correctly guarded, 24 not yet tested](MCP_LIVE_SMOKE_2026-11-02.md). Tool discovery issue [#50](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/issues/50) remains a Workspace-enabled acceptance blocker.
 
 **Live baseline:** 2026-11-02 (SAST, UTC+02:00). **Scope:** the owner's **dummy** ClickUp Workspace `9012707978` and approved List `901219425894` (Workshop Action Register), NOT a production NeonSales Workspace. **No live business task changes authorised by this document.**

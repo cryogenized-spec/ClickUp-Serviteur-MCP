@@ -1,6 +1,6 @@
 # NeonSales ClickUp MCP
 
-> **Live release-readiness snapshot (2 November 2026):** The current staging deployment passed, but only a subset of the 48 REST-backed catalogue tools has been verified against real ClickUp. Workspace-wide access remains disabled. Read the [evidence-backed release roadmap and 48-tool acceptance matrix](docs/RELEASE_READINESS_ROADMAP_2026-11-02.md) before relying on any capability for production work.
+> **Current checkpoint — 3 November 2026 SAST:** The **custom** MCP is connected to the owner-approved **dummy** ClickUp Workspace; OAuth read/write grants and Workspace scope are enabled for that dummy identity. Multiple read routes and authorization denials have been validated live, but **not 48/48 verified**. GitHub `main` is CI-green; **the latest per-user List-target selector merged in PR #67 has not yet been manually deployed to staging**, so the connected ChatGPT tool list still lacks it. Never send company tasks through this staging profile. See the [3 November live audit](docs/MCP_LIVE_AUDIT_2026-11-03.md) and [release readiness roadmap](docs/RELEASE_READINESS_ROADMAP_2026-11-02.md).
 
 A private, cloud-hosted [Model Context Protocol](https://modelcontextprotocol.io/) server connecting authorized staff members to ClickUp through **their own individual ClickUp OAuth accounts**. The same remote MCP endpoint is intended for supported Claude and ChatGPT clients.
 
@@ -12,7 +12,7 @@ A private, cloud-hosted [Model Context Protocol](https://modelcontextprotocol.io
 |---|---|
 | **ClickUp** | Task data, staff permissions, activity/history, native attribution, existing comments, updates and any recovery it natively supports |
 | **Claude / ChatGPT** | Per-tool allow/deny prompts, low-risk approvals and user-specific tool trust preferences |
-| **NeonSales MCP** | OAuth verification and account mapping, forwarding bounded ClickUp API calls under each user's own token, input validation, fixed-resource scoping and rate-limit controls |
+| **NeonSales MCP** | OAuth verification and account mapping, forwarding bounded ClickUp API calls under each user's own token, input validation, fixed-resource scoping and upstream ClickUp rate-limit response handling (no artificial per-user/shared request ceiling) |
 | **Cloudflare Workers** | Permanent HTTPS remote MCP hosting and encrypted per-user credential storage |
 | **GitHub Actions** | Hosted CI and manual deployment to an isolated Cloudflare Worker; never hosts the persistent application |
 
