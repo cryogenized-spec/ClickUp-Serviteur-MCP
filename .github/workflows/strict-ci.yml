@@ -61,13 +61,6 @@ jobs:
         if: steps.stage.outputs.application == 'true'
         run: npm run format:check
 
-      # Temporary diagnostic; removed after applying the formatter's exact patch.
-      - name: Report task-edit test formatting patch on failure
-        if: failure()
-        run: |
-          ./node_modules/.bin/prettier --write tests/phase4-mcp.test.ts tests/phase7-catalog.test.ts
-          git diff -- tests/phase4-mcp.test.ts tests/phase7-catalog.test.ts
-
       - name: Enforce ESLint
         if: steps.stage.outputs.application == 'true'
         run: npm run lint
