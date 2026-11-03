@@ -78,7 +78,10 @@ export function handleOAuthRequest(
     authorizeEndpoint: "/authorize",
     tokenEndpoint: "/oauth/token",
     clientRegistrationEndpoint: "/oauth/register",
-    scopesSupported: ["mcp:read", "mcp:write"],
+    scopesSupported:
+      env.CLICKUP_COMPANY_READ_ONLY === "true"
+        ? ["mcp:read"]
+        : ["mcp:read", "mcp:write"],
     // Basic MCP operations need only read access. During OAuth consent the user
     // may separately opt in to write access even when the client asks only for
     // read. Mutation handlers still enforce mcp:write on every operation.
@@ -86,7 +89,7 @@ export function handleOAuthRequest(
     resourceMetadata: {
       resource: origin + "/mcp",
       authorization_servers: [origin],
-      resource_name: "NeonSales ClickUp MCP",
+      resource_name: "ClickUp Serviteur MCP",
     },
     clientIdMetadataDocumentEnabled: true,
   });
