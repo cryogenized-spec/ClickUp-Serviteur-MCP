@@ -515,7 +515,7 @@ export async function finishClickUpOAuth(
     });
     if (stored["stored"] !== true) return fail();
     return new Response(
-      "Your ClickUp account is connected to NeonSales MCP. You may close this page.",
+      "Your ClickUp account is connected to ClickUp Serviteur MCP. You may close this page.",
       { status: 200, headers },
     );
   } catch {
