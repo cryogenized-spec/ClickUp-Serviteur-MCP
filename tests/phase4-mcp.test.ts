@@ -171,7 +171,11 @@ describe("Phase 4 official SDK integration", () => {
       await client.connect(transport);
       const tools = (await client.listTools()).tools;
       const names = tools.map((tool) => tool.name);
-      for (const name of ["create_scoped_task", "clickup_create_task", "clickup_create_bulk_tasks"]) {
+      for (const name of [
+        "create_scoped_task",
+        "clickup_create_task",
+        "clickup_create_bulk_tasks",
+      ]) {
         expect(names).toContain(name);
         expect(tools.find((tool) => tool.name === name)?.annotations?.destructiveHint).toBe(false);
       }
@@ -182,8 +186,11 @@ describe("Phase 4 official SDK integration", () => {
         "clickup_remove_dependency",
         "clickup_move_task_to_list",
         "clickup_update_document_page",
-      ]) expect(names).not.toContain(name);
-      expect((await client.callTool({ name: "service_info", arguments: {} })).structuredContent).toMatchObject({
+      ])
+        expect(names).not.toContain(name);
+      expect(
+        (await client.callTool({ name: "service_info", arguments: {} })).structuredContent,
+      ).toMatchObject({
         company_write_mode: "non_destructive",
         destructive_actions_enabled: false,
       });
