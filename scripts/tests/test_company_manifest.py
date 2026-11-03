@@ -1,4 +1,4 @@
-"""Isolated read-only company manifest tests. No real credentials."""
+"""Isolated non-destructive company manifest tests. No real credentials."""
 from __future__ import annotations
 
 import json
@@ -39,7 +39,7 @@ class CompanyManifestTests(unittest.TestCase):
             config = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
             return result, config
 
-    def test_separate_company_worker_read_only_defaults(self):
+    def test_separate_company_worker_non_destructive_defaults(self):
         result, config = self.generate()
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIsNotNone(config)
@@ -48,7 +48,9 @@ class CompanyManifestTests(unittest.TestCase):
         self.assertEqual("5555555555", config["vars"]["CLICKUP_WORKSPACE_ID"])
         self.assertEqual("6666666666", config["vars"]["CLICKUP_LIST_ID"])
         self.assertEqual("list", config["vars"]["CLICKUP_RESOURCE_SCOPE"])
-        self.assertEqual("true", config["vars"]["CLICKUP_COMPANY_READ_ONLY"])
+        self.assertEqual("true", config["vars"]["CLICKUP_COMPANY_PROFILE"])
+        self.assertEqual("non_destructive", config["vars"]["CLICKUP_COMPANY_WRITE_MODE"])
+        self.assertNotIn("CLICKUP_COMPANY_READ_ONLY", config["vars"])
         self.assertEqual("77777777", config["vars"]["ALLOWED_GITHUB_IDS"])
         self.assertEqual({"77777777": "88888888"},
                          json.loads(config["vars"]["CLICKUP_STAFF_USER_MAP"]))
