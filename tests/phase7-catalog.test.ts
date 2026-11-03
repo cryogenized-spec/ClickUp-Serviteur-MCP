@@ -138,6 +138,92 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     ]);
   });
 
+  it("accepts direct company List sharing consistently for catalogue reads", async () => {
+    const requests: string[] = [];
+    const f = vi.fn(async (req: RequestInfo | URL) => {
+      const path = new URL(String(req)).pathname;
+      requests.push(path);
+      if (path === "/api/v2/list/12345")
+        return reply({ id: "12345", space: { id: "777" } });
+      if (path === "/api/v2/team/555/space") return reply({ spaces: [] });
+      if (path === "/api/v2/team/555/shared")
+        return reply({ shared: { lists: [{ id: "12345" }], tasks: [] } });
+      if (path === "/api/v2/task/abc123")
+        return reply({ id: "abc123", list: { id: "12345" }, name: "Order" });
+      if (path === "/api/v2/list/12345/task")
+        return reply({
+          tasks: [{
+            id: "abc123", name: "Order", list: { id: "12345" },
+            custom_item_id: 9, tags: [{ name: "QC" }],
+          }],
+        });
+      throw Error("Unexpected out-of-scope API request: " + path);
+    });
+    const g = makeListGrant();
+    const listing = await runCatalogOperation(
+      "clickup_get_list", { list_id: "12345" }, g, f as typeof fetch,
+    );
+    expect(listing["id"]).toBe("12345");
+    const task = await runCatalogOperation(
+      "clickup_get_task", { task_id: "abc123" }, g, f as typeof fetch,
+    );
+    expect(task["id"]).toBe("abc123");
+    const search = await runCatalogOperation(
+      "clickup_search_workspace", { query: "Order" }, g, f as typeof fetch,
+    );
+    expect(search["tasks"]).toHaveLength(1);
+    const byTag = await runCatalogOperation(
+      "clickup_search_tasks_by_tag", { tag: "QC" }, g, f as typeof fetch,
+    );
+    expect(byTag["tasks"]).toHaveLength(1);
+    const byType = await runCatalogOperation(
+      "clickup_search_tasks_by_type", { task_type: 9 }, g, f as typeof fetch,
+    );
+    expect(byType["tasks"]).toHaveLength(1);
+    expect(requests.filter((path) => path === "/api/v2/team/555/shared")).toHaveLength(5);
+    expect(requests.every((path) =>
+      path === "/api/v2/list/12345" ||
+      path === "/api/v2/team/555/space" ||
+      path === "/api/v2/team/555/shared" ||
+      path === "/api/v2/task/abc123" ||
+      path === "/api/v2/list/12345/task"
+    )).toBe(true);
+  });
+
+  it("rejects unrelated or task-only shares and cannot expand the configured List", async () => {
+    for (const shared of [
+      { lists: [{ id: "99999" }] },
+      { lists: [], tasks: [{ id: "abc123" }] },
+      { lists: "12345" },
+      null,
+    ]) {
+      const f = vi.fn(async (req: RequestInfo | URL) => {
+        const path = new URL(String(req)).pathname;
+        if (path === "/api/v2/list/12345")
+          return reply({ id: "12345", space: { id: "777" } });
+        if (path === "/api/v2/team/555/space") return reply({ spaces: [] });
+        if (path === "/api/v2/team/555/shared") return reply({ shared });
+        if (path === "/api/v2/task/abc123")
+          return reply({ id: "abc123", list: { id: "12345" } });
+        throw Error("Should fail before reading task list");
+      });
+      await expect(runCatalogOperation(
+        "clickup_get_list", { list_id: "12345" }, makeListGrant(), f as typeof fetch,
+      )).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      await expect(runCatalogOperation(
+        "clickup_get_task", { task_id: "abc123" }, makeListGrant(), f as typeof fetch,
+      )).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      await expect(runCatalogOperation(
+        "clickup_search_workspace", { query: "Order" }, makeListGrant(), f as typeof fetch,
+      )).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    }
+    const f = vi.fn(async () => { throw Error("Unexpected OAuth fetch"); });
+    await expect(runCatalogOperation(
+      "clickup_get_list", { list_id: "99999" }, makeListGrant(), f as typeof fetch,
+    )).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    expect(f).not.toHaveBeenCalled();
+  });
+
   it("requires explicit Workspace authority for out-of-List actions", async () => {
     const f = fakeApi();
     for (const name of [
