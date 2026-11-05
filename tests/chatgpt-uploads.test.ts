@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { attachChatGPTFileToTask, type ChatGPTProvidedFile } from "../src/clickup/chatgpt-uploads.js";
+import {
+  attachChatGPTFileToTask,
+  type ChatGPTProvidedFile,
+} from "../src/clickup/chatgpt-uploads.js";
 import type { ReadGrant } from "../src/clickup/policy.js";
 
 const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
@@ -33,11 +36,12 @@ function mockHost(
     const url = new URL(String(request));
     calls.push({ url, init });
     if (url.hostname === "files.oaiusercontent.com") {
-      if (options.redirect)
+      if (options.redirect) {
         return new Response(null, {
           status: 302,
           headers: { Location: "https://localhost/private" },
         });
+      }
       return new Response(bytes, {
         status: 200,
         headers: {
@@ -59,10 +63,12 @@ function mockHost(
         list: { id: options.foreign ? "12346" : "12345" },
         attachments: uploaded ? [{ id: "new-attachment" }] : [],
       });
-    if (url.pathname === "/api/v2/list/12345")
+    if (url.pathname === "/api/v2/list/12345") {
       return json({ id: "12345", space: { id: "777" } });
-    if (url.pathname === "/api/v2/team/555/space")
+    }
+    if (url.pathname === "/api/v2/team/555/space") {
       return json({ spaces: [{ id: "777" }] });
+    }
     throw Error("Unexpected endpoint " + url.pathname);
   });
   return { fetcher, calls };
