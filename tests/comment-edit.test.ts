@@ -38,7 +38,9 @@ describe("task comment editing is author- and List-bound", () => {
             {
               id: "own22",
               user: { id: 707 },
-              comment_text: changed ? "Please use the second tab." : "@MONISHA Please use the second tab.",
+              comment_text: changed
+                ? "Please use the second tab."
+                : "@MONISHA Please use the second tab.",
             },
           ],
         });
