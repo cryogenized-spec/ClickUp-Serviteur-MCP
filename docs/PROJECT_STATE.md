@@ -1,3 +1,9 @@
+# 5 November 2026 SAST — owner-only task comment editing prepared
+
+A new `clickup_edit_task_comment` capability is being developed on branch `feat/edit-own-task-comments`. It requires an exact task ID, existing comment ID, and replacement text; verifies the task's home List under the authenticated person's grant, then confirms the comment belongs to that same ClickUp user before submitting an update. A post-write readback must confirm the replacement. The company profile permits this non-destructive edit while continuing to deny deleting tasks/comments, moving tasks and authorising cross-List edits. This is SOURCE work only until CI, review, merge, manual Cloudflare deployment and ChatGPT plugin refresh. No live ClickUp comment has been edited by this change.
+
+---
+
 # 3 November 2026 SAST — company read/write requested, destructive mutations blocked
 
 **Updated requirement:** The operator explicitly requested read and write access but **no destructive actions**. PR #73 now prepares a dedicated `clickup-serviteur-company` Worker with `CLICKUP_COMPANY_PROFILE=true` and `CLICKUP_COMPANY_WRITE_MODE=non_destructive`. It advertises optional `mcp:write` only with explicit consent, and the MCP enforces named safe operations server-side before fetching a user credential. Delete/remove/move, document-content replacement, workspace-access expansion and retargeting are disabled in this company profile. Staging remains unchanged.

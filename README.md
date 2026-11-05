@@ -1,5 +1,7 @@
 # ClickUp Serviteur MCP
 
+> **5 November 2026 source candidate:** A custom 49th tool, `clickup_edit_task_comment`, adds owner-only correction of task comments with task/List and author verification plus readback. The historical 48-tool catalogue counts below describe the earlier release; editing is unavailable in the connected MCP until this change passes CI, is merged, is deployed to the company Worker and the ChatGPT app tools are refreshed.
+
 > **Current checkpoint — 3 November 2026 SAST:** The **custom** MCP is connected to the owner-approved **dummy** ClickUp Workspace; OAuth read/write grants and Workspace scope are enabled for that dummy identity. Multiple read routes and authorization denials have been validated live, but **not 48/48 verified**. GitHub `main` is CI-green; **the latest per-user List-target selector merged in PR #67 has not yet been manually deployed to staging**, so the connected ChatGPT tool list still lacks it. Never send company tasks through this staging profile. See the [3 November live audit](docs/MCP_LIVE_AUDIT_2026-11-03.md) and [release readiness roadmap](docs/RELEASE_READINESS_ROADMAP_2026-11-02.md).
 
 A private, cloud-hosted [Model Context Protocol](https://modelcontextprotocol.io/) server connecting authorized staff members to ClickUp through **their own individual ClickUp OAuth accounts**. The same remote MCP endpoint is intended for supported Claude and ChatGPT clients.
