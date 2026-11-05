@@ -41,7 +41,7 @@ function mockHost(
   const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(request));
     calls.push({ url, init });
-    if (url.hostname === "files.oaiusercontent.com") {
+    if (url.hostname.endsWith(".oaiusercontent.com")) {
       if (options.redirect) {
         return new Response(null, {
           status: 302,
@@ -140,7 +140,7 @@ describe("ChatGPT attached-file bridge (#78)", () => {
         ...file(),
         download_url: "http://127.0.0.1/latest/meta-data",
       }),
-    ).rejects.toThrow("CLICKUP_FILE_SOURCE_UNAVAILABLE");
+    ).rejects.toThrow("CLICKUP_FILE_HOST_NOT_ALLOWED");
     expect(api.fetcher).not.toHaveBeenCalled();
   });
 
@@ -148,7 +148,7 @@ describe("ChatGPT attached-file bridge (#78)", () => {
     const api = mockHost(png, { redirect: true });
     await expect(
       attachChatGPTFileToTask(grant(), api.fetcher as typeof fetch, "abc123", file()),
-    ).rejects.toThrow("CLICKUP_FILE_SOURCE_UNAVAILABLE");
+    ).rejects.toThrow("CLICKUP_FILE_FETCH_HTTP_302");
     expect(api.calls.filter((call) => call.init?.method === "POST")).toHaveLength(0);
   });
 

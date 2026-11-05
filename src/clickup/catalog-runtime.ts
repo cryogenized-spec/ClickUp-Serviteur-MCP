@@ -334,6 +334,42 @@ async function uploadAttachment(
   return uploadAttachmentBytes(grant, fetcher, taskId, filename, data, mime);
 }
 
+/** Inspect only a tiny rejected-upload response; never buffer unlimited 4xx bodies. */
+async function attachmentRejectCode(response: Response): Promise<string> {
+  const stream = response.body;
+  if (!stream) return "";
+  const declared = response.headers.get("content-length");
+  if (declared && (!/^\d+$/.test(declared) || Number(declared) > 2048)) {
+    await stream.cancel().catch(() => undefined);
+    return "";
+  }
+  const reader = stream.getReader();
+  const bytes = new Uint8Array(2048);
+  let used = 0;
+  try {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      if (used + next.value.byteLength > bytes.byteLength) {
+        await reader.cancel().catch(() => undefined);
+        return "";
+      }
+      bytes.set(next.value, used);
+      used += next.value.byteLength;
+    }
+    const parsed = obj(JSON.parse(new TextDecoder().decode(bytes.subarray(0, used))));
+    const candidate = parsed?.["ECODE"] ?? parsed?.["ecode"];
+    return typeof candidate === "string" && /^[A-Z][A-Z0-9_]{2,40}$/.test(candidate)
+      ? "_" + candidate
+      : "";
+  } catch {
+    await reader.cancel().catch(() => undefined);
+    return "";
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 /** Upload an already-loaded, bounded attachment without a model-facing Base64 payload. */
 export async function uploadAttachmentBytes(
   grant: ReadGrant,
@@ -367,7 +403,9 @@ export async function uploadAttachmentBytes(
       method: "POST",
       redirect: "manual",
       signal: abort.signal,
-      headers: { Authorization: grant.apiToken, Accept: "application/json" },
+      // Let the runtime set multipart Content-Type including boundary; do not
+      // add an Accept header on this legacy ClickUp upload endpoint.
+      headers: { Authorization: grant.apiToken },
       body: form,
     });
     if (res.status === 429) {
@@ -380,10 +418,15 @@ export async function uploadAttachmentBytes(
       throw new ReadFailure("CLICKUP_RATE_LIMITED");
     }
     if (res.status === 401 || res.status === 403) throw new ReadFailure("CLICKUP_UPSTREAM_DENIED");
-    if (!res.ok)
-      throw new ReadFailure(
-        res.status >= 500 ? "CLICKUP_WRITE_OUTCOME_UNKNOWN" : "CLICKUP_UPSTREAM_UNAVAILABLE",
-      );
+    if (!res.ok) {
+      // A definitively rejected 4xx upload is different from an ambiguous
+      // timeout/5xx. Surface only the status and a strictly validated ClickUp
+      // ECODE, never the server message, filename, token or response headers.
+      if (res.status >= 500 || res.status === 408 || res.status === 425)
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      const ecode = await attachmentRejectCode(res);
+      throw new ReadFailure("CLICKUP_ATTACHMENT_HTTP_" + res.status + ecode);
+    }
     // Only an authoritative response ID correlates this upload to this request.
     // A matching filename seen later may belong to another concurrent writer.
     const content = await res.text();
