@@ -22,10 +22,12 @@ function listOnlyApi(taskPage: (page: number) => unknown) {
   const pages: number[] = [];
   const fetcher = vi.fn(async (request: RequestInfo | URL) => {
     const url = new URL(String(request));
-    if (url.pathname === "/api/v2/list/12345")
+    if (url.pathname === "/api/v2/list/12345") {
       return reply({ id: "12345", space: { id: "777" } });
-    if (url.pathname === "/api/v2/team/555/space")
+    }
+    if (url.pathname === "/api/v2/team/555/space") {
       return reply({ spaces: [{ id: "777" }] });
+    }
     if (url.pathname === "/api/v2/list/12345/task") {
       const page = Number(url.searchParams.get("page"));
       pages.push(page);
@@ -39,14 +41,16 @@ function listOnlyApi(taskPage: (page: number) => unknown) {
 describe("List-scoped task search pagination (#76)", () => {
   it("finds a matching task beyond the first 100 tasks without Workspace traversal", async () => {
     const api = listOnlyApi((page) => {
-      if (page === 0)
+      if (page === 0) {
         return Array.from({ length: 100 }, (_, i) => ({
           id: "unrelated-" + i,
           name: "Unrelated",
           list: { id: "12345" },
         }));
-      if (page === 1)
+      }
+      if (page === 1) {
         return [{ id: "target-vusi", name: "VUSI repair", list: { id: "12345" } }];
+      }
       throw Error("Unexpected extra page");
     });
     const result = await runCatalogOperation(
@@ -70,14 +74,16 @@ describe("List-scoped task search pagination (#76)", () => {
 
   it("returns a continuation cursor after ten List pages", async () => {
     const api = listOnlyApi((page) => {
-      if (page < 10)
+      if (page < 10) {
         return Array.from({ length: 100 }, (_, i) => ({
           id: "unrelated-" + page + "-" + i,
           name: "Unrelated",
           list: { id: "12345" },
         }));
-      if (page === 10)
+      }
+      if (page === 10) {
         return [{ id: "target-late", name: "Late repair", list: { id: "12345" } }];
+      }
       throw Error("Unexpected extra page");
     });
     const first = await runCatalogOperation(
