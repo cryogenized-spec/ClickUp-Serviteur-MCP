@@ -962,7 +962,7 @@ export async function runCatalogOperation(
       if (
         !Number.isSafeInteger(Number(assigneeValue)) ||
         Number(assigneeValue) < 0 ||
-        !/^\\d+$/.test(String(assigneeValue))
+        !/^[0-9]+$/.test(String(assigneeValue))
       )
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       const assignee = Number(assigneeValue);
