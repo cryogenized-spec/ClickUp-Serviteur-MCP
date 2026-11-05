@@ -40,8 +40,8 @@ const fakeApi = () =>
   });
 
 describe("Phase 7 individual OAuth and native catalogue - adversarial tests", () => {
-  it("registers all 48 REST backed capability names including a bounded binary attachment implementation", () => {
-    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(48);
+  it("registers all 49 REST backed capability names including a bounded binary attachment implementation", () => {
+    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(49);
     expect(new Set(OPERATIONAL_CATALOG_NAMES).size).toBe(48);
     expect(
       OPERATIONAL_CATALOG_NAMES.every((n) => CLICKUP_MODEL_TOOL_CATALOG.some((s) => s.name === n)),
@@ -1807,7 +1807,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       ).rejects.toThrow("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
     }
     expect(f).not.toHaveBeenCalled();
-    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(48);
+    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(49);
   });
 
   it("permits cross-List moves in the explicitly authorised Workspace", async () => {
