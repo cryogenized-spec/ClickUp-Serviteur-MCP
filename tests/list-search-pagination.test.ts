@@ -135,4 +135,68 @@ describe("List-scoped task search pagination (#76)", () => {
     ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     expect(api.pages).toEqual([0, 1]);
   });
+  it("preserves dense matches within the same partial page across result limits", async () => {
+    const api = listOnlyApi((page) => {
+      if (page !== 0) throw Error("Unexpected extra page");
+      return Array.from({ length: 15 }, (_, i) => ({
+        id: "match-" + i,
+        name: "Repair batch " + i,
+        list: { id: "12345" },
+      }));
+    });
+    const first = await runCatalogOperation(
+      "clickup_search_workspace",
+      { query: "Repair batch", max_results: 10 },
+      grant(),
+      api.fetcher as typeof fetch,
+    );
+    expect(first).toMatchObject({
+      scope: "list",
+      pages_scanned: 1,
+      incomplete: true,
+      next_task_page: 0,
+      next_task_offset: 10,
+    });
+    expect((first["tasks"] as Array<{ id: string }>).map((t) => t.id)).toEqual(
+      Array.from({ length: 10 }, (_, i) => "match-" + i),
+    );
+    const second = await runCatalogOperation(
+      "clickup_search_workspace",
+      { query: "Repair batch", max_results: 10, task_page: 0, task_offset: 10 },
+      grant(),
+      api.fetcher as typeof fetch,
+    );
+    expect(second).toMatchObject({
+      scope: "list",
+      pages_scanned: 1,
+      incomplete: false,
+      next_task_page: null,
+      next_task_offset: 0,
+    });
+    expect((second["tasks"] as Array<{ id: string }>).map((t) => t.id)).toEqual(
+      Array.from({ length: 5 }, (_, i) => "match-" + (i + 10)),
+    );
+    expect(api.pages).toEqual([0, 0]);
+  });
+
+  it("rejects a foreign task on a full page without fetching another page", async () => {
+    const api = listOnlyApi((page) => {
+      if (page !== 0) throw Error("Must not fetch a second page after scope mismatch");
+      return Array.from({ length: 100 }, (_, i) => ({
+        id: "task-" + i,
+        name: "Repair",
+        list: { id: i === 60 ? "12346" : "12345" },
+      }));
+    });
+    await expect(
+      runCatalogOperation(
+        "clickup_search_workspace",
+        { query: "Repair" },
+        grant(),
+        api.fetcher as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    expect(api.pages).toEqual([0]);
+  });
+
 });
