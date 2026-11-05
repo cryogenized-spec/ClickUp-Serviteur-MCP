@@ -1639,6 +1639,89 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     }
   });
 
+  it("searches later Workspace task pages rather than silently stopping at the first 100", async () => {
+    const requestedPages: number[] = [];
+    const f = vi.fn(async (req: RequestInfo | URL) => {
+      const u = new URL(String(req));
+      if (u.pathname === "/api/v2/team/555/task") {
+        const page = Number(u.searchParams.get("page"));
+        requestedPages.push(page);
+        if (page === 0)
+          return reply({
+            tasks: Array.from({ length: 100 }, (_, i) => ({
+              id: "older-" + i, name: "Unrelated", list: { id: "12345" },
+            })),
+          });
+        if (page === 1)
+          return reply({ tasks: [{ id: "vusi", name: "VUSI repair", list: { id: "12346" } }] });
+        throw Error("unexpected extra task page");
+      }
+      if (u.pathname === "/api/v3/workspaces/555/docs") return reply({ docs: [] });
+      if (u.pathname === "/api/v2/team/555/space") return reply({ spaces: [] });
+      throw Error("unexpected endpoint " + u.pathname);
+    });
+    const result = await runCatalogOperation(
+      "clickup_search_workspace",
+      { query: "VUSI", max_results: 10 },
+      makeGrant(),
+      f as typeof fetch,
+    );
+    expect(result).toMatchObject({
+      scope: "workspace",
+      incomplete: false,
+      pages_scanned: 2,
+      next_task_page: null,
+    });
+    expect(result["tasks"]).toEqual([
+      { id: "vusi", name: "VUSI repair", list: { id: "12346" } },
+    ]);
+    expect(requestedPages).toEqual([0, 1]);
+  });
+
+  it("returns an explicit continuation page when a large Workspace needs more scanning", async () => {
+    const requestedPages: number[] = [];
+    const f = vi.fn(async (req: RequestInfo | URL) => {
+      const u = new URL(String(req));
+      if (u.pathname === "/api/v2/team/555/task") {
+        const page = Number(u.searchParams.get("page"));
+        requestedPages.push(page);
+        if (page < 10)
+          return reply({
+            tasks: Array.from({ length: 100 }, (_, i) => ({
+              id: "task-" + page + "-" + i, name: "Other repair", list: { id: "12345" },
+            })),
+          });
+        if (page === 10)
+          return reply({ tasks: [{ id: "vusi", name: "VUSI", list: { id: "12346" } }] });
+        throw Error("unexpected page");
+      }
+      if (u.pathname === "/api/v3/workspaces/555/docs") return reply({ docs: [] });
+      if (u.pathname === "/api/v2/team/555/space") return reply({ spaces: [] });
+      throw Error("unexpected endpoint " + u.pathname);
+    });
+    const first = await runCatalogOperation(
+      "clickup_search_workspace",
+      { query: "VUSI" },
+      makeGrant(),
+      f as typeof fetch,
+    );
+    expect(first).toMatchObject({
+      scope: "workspace", incomplete: true, pages_scanned: 10, next_task_page: 10,
+    });
+    expect(first["tasks"]).toEqual([]);
+    const next = await runCatalogOperation(
+      "clickup_search_workspace",
+      { query: "VUSI", task_page: 10 },
+      makeGrant(),
+      f as typeof fetch,
+    );
+    expect(next).toMatchObject({
+      scope: "workspace", incomplete: false, pages_scanned: 1, next_task_page: null,
+    });
+    expect(next["tasks"]).toEqual([{ id: "vusi", name: "VUSI", list: { id: "12346" } }]);
+    expect(requestedPages).toEqual(Array.from({ length: 11 }, (_, page) => page));
+  });
+
   it("restricts workspace task search to granted List and rejects foreign-home tasks", async () => {
     const urls: string[] = [];
     const f = vi.fn(async (req: RequestInfo | URL) => {
