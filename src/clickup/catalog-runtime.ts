@@ -334,6 +334,42 @@ async function uploadAttachment(
   return uploadAttachmentBytes(grant, fetcher, taskId, filename, data, mime);
 }
 
+/** Inspect only a tiny rejected-upload response; never buffer unlimited 4xx bodies. */
+async function attachmentRejectCode(response: Response): Promise<string> {
+  const stream = response.body;
+  if (!stream) return "";
+  const declared = response.headers.get("content-length");
+  if (declared && (!/^\\d+$/.test(declared) || Number(declared) > 2048)) {
+    await stream.cancel().catch(() => undefined);
+    return "";
+  }
+  const reader = stream.getReader();
+  const bytes = new Uint8Array(2048);
+  let used = 0;
+  try {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      if (used + next.value.byteLength > bytes.byteLength) {
+        await reader.cancel().catch(() => undefined);
+        return "";
+      }
+      bytes.set(next.value, used);
+      used += next.value.byteLength;
+    }
+    const parsed = obj(JSON.parse(new TextDecoder().decode(bytes.subarray(0, used))));
+    const candidate = parsed?.["ECODE"] ?? parsed?.["ecode"];
+    return typeof candidate === "string" && /^[A-Z][A-Z0-9_]{2,40}$/.test(candidate)
+      ? "_" + candidate
+      : "";
+  } catch {
+    await reader.cancel().catch(() => undefined);
+    return "";
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 /** Upload an already-loaded, bounded attachment without a model-facing Base64 payload. */
 export async function uploadAttachmentBytes(
   grant: ReadGrant,
@@ -388,21 +424,7 @@ export async function uploadAttachmentBytes(
       // ECODE, never the server message, filename, token or response headers.
       if (res.status >= 500 || res.status === 408 || res.status === 425)
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
-      let ecode = "";
-      try {
-        const declaredLength = Number(res.headers.get("content-length") ?? "0");
-        if (declaredLength <= 2048) {
-          const body = await res.text();
-          if (body.length <= 2048) {
-            const parsed = obj(JSON.parse(body));
-            const candidate = parsed?.["ECODE"] ?? parsed?.["ecode"];
-            if (typeof candidate === "string" && /^[A-Z][A-Z0-9_]{2,40}$/.test(candidate))
-              ecode = "_" + candidate;
-          }
-        }
-      } catch {
-        // Diagnostic parsing must never mask the definitive HTTP status.
-      }
+      const ecode = await attachmentRejectCode(res);
       throw new ReadFailure("CLICKUP_ATTACHMENT_HTTP_" + res.status + ecode);
     }
     // Only an authoritative response ID correlates this upload to this request.
