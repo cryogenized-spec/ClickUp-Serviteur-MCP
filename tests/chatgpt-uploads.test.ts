@@ -41,7 +41,7 @@ function mockHost(
   const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(request));
     calls.push({ url, init });
-    if (url.hostname === "files.oaiusercontent.com") {
+    if (url.hostname.endsWith(".oaiusercontent.com")) {
       if (options.redirect) {
         return new Response(null, {
           status: 302,
@@ -140,15 +140,57 @@ describe("ChatGPT attached-file bridge (#78)", () => {
         ...file(),
         download_url: "http://127.0.0.1/latest/meta-data",
       }),
-    ).rejects.toThrow("CLICKUP_FILE_SOURCE_UNAVAILABLE");
+    ).rejects.toThrow("CLICKUP_FILE_HOST_NOT_ALLOWED");
     expect(api.fetcher).not.toHaveBeenCalled();
+  });
+
+  it("reports an unhydrated host file slot before requesting task or file data", async () => {
+    const api = mockHost(png);
+    await expect(
+      attachChatGPTFileToTask(
+        grant(),
+        api.fetcher as typeof fetch,
+        "abc123",
+        "file_abcdefgh12345" as unknown as ChatGPTProvidedFile,
+      ),
+    ).rejects.toThrow("CLICKUP_FILE_PARAM_UNRESOLVED");
+    expect(api.fetcher).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes an unresolved download URL from an unsafe domain", async () => {
+    const api = mockHost(png);
+    await expect(
+      attachChatGPTFileToTask(grant(), api.fetcher as typeof fetch, "abc123", {
+        ...file(),
+        download_url: "",
+      }),
+    ).rejects.toThrow("CLICKUP_FILE_URL_MISSING");
+    expect(api.fetcher).not.toHaveBeenCalled();
+  });
+
+  it("accepts OpenAI CDN subdomains without allowing arbitrary external sites", async () => {
+    const api = mockHost(png);
+    const uploaded = await attachChatGPTFileToTask(
+      grant(),
+      api.fetcher as typeof fetch,
+      "abc123",
+      {
+        ...file(),
+        file_id: "sediment://file_abc123",
+        download_url: "https://region1.files.oaiusercontent.com/signed/file-image",
+      },
+    );
+    expect(uploaded).toMatchObject({ attachment_id: "new-attachment" });
+    expect(
+      api.calls.some((call) => call.url.hostname === "region1.files.oaiusercontent.com"),
+    ).toBe(true);
   });
 
   it("does not follow redirects or POST after a failed file download", async () => {
     const api = mockHost(png, { redirect: true });
     await expect(
       attachChatGPTFileToTask(grant(), api.fetcher as typeof fetch, "abc123", file()),
-    ).rejects.toThrow("CLICKUP_FILE_SOURCE_UNAVAILABLE");
+    ).rejects.toThrow("CLICKUP_FILE_FETCH_HTTP_302");
     expect(api.calls.filter((call) => call.init?.method === "POST")).toHaveLength(0);
   });
 
