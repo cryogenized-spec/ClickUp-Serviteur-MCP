@@ -170,15 +170,16 @@ describe("ChatGPT attached-file bridge (#78)", () => {
 
   it("accepts OpenAI CDN subdomains without allowing arbitrary external sites", async () => {
     const api = mockHost(png);
+    const regionalFile: ChatGPTProvidedFile = {
+      ...file(),
+      file_id: "sediment://file_abc123",
+      download_url: "https://region1.files.oaiusercontent.com/signed/file-image",
+    };
     const uploaded = await attachChatGPTFileToTask(
       grant(),
       api.fetcher as typeof fetch,
       "abc123",
-      {
-        ...file(),
-        file_id: "sediment://file_abc123",
-        download_url: "https://region1.files.oaiusercontent.com/signed/file-image",
-      },
+      regionalFile,
     );
     expect(uploaded).toMatchObject({ attachment_id: "new-attachment" });
     expect(
