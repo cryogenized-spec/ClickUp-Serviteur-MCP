@@ -86,6 +86,7 @@ describe("Official ClickUp MCP capability catalogue (model-facing only)", () => 
             "clickup_set_workspace_access",
             "clickup_preview_target",
             "clickup_select_target",
+            "clickup_attach_chatgpt_file_to_task",
             "create_scoped_task",
             "disconnect_clickup_account",
             "find_scoped_tasks",
