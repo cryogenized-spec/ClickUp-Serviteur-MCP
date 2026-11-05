@@ -511,11 +511,7 @@ export async function runCatalogOperation(
       // modes paginate with an explicit continuation instead of silently
       // missing matching tasks beyond the first ClickUp result page.
       const startPage = a["task_page"] ?? 0;
-      if (
-        !Number.isSafeInteger(startPage) ||
-        Number(startPage) < 0 ||
-        Number(startPage) > 100_000
-      )
+      if (!Number.isSafeInteger(startPage) || Number(startPage) < 0 || Number(startPage) > 100_000)
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       if (!workspaceScope) await listInWorkspace(g, f, g.listId);
       const tasks: unknown[] = [];
