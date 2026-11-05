@@ -194,7 +194,8 @@ describe("task comment editing is author- and List-bound", () => {
       if (path === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
       if (path === "/api/v2/task/task1/comment") {
         readCount++;
-        if (readCount === 1) return reply({ comments: [{ id: "own22", user: { id: 707 }, assignee: null }] });
+        if (readCount === 1)
+          return reply({ comments: [{ id: "own22", user: { id: 707 }, assignee: null }] });
         throw Error("Simulated connection loss after committed update");
       }
       if (path === "/api/v2/comment/own22" && method === "PUT") return reply({});
@@ -220,7 +221,9 @@ describe("task comment editing is author- and List-bound", () => {
       if (path === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
       if (path === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
       if (path === "/api/v2/task/task1/comment")
-        return reply({ comments: [{ id: "own22", user: { id: 707 }, assignee: null, comment_text: "Old" }] });
+        return reply({
+          comments: [{ id: "own22", user: { id: 707 }, assignee: null, comment_text: "Old" }],
+        });
       if (path === "/api/v2/comment/own22" && method === "PUT") return reply({});
       throw Error("Unexpected API request");
     });
