@@ -101,8 +101,11 @@ async function loadHostFile(file: ChatGPTProvidedFile, fetcher: typeof fetch) {
     if (!response.ok || response.status >= 300 || !response.body)
       throw new ReadFailure("CLICKUP_FILE_SOURCE_UNAVAILABLE");
     const length = response.headers.get("content-length");
-    if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_FILE_BYTES))
+    if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_FILE_BYTES)) {
+      controller.abort();
+      await response.body.cancel().catch(() => undefined);
       throw new ReadFailure("CLICKUP_FILE_TOO_LARGE");
+    }
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
     let total = 0;
@@ -111,7 +114,11 @@ async function loadHostFile(file: ChatGPTProvidedFile, fetcher: typeof fetch) {
         const part = await reader.read();
         if (part.done) break;
         total += part.value.byteLength;
-        if (total > MAX_FILE_BYTES) throw new ReadFailure("CLICKUP_FILE_TOO_LARGE");
+        if (total > MAX_FILE_BYTES) {
+          controller.abort();
+          await reader.cancel().catch(() => undefined);
+          throw new ReadFailure("CLICKUP_FILE_TOO_LARGE");
+        }
         chunks.push(part.value);
       }
     } finally {
@@ -135,6 +142,7 @@ async function loadHostFile(file: ChatGPTProvidedFile, fetcher: typeof fetch) {
       throw new ReadFailure("CLICKUP_UNSUPPORTED_FILE_TYPE");
     return { bytes, mime: type.mime, filename: safeFilename(file, type.ext) };
   } catch (error) {
+    controller.abort();
     if (error instanceof ReadFailure) throw error;
     throw new ReadFailure("CLICKUP_FILE_SOURCE_UNAVAILABLE");
   } finally {
@@ -155,6 +163,8 @@ export async function attachChatGPTFileToTask(
 ): Promise<Record<string, unknown>> {
   if (typeof taskId !== "string" || !/^[a-zA-Z0-9_-]{2,40}$/.test(taskId))
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  if (grant.resourceScope !== "workspace" && grant.companyListTaskAccess !== true)
+    throw new ReadFailure("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
   validatedSource(file);
   await runCatalogOperation("clickup_get_task", { task_id: taskId }, grant, fetcher);
   const loaded = await loadHostFile(file, fetcher);
