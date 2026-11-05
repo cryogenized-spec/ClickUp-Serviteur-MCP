@@ -421,7 +421,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
   // file slot. The Base64 tool stays available for non-ChatGPT clients.
   if (
     dependencies.schemaPreview !== true &&
-    companyCatalogAllows("clickup_attach_file_to_task", "write")
+    companyCatalogAllows("clickup_attach_chatgpt_file_to_task", "write")
   ) {
     server.registerTool(
       "clickup_attach_chatgpt_file_to_task",
@@ -475,7 +475,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
           const grant = await requireWriteGrant(
             extra.http?.authInfo,
             dependencies.bindings,
-            "clickup_attach_file_to_task",
+            "clickup_attach_chatgpt_file_to_task",
           );
           return toolSuccess(
             await attachChatGPTFileToTask(
