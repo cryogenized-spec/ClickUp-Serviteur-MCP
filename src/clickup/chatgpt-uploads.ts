@@ -42,8 +42,7 @@ function validatedSource(file: ChatGPTProvidedFile): URL {
 
 function detectType(bytes: Uint8Array): { mime: string; ext: string } {
   const is = (...signature: number[]) => signature.every((value, i) => bytes[i] === value);
-  if (is(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a))
-    return { mime: "image/png", ext: "png" };
+  if (is(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return { mime: "image/png", ext: "png" };
   if (is(0xff, 0xd8, 0xff)) return { mime: "image/jpeg", ext: "jpg" };
   if (bytes.length >= 6) {
     const head = new TextDecoder().decode(bytes.subarray(0, 6));
@@ -58,8 +57,7 @@ function detectType(bytes: Uint8Array): { mime: string; ext: string } {
     bytes[11] === 0x50
   )
     return { mime: "image/webp", ext: "webp" };
-  if (is(0x25, 0x50, 0x44, 0x46, 0x2d))
-    return { mime: "application/pdf", ext: "pdf" };
+  if (is(0x25, 0x50, 0x44, 0x46, 0x2d)) return { mime: "application/pdf", ext: "pdf" };
   if (bytes.length > 0 && !bytes.includes(0)) {
     try {
       new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -81,10 +79,7 @@ function safeFilename(file: ChatGPTProvidedFile, ext: string): string {
     .slice(0, 120);
   const name = cleaned || "chatgpt-attachment." + ext;
   const extension = name.split(".").pop()?.toLowerCase();
-  const compatible =
-    extension === ext ||
-    (ext === "jpg" && extension === "jpeg") ||
-    (ext === "jpg" && extension === "jpg");
+  const compatible = extension === ext || (ext === "jpg" && extension === "jpeg");
   if (!compatible || !/^[a-zA-Z0-9._ ()-]{1,120}$/.test(name))
     throw new ReadFailure("CLICKUP_UNSUPPORTED_FILE_TYPE");
   return name;
