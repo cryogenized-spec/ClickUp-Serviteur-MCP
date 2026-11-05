@@ -339,7 +339,7 @@ async function attachmentRejectCode(response: Response): Promise<string> {
   const stream = response.body;
   if (!stream) return "";
   const declared = response.headers.get("content-length");
-  if (declared && (!/^\\d+$/.test(declared) || Number(declared) > 2048)) {
+  if (declared && (!/^\d+$/.test(declared) || Number(declared) > 2048)) {
     await stream.cancel().catch(() => undefined);
     return "";
   }
