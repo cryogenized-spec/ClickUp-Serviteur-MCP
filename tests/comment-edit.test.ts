@@ -36,6 +36,8 @@ describe("task comment editing is author- and List-bound", () => {
             {
               id: "own22",
               user: { id: 707 },
+              assignee: null,
+              group_assignee: null,
               comment_text: changed
                 ? "Please use the second tab."
                 : "@MONISHA Please use the second tab.",
@@ -46,6 +48,8 @@ describe("task comment editing is author- and List-bound", () => {
         expect((init?.headers as Record<string, string>)["Authorization"]).toBe("person-707");
         expect(JSON.parse(String(init?.body))).toEqual({
           comment_text: "Please use the second tab.",
+          assignee: 0,
+          resolved: false,
         });
         changed = true;
         return reply({});
@@ -101,6 +105,70 @@ describe("task comment editing is author- and List-bound", () => {
     expect(api.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
   });
 
+  it("retains known assignment and resolved state in the ClickUp PUT contract", async () => {
+    let changed = false;
+    const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/v2/task/task1") return reply({ id: "task1", list: { id: "12345" } });
+      if (path === "/api/v2/list/12345")
+        return reply({ id: "12345", space: { id: "777" } });
+      if (path === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
+      if (path === "/api/v2/task/task1/comment")
+        return reply({
+          comments: [
+            {
+              id: "own22",
+              user: { id: 707 },
+              assignee: { id: 708 },
+              resolved: true,
+              comment_text: changed ? "Corrected" : "Original",
+            },
+          ],
+        });
+      if (path === "/api/v2/comment/own22" && method === "PUT") {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          comment_text: "Corrected",
+          assignee: 708,
+          resolved: true,
+        });
+        changed = true;
+        return reply({});
+      }
+      throw Error("Unexpected API request");
+    });
+    const result = await runCatalogOperation(
+      "clickup_edit_task_comment",
+      { task_id: "task1", comment_id: "own22", text: "Corrected" },
+      grant(),
+      api as typeof fetch,
+    );
+    expect(result["success"]).toBe(true);
+  });
+
+  it("fails closed if assignment or resolution cannot be preserved", async () => {
+    const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method !== "GET") throw Error("Unauthorized write");
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/v2/task/task1") return reply({ id: "task1", list: { id: "12345" } });
+      if (path === "/api/v2/list/12345")
+        return reply({ id: "12345", space: { id: "777" } });
+      if (path === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
+      if (path === "/api/v2/task/task1/comment")
+        return reply({ comments: [{ id: "own22", user: { id: 707 }, assignee: { id: 708 } }] });
+      throw Error("Unexpected API request");
+    });
+    await expect(
+      runCatalogOperation(
+        "clickup_edit_task_comment",
+        { task_id: "task1", comment_id: "own22", text: "Changed" },
+        grant(),
+        api as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    expect(api.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
+  });
+
   it("refuses a different List and legacy List-only grants", async () => {
     const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method !== "GET") throw Error("Unauthorized write");
@@ -128,7 +196,7 @@ describe("task comment editing is author- and List-bound", () => {
       if (path === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
       if (path === "/api/v2/task/task1/comment") {
         readCount++;
-        if (readCount === 1) return reply({ comments: [{ id: "own22", user: { id: 707 } }] });
+        if (readCount === 1) return reply({ comments: [{ id: "own22", user: { id: 707 }, assignee: null }] });
         throw Error("Simulated connection loss after committed update");
       }
       if (path === "/api/v2/comment/own22" && method === "PUT") return reply({});
@@ -154,7 +222,7 @@ describe("task comment editing is author- and List-bound", () => {
       if (path === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
       if (path === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
       if (path === "/api/v2/task/task1/comment")
-        return reply({ comments: [{ id: "own22", user: { id: 707 }, comment_text: "Old" }] });
+        return reply({ comments: [{ id: "own22", user: { id: 707 }, assignee: null, comment_text: "Old" }] });
       if (path === "/api/v2/comment/own22" && method === "PUT") return reply({});
       throw Error("Unexpected API request");
     });
