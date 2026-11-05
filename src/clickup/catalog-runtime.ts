@@ -956,8 +956,7 @@ export async function runCatalogOperation(
       if (original["group_assignee"] != null)
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       const rawAssignee = original["assignee"];
-      if (rawAssignee === undefined)
-        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      if (rawAssignee === undefined) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       const assignedId = obj(rawAssignee)?.["id"] ?? rawAssignee;
       const assigneeValue = rawAssignee === null ? 0 : assignedId;
       if (
