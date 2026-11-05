@@ -21,6 +21,7 @@ import {
   saveClickUpListTarget,
 } from "../clickup/per-user-oauth.js";
 import { OPERATIONAL_CATALOG_NAMES, runCatalogOperation } from "../clickup/catalog-runtime.js";
+import { attachChatGPTFileToTask } from "../clickup/chatgpt-uploads.js";
 import { createAttentionReport } from "../reports/attention.js";
 import {
   CLICKUP_MODEL_TOOL_CATALOG,
@@ -414,6 +415,81 @@ export function createServer(deps?: ReadDependencies): McpServer {
         },
       );
     }
+  }
+
+  // ChatGPT passes conversation attachments directly through this dedicated
+  // file slot. The Base64 tool stays available for non-ChatGPT clients.
+  if (
+    dependencies.schemaPreview !== true &&
+    companyCatalogAllows("clickup_attach_chatgpt_file_to_task", "write")
+  ) {
+    server.registerTool(
+      "clickup_attach_chatgpt_file_to_task",
+      {
+        description:
+          "Attach a user-provided ChatGPT photo, PDF or text file to an existing authorised ClickUp task. Use the actual attached file slot, never invent a file ID or download URL. Requires explicit approval; at most 8 MiB. Do not retry after an uncertain write.",
+        scopeChallenge: requireScopes("mcp:read", "mcp:write"),
+        inputSchema: fromJsonSchema<{
+          task_id: string;
+          file: {
+            download_url: string;
+            file_id: string;
+            mime_type?: string;
+            file_name?: string;
+          };
+        }>({
+          type: "object",
+          properties: {
+            task_id: {
+              type: "string",
+              minLength: 2,
+              maxLength: 40,
+              description: "Exact existing ClickUp task ID, never a title.",
+            },
+            file: {
+              type: "object",
+              description: "ChatGPT-supplied file. Attach the photo in the conversation.",
+              properties: {
+                download_url: { type: "string" },
+                file_id: { type: "string" },
+                mime_type: { type: "string" },
+                file_name: { type: "string" },
+              },
+              required: ["download_url", "file_id"],
+              additionalProperties: false,
+            },
+          },
+          required: ["task_id", "file"],
+          additionalProperties: false,
+        }),
+        _meta: { "openai/fileParams": ["file"] },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: true,
+        },
+      },
+      async (args, extra) => {
+        try {
+          const grant = await requireWriteGrant(
+            extra.http?.authInfo,
+            dependencies.bindings,
+            "clickup_attach_chatgpt_file_to_task",
+          );
+          return toolSuccess(
+            await attachChatGPTFileToTask(
+              grant,
+              dependencies.fetcher ?? fetch,
+              args.task_id,
+              args.file,
+            ),
+          );
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
   }
 
   const taskProperties = {
