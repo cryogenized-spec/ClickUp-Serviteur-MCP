@@ -28,10 +28,16 @@ const grant = (scope: "list" | "workspace" = "workspace"): ReadGrant => ({
 const json = (data: unknown) => Response.json(data);
 function mockHost(
   bytes: Uint8Array,
-  options: { foreign?: boolean; redirect?: boolean; tooLarge?: boolean } = {},
+  options: {
+    foreign?: boolean;
+    redirect?: boolean;
+    tooLarge?: boolean;
+    tooLargeStream?: boolean;
+  } = {},
 ) {
   const calls: Array<{ url: URL; init: RequestInit | undefined }> = [];
   let uploaded = false;
+  let cancelled = false;
   const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(request));
     calls.push({ url, init });
@@ -41,6 +47,19 @@ function mockHost(
           status: 302,
           headers: { Location: "https://localhost/private" },
         });
+      }
+      if (options.tooLargeStream) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new Uint8Array(8 * 1024 * 1024 + 1));
+            },
+            cancel() {
+              cancelled = true;
+            },
+          }),
+          { status: 200 },
+        );
       }
       return new Response(bytes, {
         status: 200,
@@ -71,7 +90,13 @@ function mockHost(
     }
     throw Error("Unexpected endpoint " + url.pathname);
   });
-  return { fetcher, calls };
+  return {
+    fetcher,
+    calls,
+    get cancelled() {
+      return cancelled;
+    },
+  };
 }
 
 describe("ChatGPT attached-file bridge (#78)", () => {
@@ -140,6 +165,23 @@ describe("ChatGPT attached-file bridge (#78)", () => {
     await expect(
       attachChatGPTFileToTask(grant(), api.fetcher as typeof fetch, "abc123", file()),
     ).rejects.toThrow("CLICKUP_UNSUPPORTED_FILE_TYPE");
+    expect(api.calls.filter((call) => call.init?.method === "POST")).toHaveLength(0);
+  });
+
+  it("keeps non-company List-only callers behind the original write-scope gate", async () => {
+    const api = mockHost(png);
+    await expect(
+      attachChatGPTFileToTask(grant("list"), api.fetcher as typeof fetch, "abc123", file()),
+    ).rejects.toThrow("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
+    expect(api.fetcher).not.toHaveBeenCalled();
+  });
+
+  it("cancels a streamed upload source as soon as the 8 MiB limit is exceeded", async () => {
+    const api = mockHost(png, { tooLargeStream: true });
+    await expect(
+      attachChatGPTFileToTask(grant(), api.fetcher as typeof fetch, "abc123", file()),
+    ).rejects.toThrow("CLICKUP_FILE_TOO_LARGE");
+    expect(api.cancelled).toBe(true);
     expect(api.calls.filter((call) => call.init?.method === "POST")).toHaveLength(0);
   });
 
