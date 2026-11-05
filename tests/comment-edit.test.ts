@@ -118,6 +118,37 @@ describe("task comment editing is author- and List-bound", () => {
     expect(api).toHaveBeenCalledTimes(1);
   });
 
+  it("reports an uncertain result if the PUT commits but verification GET fails", async () => {
+    let readCount = 0;
+    const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/v2/task/task1")
+        return reply({ id: "task1", list: { id: "12345" } });
+      if (path === "/api/v2/list/12345")
+        return reply({ id: "12345", space: { id: "777" } });
+      if (path === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
+      if (path === "/api/v2/task/task1/comment") {
+        readCount++;
+        if (readCount === 1)
+          return reply({ comments: [{ id: "own22", user: { id: 707 } }] });
+        throw Error("Simulated connection loss after committed update");
+      }
+      if (path === "/api/v2/comment/own22" && method === "PUT") return reply({});
+      throw Error("Unexpected API request");
+    });
+    await expect(
+      runCatalogOperation(
+        "clickup_edit_task_comment",
+        { task_id: "task1", comment_id: "own22", text: "Revised" },
+        grant(),
+        api as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    expect(api.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1);
+    expect(readCount).toBe(2);
+  });
+
   it("rejects unverified post-write content instead of reporting success", async () => {
     const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const method = init?.method ?? "GET";
