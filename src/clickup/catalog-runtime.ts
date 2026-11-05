@@ -355,8 +355,10 @@ export async function uploadAttachmentBytes(
   // The task home List is validated immediately before every upload POST,
   // including the binary file-aware route and the legacy Base64 route.
   await taskInWorkspace(grant, fetcher, taskId);
+  const uploadBytes = new Uint8Array(data.byteLength);
+  uploadBytes.set(data);
   const form = new FormData();
-  form.append("attachment[0]", new Blob([data], { type: mime }), filename);
+  form.append("attachment[0]", new Blob([uploadBytes], { type: mime }), filename);
   await quotaCall(grant, "reserve");
   const abort = new AbortController();
   const timeout = setTimeout(() => abort.abort(), 10000);
