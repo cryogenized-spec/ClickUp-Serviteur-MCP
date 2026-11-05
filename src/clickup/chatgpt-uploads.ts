@@ -60,7 +60,8 @@ function detectType(bytes: Uint8Array): { mime: string; ext: string } {
   if (is(0x25, 0x50, 0x44, 0x46, 0x2d)) return { mime: "application/pdf", ext: "pdf" };
   if (bytes.length > 0 && !bytes.includes(0)) {
     try {
-      new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      const decoded = new TextDecoder().decode(bytes);
+      if (decoded.includes("\uFFFD")) throw new ReadFailure("CLICKUP_UNSUPPORTED_FILE_TYPE");
       return { mime: "text/plain", ext: "txt" };
     } catch {
       // Only recognised safe file types are accepted.
