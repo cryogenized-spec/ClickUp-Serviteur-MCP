@@ -50,7 +50,7 @@ function mockHost(
         },
       });
     }
-    if (url.pathname === "/api/v2/task/abc123" && init?.method === "POST") {
+    if (url.pathname === "/api/v2/task/abc123/attachment" && init?.method === "POST") {
       uploaded = true;
       const body = init.body as FormData;
       expect(body.get("attachment[0]")).not.toBeNull();
