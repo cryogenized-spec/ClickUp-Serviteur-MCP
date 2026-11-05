@@ -331,6 +331,30 @@ async function uploadAttachment(
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   const data = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) data[i] = binary.charCodeAt(i);
+  return uploadAttachmentBytes(grant, fetcher, taskId, filename, data, mime);
+}
+
+/** Upload an already-loaded, bounded attachment without a model-facing Base64 payload. */
+export async function uploadAttachmentBytes(
+  grant: ReadGrant,
+  fetcher: typeof fetch,
+  taskId: string,
+  filename: string,
+  data: Uint8Array,
+  mime: string,
+): Promise<Json> {
+  if (
+    !/^[a-zA-Z0-9._ ()-]{1,120}$/.test(filename) ||
+    filename === "." ||
+    filename === ".." ||
+    !/^[a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+$/.test(mime) ||
+    data.byteLength < 1 ||
+    data.byteLength > 8 * 1024 * 1024
+  )
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  // The task home List is validated immediately before every upload POST,
+  // including the binary file-aware route and the legacy Base64 route.
+  await taskInWorkspace(grant, fetcher, taskId);
   const form = new FormData();
   form.append("attachment[0]", new Blob([data], { type: mime }), filename);
   await quotaCall(grant, "reserve");
@@ -841,7 +865,6 @@ export async function runCatalogOperation(
       };
     }
     case "clickup_attach_file_to_task": {
-      await task("task_id");
       return uploadAttachment(
         g,
         f,
