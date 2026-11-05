@@ -10,6 +10,8 @@ export interface ChatGPTProvidedFile {
 }
 
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
+const hasUnsafeIdCharacter = (value: string): boolean =>
+  Array.from(value).some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127);
 const ALLOWED_HOSTS = new Set(["chatgpt.com", "chat.openai.com"]);
 // OpenAI's file delivery may use regional subdomains of oaiusercontent.com.
 // Require the exact domain boundary to reject lookalikes.
@@ -25,7 +27,7 @@ function validatedSource(file: ChatGPTProvidedFile): URL {
     typeof file.file_id !== "string" ||
     file.file_id.length < 5 ||
     file.file_id.length > 250 ||
-    /[\x00-\x1f\x7f]/.test(file.file_id)
+    hasUnsafeIdCharacter(file.file_id)
   )
     throw new ReadFailure("CLICKUP_FILE_REFERENCE_INVALID");
   if (typeof file.download_url !== "string" || !file.download_url)
