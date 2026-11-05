@@ -22,7 +22,7 @@ describe("ClickUp multipart upload diagnostic codes", () => {
     [413, "GBUSED_005", "CLICKUP_ATTACHMENT_HTTP_413_GBUSED_005"],
     [415, "bad-unsafe-string", "CLICKUP_ATTACHMENT_HTTP_415"],
     [500, "INTERNAL", "CLICKUP_WRITE_OUTCOME_UNKNOWN"],
-  ])("preserves rejected HTTP %i and safely whitelisted ECODE %s", async (status, code, expected) => {
+  ])("rejects HTTP %i with ECODE %s", async (status, code, expected) => {
     let uploads = 0;
     const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(request));
