@@ -25,7 +25,7 @@ function validatedSource(file: ChatGPTProvidedFile): URL {
     typeof file.file_id !== "string" ||
     file.file_id.length < 5 ||
     file.file_id.length > 250 ||
-    /[\\u0000-\\u001f\\u007f]/.test(file.file_id)
+    /[\x00-\x1f\x7f]/.test(file.file_id)
   )
     throw new ReadFailure("CLICKUP_FILE_REFERENCE_INVALID");
   if (typeof file.download_url !== "string" || !file.download_url)
