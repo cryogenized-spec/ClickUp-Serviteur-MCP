@@ -958,7 +958,8 @@ export async function runCatalogOperation(
       const rawAssignee = original["assignee"];
       if (rawAssignee === undefined)
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      const assigneeValue = rawAssignee === null ? 0 : (obj(rawAssignee)?.["id"] ?? rawAssignee);
+      const assignedId = obj(rawAssignee)?.["id"] ?? rawAssignee;
+      const assigneeValue = rawAssignee === null ? 0 : assignedId;
       if (
         !Number.isSafeInteger(Number(assigneeValue)) ||
         Number(assigneeValue) < 0 ||
