@@ -34,7 +34,14 @@ describe("ClickUp multipart upload diagnostic codes", () => {
         const headers = init.headers as Record<string, string>;
         expect(headers["Content-Type"]).toBeUndefined();
         expect(headers["Authorization"]).toBe("test-secret-should-not-leak");
-        return Response.json({ ECODE: code, err: "private customer details" }, { status });
+        const errorBody = JSON.stringify({ ECODE: code, err: "private customer details" });
+        return new Response(errorBody, {
+          status,
+          headers: {
+            "content-type": "application/json",
+            "content-length": String(errorBody.length),
+          },
+        });
       }
       if (url.pathname === "/api/v2/task/abc123")
         return Response.json({ id: "abc123", list: { id: "12345" } });
