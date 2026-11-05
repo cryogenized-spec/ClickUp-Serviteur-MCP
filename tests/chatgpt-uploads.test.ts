@@ -187,8 +187,14 @@ describe("ChatGPT attached-file bridge (#78)", () => {
 
   it("rejects foreign-home tasks before any supplied-file download", async () => {
     const api = mockHost(png, { foreign: true });
+    const companyListGrant: ReadGrant = { ...grant("list"), companyListTaskAccess: true };
     await expect(
-      attachChatGPTFileToTask(grant("list"), api.fetcher as typeof fetch, "abc123", file()),
+      attachChatGPTFileToTask(
+        companyListGrant,
+        api.fetcher as typeof fetch,
+        "abc123",
+        file(),
+      ),
     ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     expect(api.calls.some((call) => call.url.hostname === "files.oaiusercontent.com")).toBe(false);
     expect(api.calls.filter((call) => call.init?.method === "POST")).toHaveLength(0);
