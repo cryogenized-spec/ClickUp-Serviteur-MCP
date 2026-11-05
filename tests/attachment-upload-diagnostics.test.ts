@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { runCatalogOperation } from "../src/clickup/catalog-runtime.js";
+import { attachChatGPTFileToTask } from "../src/clickup/chatgpt-uploads.js";
 import type { ReadGrant } from "../src/clickup/policy.js";
 
 const grant = (): ReadGrant => ({
@@ -57,6 +58,37 @@ describe("ClickUp multipart upload diagnostic codes", () => {
       ),
     ).rejects.toThrow(expected);
     expect(uploads).toBe(1);
+  });
+
+  it("rejects unresolved file slots without a network request", async () => {
+    const fetcher = vi.fn(async () => Response.json({ unexpected: true }));
+    const unresolvedFile = "file_abcdefgh12345" as never;
+    const operation = attachChatGPTFileToTask(
+      grant(),
+      fetcher as typeof fetch,
+      "abc123",
+      unresolvedFile,
+    );
+    await expect(operation).rejects.toThrow("CLICKUP_FILE_PARAM_UNRESOLVED");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("identifies a missing download URL before the ClickUp preflight", async () => {
+    const fetcher = vi.fn(async () => Response.json({ unexpected: true }));
+    const missingUrl = {
+      file_id: "file_abcdefgh12345",
+      download_url: "",
+      file_name: "photo.png",
+      mime_type: "image/png",
+    };
+    const operation = attachChatGPTFileToTask(
+      grant(),
+      fetcher as typeof fetch,
+      "abc123",
+      missingUrl,
+    );
+    await expect(operation).rejects.toThrow("CLICKUP_FILE_URL_MISSING");
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("returns HTTP status without parsing non-JSON text or exposing it", async () => {
