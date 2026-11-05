@@ -25,16 +25,16 @@ describe("ChatGPT file-aware MCP tool discovery", () => {
       expect(upload).toBeDefined();
       expect(upload?._meta?.["openai/fileParams"]).toEqual(["file"]);
       expect(upload?.inputSchema.required).toEqual(["task_id", "file"]);
-      const file = upload?.inputSchema.properties?.["file"] as
-        | { properties?: Record<string, unknown>; required?: string[] }
-        | undefined;
-      expect(Object.keys(file?.properties ?? {})).toEqual([
-        "download_url",
-        "file_id",
-        "mime_type",
-        "file_name",
-      ]);
-      expect(file?.required).toEqual(["download_url", "file_id"]);
+      expect(upload?.inputSchema.properties?.["file"]).toMatchObject({
+        type: "object",
+        properties: {
+          download_url: { type: "string" },
+          file_id: { type: "string" },
+          mime_type: { type: "string" },
+          file_name: { type: "string" },
+        },
+        required: ["download_url", "file_id"],
+      });
       expect(tools.some((tool) => tool.name === "clickup_delete_task")).toBe(false);
       expect(tools.some((tool) => tool.name === "clickup_attach_file_to_task")).toBe(true);
     } finally {
