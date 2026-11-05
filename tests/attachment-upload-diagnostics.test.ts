@@ -91,6 +91,41 @@ describe("ClickUp multipart upload diagnostic codes", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it("cancels oversized chunked rejection bodies without buffering them", async () => {
+    let cancelled = false;
+    let posts = 0;
+    const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(request));
+      if (init?.method === "POST") {
+        posts++;
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(6 * 1024 * 1024));
+          },
+          cancel() {
+            cancelled = true;
+          },
+        });
+        return new Response(stream, { status: 400 });
+      }
+      if (url.pathname === "/api/v2/task/abc123")
+        return Response.json({ id: "abc123", list: { id: "12345" } });
+      if (url.pathname === "/api/v2/list/12345")
+        return Response.json({ id: "12345", space: { id: "777" } });
+      return Response.json({ spaces: [{ id: "777" }] });
+    });
+    await expect(
+      runCatalogOperation(
+        "clickup_attach_file_to_task",
+        { task_id: "abc123", file_name: "test.txt", file_base64: btoa("Hi") },
+        grant(),
+        fetcher as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_ATTACHMENT_HTTP_400");
+    expect(cancelled).toBe(true);
+    expect(posts).toBe(1);
+  });
+
   it("returns HTTP status without parsing non-JSON text or exposing it", async () => {
     const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(request));
