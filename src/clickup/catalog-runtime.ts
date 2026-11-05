@@ -958,7 +958,14 @@ export async function runCatalogOperation(
       );
       // Check the actual task's comments after the mutation. A transport success
       // without the requested text is not sufficient evidence of a completed edit.
-      const after = await call("GET", v2("task/" + taskId + "/comment"));
+      let after: Json;
+      try {
+        after = await call("GET", v2("task/" + taskId + "/comment"));
+      } catch {
+        // The PUT may already have committed; never present this as a
+        // recoverable read error that could encourage a blind repeat.
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
       if (!Array.isArray(after["comments"])) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
       const edited = after["comments"]
         .map(obj)
