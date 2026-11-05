@@ -367,7 +367,9 @@ export async function uploadAttachmentBytes(
       method: "POST",
       redirect: "manual",
       signal: abort.signal,
-      headers: { Authorization: grant.apiToken, Accept: "application/json" },
+      // Let the runtime set multipart Content-Type including boundary; do not
+      // add an Accept header on this legacy ClickUp upload endpoint.
+      headers: { Authorization: grant.apiToken },
       body: form,
     });
     if (res.status === 429) {
