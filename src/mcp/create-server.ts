@@ -247,7 +247,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
     "clickup_tool_catalog",
     {
       description:
-        "Browse the 48 ClickUp catalogue schemas without an API request. The REST-backed operations are subject to user OAuth, scope boundaries, correct parameters and real ClickUp feature availability. Listing an operation does not prove its live success.",
+        "Browse the ClickUp catalogue schemas, including the Serviteur-only comment editor, without an API request. The REST-backed operations are subject to user OAuth, scope boundaries, correct parameters and real ClickUp feature availability. Listing an operation does not prove its live success.",
       inputSchema: fromJsonSchema<{
         group?: ToolGroup;
         page?: number;
