@@ -557,7 +557,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
           return toolSuccess({
             ...saved,
             list_name: list["name"],
-            note: "Your default scoped List target was saved. Explicit List IDs in the 48 native catalogue tools remain independently validated, and your OAuth Workspace authorization has NOT changed.",
+            note: "Your default scoped List target was saved. Explicit List IDs in the native catalogue tools remain independently validated, and your OAuth Workspace authorization has NOT changed.",
           });
         } catch (error) {
           return toolError(error);
