@@ -526,7 +526,13 @@ export async function runCatalogOperation(
         const page = Number(startPage) + offset;
         const path = workspaceScope
           ? v2("team/" + W + "/task?page=" + page + "&subtasks=true&include_closed=true")
-          : v2("list/" + id(g.listId) + "/task?page=" + page + "&subtasks=true&include_closed=true");
+          : v2(
+              "list/" +
+                id(g.listId) +
+                "/task?page=" +
+                page +
+                "&subtasks=true&include_closed=true",
+            );
         const batch = await call("GET", path);
         if (!Array.isArray(batch["tasks"]) || batch["tasks"].length > 100)
           throw new ReadFailure("CLICKUP_BAD_RESPONSE");
