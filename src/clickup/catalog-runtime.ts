@@ -513,11 +513,7 @@ export async function runCatalogOperation(
       const startOffset = a["task_offset"] ?? 0;
       if (!Number.isSafeInteger(startPage) || Number(startPage) < 0 || Number(startPage) > 100_000)
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-      if (
-        !Number.isSafeInteger(startOffset) ||
-        Number(startOffset) < 0 ||
-        Number(startOffset) > 99
-      )
+      if (!Number.isSafeInteger(startOffset) || Number(startOffset) < 0 || Number(startOffset) > 99)
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       if (!workspaceScope) await listInWorkspace(g, f, g.listId);
       const match = (v: unknown) => JSON.stringify(v).toLowerCase().includes(q);
