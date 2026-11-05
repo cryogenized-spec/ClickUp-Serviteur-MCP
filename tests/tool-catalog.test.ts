@@ -113,7 +113,7 @@ describe("Official ClickUp MCP capability catalogue (model-facing only)", () => 
     }
   });
 
-  it("registers all 48 exact schemas through official SDK only in isolated explicit preview", async () => {
+  it("registers all 49 exact schemas through official SDK only in isolated explicit preview", async () => {
     const outbound = vi.fn(async () => Response.json({ tasks: [] }));
     const { client, handler } = await clientHarness(true, outbound as typeof fetch);
     try {
