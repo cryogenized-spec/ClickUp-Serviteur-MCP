@@ -380,10 +380,29 @@ export async function uploadAttachmentBytes(
       throw new ReadFailure("CLICKUP_RATE_LIMITED");
     }
     if (res.status === 401 || res.status === 403) throw new ReadFailure("CLICKUP_UPSTREAM_DENIED");
-    if (!res.ok)
-      throw new ReadFailure(
-        res.status >= 500 ? "CLICKUP_WRITE_OUTCOME_UNKNOWN" : "CLICKUP_UPSTREAM_UNAVAILABLE",
-      );
+    if (!res.ok) {
+      // A definitively rejected 4xx upload is different from an ambiguous
+      // timeout/5xx. Surface only the status and a strictly validated ClickUp
+      // ECODE, never the server message, filename, token or response headers.
+      if (res.status >= 500 || res.status === 408 || res.status === 425)
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      let ecode = "";
+      try {
+        const declaredLength = Number(res.headers.get("content-length") ?? "0");
+        if (declaredLength <= 2048) {
+          const body = await res.text();
+          if (body.length <= 2048) {
+            const parsed = obj(JSON.parse(body));
+            const candidate = parsed?.["ECODE"] ?? parsed?.["ecode"];
+            if (typeof candidate === "string" && /^[A-Z][A-Z0-9_]{2,40}$/.test(candidate))
+              ecode = "_" + candidate;
+          }
+        }
+      } catch {
+        // Diagnostic parsing must never mask the definitive HTTP status.
+      }
+      throw new ReadFailure("CLICKUP_ATTACHMENT_HTTP_" + res.status + ecode);
+    }
     // Only an authoritative response ID correlates this upload to this request.
     // A matching filename seen later may belong to another concurrent writer.
     const content = await res.text();
