@@ -506,43 +506,34 @@ export async function runCatalogOperation(
   switch (name) {
     case "clickup_search_workspace": {
       const q = txt(a["query"], 240).toLowerCase();
-      // List mode stays confined to its single verified home List.
-      // Owner-authorised Workspace mode scans task pages across that one
-      // OAuth-bound Workspace; bounded calls expose a continuation page.
+      // List mode stays confined to its verified home List; owner-authorised
+      // Workspace mode can search the exact OAuth-bound Workspace. Both
+      // modes paginate with an explicit continuation instead of silently
+      // missing matching tasks beyond the first ClickUp result page.
       const startPage = a["task_page"] ?? 0;
       if (
         !Number.isSafeInteger(startPage) ||
         Number(startPage) < 0 ||
-        Number(startPage) > 100_000 ||
-        (!workspaceScope && startPage !== 0)
+        Number(startPage) > 100_000
       )
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       if (!workspaceScope) await listInWorkspace(g, f, g.listId);
       const tasks: unknown[] = [];
       let pagesScanned = 0;
       let taskPageTruncated = false;
-      if (workspaceScope) {
-        const maxPagesPerCall = 10;
-        for (let offset = 0; offset < maxPagesPerCall; offset++) {
-          const page = Number(startPage) + offset;
-          const batch = await call(
-            "GET",
-            v2("team/" + W + "/task?page=" + page + "&subtasks=true&include_closed=true"),
-          );
-          if (!Array.isArray(batch["tasks"]) || batch["tasks"].length > 100)
-            throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-          tasks.push(...batch["tasks"]);
-          pagesScanned++;
-          if (batch["tasks"].length < 100) break;
-          if (offset === maxPagesPerCall - 1) taskPageTruncated = true;
-        }
-      } else {
-        const batch = await call(
-          "GET",
-          v2("list/" + id(g.listId) + "/task?page=0&subtasks=true&include_closed=true"),
-        );
-        if (!Array.isArray(batch["tasks"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const maxPagesPerCall = 10;
+      for (let offset = 0; offset < maxPagesPerCall; offset++) {
+        const page = Number(startPage) + offset;
+        const path = workspaceScope
+          ? v2("team/" + W + "/task?page=" + page + "&subtasks=true&include_closed=true")
+          : v2("list/" + id(g.listId) + "/task?page=" + page + "&subtasks=true&include_closed=true");
+        const batch = await call("GET", path);
+        if (!Array.isArray(batch["tasks"]) || batch["tasks"].length > 100)
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
         tasks.push(...batch["tasks"]);
+        pagesScanned++;
+        if (batch["tasks"].length < 100 || batch["last_page"] === true) break;
+        if (offset === maxPagesPerCall - 1) taskPageTruncated = true;
       }
       // A ClickUp task can appear in additional Lists. Only expose its home-List
       // data under this one-List grant, and fail closed on incomplete metadata.
@@ -559,10 +550,12 @@ export async function runCatalogOperation(
           source: "clickup-api-v2",
           scope: "list",
           tasks: clip(matchingTasks.slice(0, N)),
+          pages_scanned: pagesScanned,
+          next_task_page: taskPageTruncated ? Number(startPage) + pagesScanned : null,
           docs: [],
           lists: [],
           folders: [],
-          incomplete: tasks.length >= 100 || matchingTasks.length > N,
+          incomplete: taskPageTruncated || matchingTasks.length > N,
         };
       }
       const docs = await call("GET", v3("workspaces/" + W + "/docs?limit=50"));
