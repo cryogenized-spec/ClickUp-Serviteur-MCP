@@ -524,16 +524,9 @@ export async function runCatalogOperation(
       const maxPagesPerCall = 10;
       for (let offset = 0; offset < maxPagesPerCall; offset++) {
         const page = Number(startPage) + offset;
-        const path = workspaceScope
-          ? v2("team/" + W + "/task?page=" + page + "&subtasks=true&include_closed=true")
-          : v2(
-              "list/" +
-                id(g.listId) +
-                "/task?page=" +
-                page +
-                "&subtasks=true&include_closed=true",
-            );
-        const batch = await call("GET", path);
+        const target = workspaceScope ? "team/" + W : "list/" + id(g.listId);
+        const query = "?page=" + page + "&subtasks=true&include_closed=true";
+        const batch = await call("GET", v2(target + "/task" + query));
         if (!Array.isArray(batch["tasks"]) || batch["tasks"].length > 100)
           throw new ReadFailure("CLICKUP_BAD_RESPONSE");
         tasks.push(...batch["tasks"]);
