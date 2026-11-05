@@ -254,8 +254,8 @@ function tool(
   };
 }
 
-/** 48 tool *capabilities* named in ClickUp's official hosted MCP tool listing.
- * These are not 48 additional working NeonSales tools, and not a list of all REST endpoints.
+/** 48 capabilities from ClickUp's hosted listing plus a Serviteur-owned comment editor.
+ * Entries are model-facing contracts; execution still needs independently gated adapters.
  */
 export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
   // SEARCH (3)
@@ -369,7 +369,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     ["media_type"],
   ),
 
-  // COMMENTS (3)
+  // COMMENTS (4)
   tool(
     "clickup_get_task_comments",
     "Get Task Comments",
@@ -399,6 +399,16 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Post an approved supplier update on the task.",
     ["task_id", "text"],
     ["parent_comment_id"],
+  ),
+
+  tool(
+    "clickup_edit_task_comment",
+    "Edit Own Task Comment",
+    "comments",
+    "write",
+    "Replace an existing comment authored by YOUR authenticated ClickUp account on a verified task. Other authors' comments and comments outside the approved List cannot be edited. Requires explicit approval.",
+    "Remove an obsolete plain-text @ prefix from my own task comment.",
+    ["task_id", "comment_id", "text"],
   ),
 
   // TAGS (2)
