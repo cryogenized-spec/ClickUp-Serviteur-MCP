@@ -27,10 +27,8 @@ describe("task comment editing is author- and List-bound", () => {
       const method = init?.method ?? "GET";
       const path = new URL(String(input)).pathname;
       calls.push({ method, path });
-      if (path === "/api/v2/task/task1")
-        return reply({ id: "task1", list: { id: "12345" } });
-      if (path === "/api/v2/list/12345")
-        return reply({ id: "12345", space: { id: "777" } });
+      if (path === "/api/v2/task/task1") return reply({ id: "task1", list: { id: "12345" } });
+      if (path === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
       if (path === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
       if (path === "/api/v2/task/task1/comment")
         return reply({
@@ -83,10 +81,8 @@ describe("task comment editing is author- and List-bound", () => {
     const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method !== "GET") throw Error("Unauthorized write");
       const path = new URL(String(input)).pathname;
-      if (path === "/api/v2/task/task1")
-        return reply({ id: "task1", list: { id: "12345" } });
-      if (path === "/api/v2/list/12345")
-        return reply({ id: "12345", space: { id: "777" } });
+      if (path === "/api/v2/task/task1") return reply({ id: "task1", list: { id: "12345" } });
+      if (path === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
       if (path === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
       if (path === "/api/v2/task/task1/comment")
         return reply({
@@ -109,8 +105,7 @@ describe("task comment editing is author- and List-bound", () => {
     const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method !== "GET") throw Error("Unauthorized write");
       const path = new URL(String(input)).pathname;
-      if (path === "/api/v2/task/task1")
-        return reply({ id: "task1", list: { id: "other-list" } });
+      if (path === "/api/v2/task/task1") return reply({ id: "task1", list: { id: "other-list" } });
       throw Error("Out-of-scope list access attempted");
     });
     const a = { task_id: "task1", comment_id: "own22", text: "Replacement" };
@@ -127,10 +122,8 @@ describe("task comment editing is author- and List-bound", () => {
     const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const method = init?.method ?? "GET";
       const path = new URL(String(input)).pathname;
-      if (path === "/api/v2/task/task1")
-        return reply({ id: "task1", list: { id: "12345" } });
-      if (path === "/api/v2/list/12345")
-        return reply({ id: "12345", space: { id: "777" } });
+      if (path === "/api/v2/task/task1") return reply({ id: "task1", list: { id: "12345" } });
+      if (path === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
       if (path === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
       if (path === "/api/v2/task/task1/comment")
         return reply({ comments: [{ id: "own22", user: { id: 707 }, comment_text: "Old" }] });
