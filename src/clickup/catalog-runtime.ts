@@ -950,10 +950,33 @@ export async function runCatalogOperation(
       // Never let a caller edit another person's comment or an older unseen one.
       if (!original || String(obj(original["user"])?.["id"]) !== g.clickupUserId)
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      // The upstream PUT contract requires assignment/resolution alongside text.
+      // Preserve known state. Unassigned, non-group comments with no resolved
+      // flag are treated as unresolved; reject ambiguous or group assignments.
+      if (original["group_assignee"] != null)
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const rawAssignee = original["assignee"];
+      if (rawAssignee === undefined)
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const assigneeValue = rawAssignee === null ? 0 : (obj(rawAssignee)?.["id"] ?? rawAssignee);
+      if (
+        !Number.isSafeInteger(Number(assigneeValue)) ||
+        Number(assigneeValue) < 0 ||
+        !/^\\d+$/.test(String(assigneeValue))
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const assignee = Number(assigneeValue);
+      const originalResolved = original["resolved"];
+      if (
+        typeof originalResolved !== "boolean" &&
+        !(originalResolved === undefined && assignee === 0)
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const resolved = originalResolved === true;
       await call(
         "PUT",
         v2("comment/" + commentId),
-        { comment_text: replacement },
+        { comment_text: replacement, assignee, resolved },
         "empty-write-ack",
       );
       // Check the actual task's comments after the mutation. A transport success
