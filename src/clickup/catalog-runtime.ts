@@ -506,17 +506,44 @@ export async function runCatalogOperation(
   switch (name) {
     case "clickup_search_workspace": {
       const q = txt(a["query"], 240).toLowerCase();
-      // Never search all Workspace tasks: the user may have more upstream rights
-      // than this MCP's configured home-List grant permits.
+      // List mode stays confined to its single verified home List.
+      // Owner-authorised Workspace mode scans task pages across that one
+      // OAuth-bound Workspace; bounded calls expose a continuation page.
+      const startPage = a["task_page"] ?? 0;
+      if (
+        !Number.isSafeInteger(startPage) ||
+        Number(startPage) < 0 ||
+        Number(startPage) > 100_000 ||
+        (!workspaceScope && startPage !== 0)
+      )
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       if (!workspaceScope) await listInWorkspace(g, f, g.listId);
-      const results = await call(
-        "GET",
-        workspaceScope
-          ? v2("team/" + W + "/task?page=0&subtasks=true&include_closed=true")
-          : v2("list/" + id(g.listId) + "/task?page=0&subtasks=true&include_closed=true"),
-      );
-      if (!Array.isArray(results["tasks"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      const tasks = results["tasks"];
+      const tasks: unknown[] = [];
+      let pagesScanned = 0;
+      let taskPageTruncated = false;
+      if (workspaceScope) {
+        const maxPagesPerCall = 10;
+        for (let offset = 0; offset < maxPagesPerCall; offset++) {
+          const page = Number(startPage) + offset;
+          const batch = await call(
+            "GET",
+            v2("team/" + W + "/task?page=" + page + "&subtasks=true&include_closed=true"),
+          );
+          if (!Array.isArray(batch["tasks"]) || batch["tasks"].length > 100)
+            throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+          tasks.push(...batch["tasks"]);
+          pagesScanned++;
+          if (batch["tasks"].length < 100) break;
+          if (offset === maxPagesPerCall - 1) taskPageTruncated = true;
+        }
+      } else {
+        const batch = await call(
+          "GET",
+          v2("list/" + id(g.listId) + "/task?page=0&subtasks=true&include_closed=true"),
+        );
+        if (!Array.isArray(batch["tasks"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        tasks.push(...batch["tasks"]);
+      }
       // A ClickUp task can appear in additional Lists. Only expose its home-List
       // data under this one-List grant, and fail closed on incomplete metadata.
       for (const candidate of tasks) {
@@ -525,16 +552,17 @@ export async function runCatalogOperation(
           throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       }
       const match = (v: unknown) => JSON.stringify(v).toLowerCase().includes(q);
+      const matchingTasks = tasks.filter(match);
       if (!workspaceScope) {
         // Never search Workspace Docs, Folders or unrelated Lists under a single-List grant.
         return {
           source: "clickup-api-v2",
           scope: "list",
-          tasks: clip(tasks.filter(match).slice(0, N)),
+          tasks: clip(matchingTasks.slice(0, N)),
           docs: [],
           lists: [],
           folders: [],
-          incomplete: tasks.length >= 100 || tasks.filter(match).length > N,
+          incomplete: tasks.length >= 100 || matchingTasks.length > N,
         };
       }
       const docs = await call("GET", v3("workspaces/" + W + "/docs?limit=50"));
@@ -562,12 +590,16 @@ export async function runCatalogOperation(
       }
       return {
         source: "clickup-api",
-        tasks: clip(tasks.filter(match).slice(0, N)),
+        scope: "workspace",
+        tasks: clip(matchingTasks.slice(0, N)),
+        pages_scanned: pagesScanned,
+        next_task_page: taskPageTruncated ? Number(startPage) + pagesScanned : null,
         docs: clip(d.filter(match).slice(0, N)),
         lists: clip(foundLists.filter(match).slice(0, N)),
         folders: clip(foundFolders.filter(match).slice(0, N)),
         incomplete:
-          tasks.length >= 100 ||
+          taskPageTruncated ||
+          matchingTasks.length > N ||
           d.length >= 50 ||
           hierarchySpaces.length > 5 ||
           foundLists.length > N ||

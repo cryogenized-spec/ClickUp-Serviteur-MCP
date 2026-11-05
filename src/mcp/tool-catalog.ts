@@ -166,6 +166,11 @@ const F = {
   assignee_ids: arrayOf("Verified ClickUp member IDs.", memberId, 12),
   text: str("Exact message/comment text; posting is a write with external visibility.", 6_000),
   max_results: integer("Result cap; request the smallest useful amount.", 1, 50),
+  task_page: integer(
+    "Workspace task search: start at this zero-based task page; follow next_task_page to continue.",
+    0,
+    100_000,
+  ),
   lookback_days: integer("Limit historical search window in days.", 1, 90),
   page: integer("Zero-based bounded pagination offset.", 0, 2),
   status: str("Exact ClickUp status label; first check available List statuses.", 80),
@@ -267,7 +272,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Find tasks, Lists, Folders and Docs by text in an authorized Workspace. Use when item ID and location are unknown; results may be incomplete.",
     "Find tasks or Docs mentioning a stocktake.",
     ["query"],
-    ["workspace_id", "max_results"],
+    ["workspace_id", "max_results", "task_page"],
   ),
   tool(
     "clickup_search_tasks_by_type",

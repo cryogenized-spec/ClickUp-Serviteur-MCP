@@ -47,7 +47,10 @@ class CompanyManifestTests(unittest.TestCase):
         self.assertEqual("clickup-serviteur-company", config["name"])
         self.assertEqual("5555555555", config["vars"]["CLICKUP_WORKSPACE_ID"])
         self.assertEqual("6666666666", config["vars"]["CLICKUP_LIST_ID"])
-        self.assertEqual("list", config["vars"]["CLICKUP_RESOURCE_SCOPE"])
+        self.assertEqual("workspace", config["vars"]["CLICKUP_RESOURCE_SCOPE"])
+        self.assertEqual("77777777", config["vars"]["CLICKUP_WORKSPACE_GITHUB_IDS"])
+        self.assertEqual(config["vars"]["ALLOWED_GITHUB_IDS"],
+                         config["vars"]["CLICKUP_WORKSPACE_GITHUB_IDS"])
         self.assertEqual("true", config["vars"]["CLICKUP_COMPANY_PROFILE"])
         self.assertEqual("non_destructive", config["vars"]["CLICKUP_COMPANY_WRITE_MODE"])
         self.assertNotIn("CLICKUP_COMPANY_READ_ONLY", config["vars"])

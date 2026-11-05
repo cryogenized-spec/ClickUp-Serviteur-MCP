@@ -61,7 +61,9 @@ const profile = {
     CLICKUP_STAFF_USER_MAP: JSON.stringify({ [owner]: employee }),
     CLICKUP_WORKSPACE_ID: workspace,
     CLICKUP_LIST_ID: list,
-    CLICKUP_RESOURCE_SCOPE: "list",
+    // Enable access only for this owner inside the exact OAuth-approved company Workspace.
+    CLICKUP_WORKSPACE_GITHUB_IDS: owner,
+    CLICKUP_RESOURCE_SCOPE: "workspace",
     CLICKUP_COMPANY_PROFILE: "true",
     CLICKUP_COMPANY_WRITE_MODE: "non_destructive",
     CLICKUP_OAUTH_ENABLED: "true",
