@@ -30,7 +30,7 @@ function mockHost(
   bytes: Uint8Array,
   options: { foreign?: boolean; redirect?: boolean; tooLarge?: boolean } = {},
 ) {
-  const calls: Array<{ url: URL; init?: RequestInit }> = [];
+  const calls: Array<{ url: URL; init: RequestInit | undefined }> = [];
   let uploaded = false;
   const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(request));
