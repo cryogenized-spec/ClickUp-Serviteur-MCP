@@ -1653,7 +1653,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
             })),
           });
         if (page === 1)
-          return reply({ tasks: [{ id: "vusi", name: "VUSI repair", list: { id: "12346" } }] });
+          return reply({ tasks: [{ id: "legacy-repair", name: "Legacy workshop repair", list: { id: "12346" } }] });
         throw Error("unexpected extra task page");
       }
       if (u.pathname === "/api/v3/workspaces/555/docs") return reply({ docs: [] });
@@ -1662,7 +1662,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     });
     const result = await runCatalogOperation(
       "clickup_search_workspace",
-      { query: "VUSI", max_results: 10 },
+      { query: "Legacy workshop", max_results: 10 },
       makeGrant(),
       f as typeof fetch,
     );
@@ -1673,7 +1673,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       next_task_page: null,
     });
     expect(result["tasks"]).toEqual([
-      { id: "vusi", name: "VUSI repair", list: { id: "12346" } },
+      { id: "legacy-repair", name: "Legacy workshop repair", list: { id: "12346" } },
     ]);
     expect(requestedPages).toEqual([0, 1]);
   });
@@ -1692,7 +1692,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
             })),
           });
         if (page === 10)
-          return reply({ tasks: [{ id: "vusi", name: "VUSI", list: { id: "12346" } }] });
+          return reply({ tasks: [{ id: "legacy-repair", name: "Legacy workshop", list: { id: "12346" } }] });
         throw Error("unexpected page");
       }
       if (u.pathname === "/api/v3/workspaces/555/docs") return reply({ docs: [] });
@@ -1701,7 +1701,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     });
     const first = await runCatalogOperation(
       "clickup_search_workspace",
-      { query: "VUSI" },
+      { query: "Legacy workshop" },
       makeGrant(),
       f as typeof fetch,
     );
@@ -1711,14 +1711,14 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     expect(first["tasks"]).toEqual([]);
     const next = await runCatalogOperation(
       "clickup_search_workspace",
-      { query: "VUSI", task_page: 10 },
+      { query: "Legacy workshop", task_page: 10 },
       makeGrant(),
       f as typeof fetch,
     );
     expect(next).toMatchObject({
       scope: "workspace", incomplete: false, pages_scanned: 1, next_task_page: null,
     });
-    expect(next["tasks"]).toEqual([{ id: "vusi", name: "VUSI", list: { id: "12346" } }]);
+    expect(next["tasks"]).toEqual([{ id: "legacy-repair", name: "Legacy workshop", list: { id: "12346" } }]);
     expect(requestedPages).toEqual(Array.from({ length: 11 }, (_, page) => page));
   });
 
