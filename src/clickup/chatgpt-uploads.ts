@@ -10,33 +10,42 @@ export interface ChatGPTProvidedFile {
 }
 
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
-const ALLOWED_HOSTS = new Set(["files.oaiusercontent.com", "chatgpt.com"]);
+const ALLOWED_HOSTS = new Set(["chatgpt.com", "chat.openai.com"]);
+// OpenAI's file delivery may use regional subdomains of oaiusercontent.com.
+// Require the exact domain boundary to reject lookalikes.
+const isOpenAIFileHost = (host: string) =>
+  host === "oaiusercontent.com" || host.endsWith(".oaiusercontent.com") || ALLOWED_HOSTS.has(host);
 
 function validatedSource(file: ChatGPTProvidedFile): URL {
+  if (!file || typeof file !== "object" || Array.isArray(file))
+    throw new ReadFailure("CLICKUP_FILE_PARAM_UNRESOLVED");
+  // The opaque file ID is metadata, not an upstream credential. A signed URL
+  // is still mandatory; no arbitrary file-by-ID server fetch is attempted.
   if (
-    !file ||
-    typeof file !== "object" ||
     typeof file.file_id !== "string" ||
-    !/^file[-_][a-zA-Z0-9_-]{5,100}$/.test(file.file_id) ||
-    typeof file.download_url !== "string"
+    file.file_id.length < 5 ||
+    file.file_id.length > 250 ||
+    /[\\u0000-\\u001f\\u007f]/.test(file.file_id)
   )
-    throw new ReadFailure("CLICKUP_FILE_SOURCE_UNAVAILABLE");
+    throw new ReadFailure("CLICKUP_FILE_REFERENCE_INVALID");
+  if (typeof file.download_url !== "string" || !file.download_url)
+    throw new ReadFailure("CLICKUP_FILE_URL_MISSING");
   let url: URL;
   try {
     url = new URL(file.download_url);
   } catch {
-    throw new ReadFailure("CLICKUP_FILE_SOURCE_UNAVAILABLE");
+    throw new ReadFailure("CLICKUP_FILE_URL_INVALID");
   }
   // No arbitrary model-provided URLs, local paths, redirects or credentials.
   if (
     url.protocol !== "https:" ||
-    !ALLOWED_HOSTS.has(url.hostname.toLowerCase()) ||
+    !isOpenAIFileHost(url.hostname.toLowerCase()) ||
     url.port !== "" ||
     url.username !== "" ||
     url.password !== "" ||
     url.hash !== ""
   )
-    throw new ReadFailure("CLICKUP_FILE_SOURCE_UNAVAILABLE");
+    throw new ReadFailure("CLICKUP_FILE_HOST_NOT_ALLOWED");
   return url;
 }
 
@@ -98,8 +107,9 @@ async function loadHostFile(file: ChatGPTProvidedFile, fetcher: typeof fetch) {
       signal: controller.signal,
       headers: { Accept: "application/octet-stream, image/*, application/pdf, text/plain" },
     });
-    if (!response.ok || response.status >= 300 || !response.body)
-      throw new ReadFailure("CLICKUP_FILE_SOURCE_UNAVAILABLE");
+    if (!response.ok || response.status >= 300)
+      throw new ReadFailure("CLICKUP_FILE_FETCH_HTTP_" + response.status);
+    if (!response.body) throw new ReadFailure("CLICKUP_FILE_SOURCE_UNAVAILABLE");
     const length = response.headers.get("content-length");
     if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_FILE_BYTES)) {
       controller.abort();
