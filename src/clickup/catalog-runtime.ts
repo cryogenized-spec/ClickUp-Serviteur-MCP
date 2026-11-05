@@ -396,6 +396,7 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_get_task_comments",
   "clickup_get_threaded_replies",
   "clickup_create_task_comment",
+  "clickup_edit_task_comment",
   "clickup_add_tag_to_task",
   "clickup_remove_tag_from_task",
   "clickup_add_task_link",
@@ -461,6 +462,7 @@ const WORKSPACE_SCOPE_OPERATIONS = new Set([
   "clickup_get_task_comments",
   "clickup_get_threaded_replies",
   "clickup_create_task_comment",
+  "clickup_edit_task_comment",
   "clickup_add_tag_to_task",
   "clickup_remove_tag_from_task",
   "clickup_add_task_link",
@@ -932,6 +934,44 @@ export async function runCatalogOperation(
         // A missing readback cannot establish that a reply was committed.
       }
       throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    }
+    case "clickup_edit_task_comment": {
+      // A comment ID alone does not prove either task membership or authorship.
+      await task("task_id");
+      const taskId = val(a, "task_id");
+      const commentId = val(a, "comment_id");
+      const replacement = txt(a["text"], 6000);
+      const before = await call("GET", v2("task/" + taskId + "/comment"));
+      if (!Array.isArray(before["comments"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const original = before["comments"]
+        .map(obj)
+        .find((item) => String(item?.["id"]) === String(a["comment_id"]));
+      // The first task-comment page must positively establish ownership.
+      // Never let a caller edit another person's comment or an older unseen one.
+      if (!original || String(obj(original["user"])?.["id"]) !== g.clickupUserId)
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      await call(
+        "PUT",
+        v2("comment/" + commentId),
+        { comment_text: replacement },
+        "empty-write-ack",
+      );
+      // Check the actual task's comments after the mutation. A transport success
+      // without the requested text is not sufficient evidence of a completed edit.
+      const after = await call("GET", v2("task/" + taskId + "/comment"));
+      if (!Array.isArray(after["comments"])) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      const edited = after["comments"]
+        .map(obj)
+        .find((item) => String(item?.["id"]) === String(a["comment_id"]));
+      if (!edited || edited["comment_text"] !== replacement)
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return {
+        success: true,
+        source: "clickup-api-v2",
+        task_id: String(a["task_id"]),
+        comment_id: String(a["comment_id"]),
+        verified_by_readback: true,
+      };
     }
     case "clickup_add_tag_to_task":
       await task("task_id");
