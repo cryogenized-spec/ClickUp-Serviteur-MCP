@@ -198,5 +198,4 @@ describe("List-scoped task search pagination (#76)", () => {
     ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     expect(api.pages).toEqual([0]);
   });
-
 });
