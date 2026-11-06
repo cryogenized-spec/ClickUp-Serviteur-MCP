@@ -136,7 +136,11 @@ function pathEncoded(p: string) {
   return "https://api.clickup.com/" + p;
 }
 /** Read untrusted upstream JSON within a strict byte budget; cancel large streams. */
-async function readBoundedJsonBody(response: Response, maxBytes = 1_000_000): Promise<string> {
+async function readBoundedJsonBody(
+  response: Response,
+  overflowCode: string,
+  maxBytes = 1_000_000,
+): Promise<string> {
   if (!response.body) return "";
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -147,7 +151,7 @@ async function readBoundedJsonBody(response: Response, maxBytes = 1_000_000): Pr
       if (part.done) break;
       if (size + part.value.byteLength > maxBytes) {
         await reader.cancel().catch(() => undefined);
-        throw new Error("CLICKUP_JSON_TOO_LARGE");
+        throw new ReadFailure(overflowCode);
       }
       chunks.push(part.value);
       size += part.value.byteLength;
@@ -223,7 +227,10 @@ async function send(
     }
     // Do not use res.text(): it can allocate unbounded memory when an upstream
     // omits Content-Length and streams more than the response limit.
-    const text = await readBoundedJsonBody(res);
+    const text = await readBoundedJsonBody(
+      res,
+      method === "GET" ? "CLICKUP_BAD_RESPONSE" : "CLICKUP_WRITE_OUTCOME_UNKNOWN",
+    );
     const result: unknown = JSON.parse(text);
     // ClickUp v3 Docs page_listing returns a top-level array, unlike most REST routes.
     const data =
