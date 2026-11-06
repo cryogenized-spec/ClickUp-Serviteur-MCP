@@ -43,6 +43,14 @@ const hasClippedNestedArray = (value: unknown): boolean => {
   }
   return false;
 };
+/** Require real per-task time data, not an empty or pagination-only response. */
+const hasTimeInStatus = (value: unknown): boolean => {
+  const record = obj(value);
+  return (
+    record !== null &&
+    (obj(record["current_status"]) !== null || Array.isArray(record["status_history"]))
+  );
+};
 const clip = (v: unknown): unknown => {
   if (Array.isArray(v)) return v.slice(0, 50).map(clip);
   const item = obj(v);
@@ -1759,7 +1767,7 @@ export async function runCatalogOperation(
     case "clickup_get_task_time_in_status": {
       await task("task_id");
       const statusTime = await call("GET", v2("task/" + val(a, "task_id") + "/time_in_status"));
-      if (Object.keys(statusTime).length === 0)
+      if (!hasTimeInStatus(statusTime))
         throw new ReadFailure("CLICKUP_STATUS_TIME_DATA_UNAVAILABLE");
       return short(statusTime);
     }
@@ -1769,17 +1777,18 @@ export async function runCatalogOperation(
         "GET",
         v2("list/" + val(a, "list_id") + "/task?page=0&subtasks=false&include_closed=true"),
       );
-      const ids = Array.isArray(tasks["tasks"])
-        ? tasks["tasks"]
-            .slice(0, N)
-            .map((x) => obj(x)?.["id"])
-            .filter((x) => x !== undefined)
-            .map(id)
-        : [];
+      if (!Array.isArray(tasks["tasks"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const ids = tasks["tasks"]
+        .slice(0, N)
+        .map((x) => obj(x)?.["id"])
+        .filter((x) => x !== undefined)
+        .map(id);
+      if (ids.length === 0 && tasks["tasks"].length > 0)
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       if (ids.length === 0) return { source: "clickup-api-v2", tasks: [] };
       const params = ids.map((x) => "task_ids=" + x).join("&");
       const statusTime = await call("GET", v2("task/bulk_time_in_status/task_ids?" + params));
-      if (Object.keys(statusTime).length === 0)
+      if (!ids.every((taskId) => hasTimeInStatus(statusTime[taskId])))
         throw new ReadFailure("CLICKUP_STATUS_TIME_DATA_UNAVAILABLE");
       return short(statusTime);
     }
