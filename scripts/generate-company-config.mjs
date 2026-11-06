@@ -47,6 +47,11 @@ if (
   throw new Error("COMPANY_PUBLIC_ORIGIN must be the exact dedicated HTTPS Worker origin");
 if (workspace === "9012707978" || list === "901219425894")
   throw new Error("Refusing dummy Workspace/List as a company default");
+// GitHub Actions supplies the reviewed workflow-dispatch ref; expose only its
+// public commit SHA to distinguish a deployed Worker from a stale tool snapshot.
+const buildSha = process.env.GITHUB_SHA;
+if (buildSha && !/^[a-f0-9]{40}$/.test(buildSha))
+  throw new Error("Invalid GitHub deployment commit SHA");
 const profile = {
   name: "clickup-serviteur-company",
   main: "src/index.ts",
@@ -68,6 +73,7 @@ const profile = {
     CLICKUP_COMPANY_WRITE_MODE: "non_destructive",
     CLICKUP_OAUTH_ENABLED: "true",
     CLICKUP_LIVE_ENABLED: "true",
+    ...(buildSha ? { MCP_BUILD_SHA: buildSha } : {}),
   },
   kv_namespaces: [{ binding: "OAUTH_KV", id: kv }],
   durable_objects: {

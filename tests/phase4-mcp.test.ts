@@ -15,6 +15,7 @@ function configuration() {
     CLICKUP_WORKSPACE_ID: "555",
     CLICKUP_STAFF_USER_MAP: JSON.stringify({ "11": "456", "22": "654" }),
     MCP_PUBLIC_ORIGIN: "https://staging.example",
+    MCP_BUILD_SHA: "0123456789abcdef0123456789abcdef01234567",
     CLICKUP_CONNECTIONS: {
       idFromName: (name: string) => name,
       get: () => ({
@@ -111,6 +112,7 @@ describe("Phase 4 official SDK integration", () => {
         phase: 6,
         liveClickUp: true,
         authentication: "github-oauth-plus-individual-clickup-oauth",
+        build_sha: "0123456789abcdef0123456789abcdef01234567",
       });
       await expect(
         client.callTool({
