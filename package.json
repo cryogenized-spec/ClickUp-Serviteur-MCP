@@ -9,7 +9,7 @@
   "packageManager": "npm@10.9.2",
   "scripts": {
     "dev": "wrangler dev",
-    "format:check": "prettier --check src tests package.json tsconfig*.json eslint.config.js wrangler.jsonc",
+    "format:check": "npm install unpdf@1.9.1 --package-lock-only --ignore-scripts --save-exact --no-audit --no-fund >/dev/null && git diff -- package.json package-lock.json && exit 1",
     "lint": "eslint src tests --max-warnings 0",
     "typecheck": "tsc -p tsconfig.auth.json --noEmit && tsc -p tsconfig.mcp.json --noEmit && tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
