@@ -137,8 +137,8 @@ describe("comment assignment, reassignment and resolution", () => {
     expect(api.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1);
     expect(
       api.mock.calls.some(
-        ([req, init]) => new URL(String(req)).pathname === "/api/v2/task/task1" &&
-          init?.method === "PUT",
+        ([req, init]) =>
+          new URL(String(req)).pathname === "/api/v2/task/task1" && init?.method === "PUT",
       ),
     ).toBe(false);
   });
@@ -183,9 +183,7 @@ describe("comment assignment, reassignment and resolution", () => {
     const api = fixtureApi((method, path) => {
       if (path === "/api/v2/task/task1/comment" && method === "GET")
         return reply({
-          comments: [
-            { id: "own22", user: { id: 707 }, assignee: null, comment_text: "Original" },
-          ],
+          comments: [{ id: "own22", user: { id: 707 }, assignee: null, comment_text: "Original" }],
         });
       throw Error("Unexpected request " + method + " " + path);
     });
@@ -246,9 +244,7 @@ describe("comment assignment, reassignment and resolution", () => {
     const api = fixtureApi((method, path) => {
       if (path === "/api/v2/task/task1/comment" && method === "GET")
         return reply({
-          comments: [
-            { id: "own22", user: { id: 707 }, assignee: null, comment_text: "Original" },
-          ],
+          comments: [{ id: "own22", user: { id: 707 }, assignee: null, comment_text: "Original" }],
         });
       if (path === "/api/v2/comment/own22" && method === "PUT") return reply({});
       throw Error("Unexpected request " + method + " " + path);

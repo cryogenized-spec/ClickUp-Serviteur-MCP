@@ -1103,11 +1103,7 @@ export async function runCatalogOperation(
       await task("task_id");
       const taskId = val(a, "task_id");
       const commentId = val(a, "comment_id");
-      if (
-        a["text"] === undefined &&
-        a["assignee_id"] === undefined &&
-        a["resolved"] === undefined
-      )
+      if (a["text"] === undefined && a["assignee_id"] === undefined && a["resolved"] === undefined)
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       if (a["resolved"] !== undefined && typeof a["resolved"] !== "boolean")
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
@@ -1123,9 +1119,7 @@ export async function runCatalogOperation(
       // Assignment-only updates must not flatten rich comments or replace images.
       // Preserve only a verified plain-text comment body, not an inferred string.
       const replacement =
-        a["text"] === undefined
-          ? txt(original["comment_text"], 6000)
-          : txt(a["text"], 6000);
+        a["text"] === undefined ? txt(original["comment_text"], 6000) : txt(a["text"], 6000);
       // The upstream PUT contract requires assignment/resolution alongside text.
       // Preserve known state. Unassigned, non-group comments with no resolved
       // flag are treated as unresolved; reject ambiguous or group assignments.
@@ -1151,8 +1145,7 @@ export async function runCatalogOperation(
         !(originalResolved === undefined && assignee === 0)
       )
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      const resolved =
-        a["resolved"] === undefined ? originalResolved === true : a["resolved"];
+      const resolved = a["resolved"] === undefined ? originalResolved === true : a["resolved"];
       await call(
         "PUT",
         v2("comment/" + commentId),
@@ -1176,13 +1169,8 @@ export async function runCatalogOperation(
       if (!edited || edited["comment_text"] !== replacement)
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
       const actualAssignee =
-        edited["assignee"] === null
-          ? 0
-          : (obj(edited["assignee"])?.["id"] ?? edited["assignee"]);
-      if (
-        a["assignee_id"] !== undefined &&
-        String(actualAssignee) !== String(assignee)
-      )
+        edited["assignee"] === null ? 0 : (obj(edited["assignee"])?.["id"] ?? edited["assignee"]);
+      if (a["assignee_id"] !== undefined && String(actualAssignee) !== String(assignee))
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
       if (
         (a["resolved"] !== undefined || typeof originalResolved === "boolean") &&
