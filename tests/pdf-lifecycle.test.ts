@@ -48,7 +48,10 @@ describe("PDF.js loading task lifecycle and timeouts (#85)", () => {
     const pending = extractVerifiedTaskPdf(attachment, fetcher as typeof fetch, "555");
     // Attach the rejection observer before advancing fake time, so Vitest
     // never sees an unhandled rejection when the deadline fires.
-    const outcome = pending.then(() => "unexpected_success", (error: unknown) => error);
+    const outcome = pending.then(
+      () => "unexpected_success",
+      (error: unknown) => error,
+    );
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(6_001);
     expect(await outcome).toMatchObject({ code: "CLICKUP_PDF_TIMEOUT" });
@@ -70,7 +73,10 @@ describe("PDF.js loading task lifecycle and timeouts (#85)", () => {
     const pending = extractVerifiedTaskPdf(attachment, fetcher as typeof fetch, "555");
     // Attach the rejection observer before advancing fake time, so Vitest
     // never sees an unhandled rejection when the deadline fires.
-    const outcome = pending.then(() => "unexpected_success", (error: unknown) => error);
+    const outcome = pending.then(
+      () => "unexpected_success",
+      (error: unknown) => error,
+    );
     await vi.advanceTimersByTimeAsync(0);
     expect(getDocument).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(6_001);
