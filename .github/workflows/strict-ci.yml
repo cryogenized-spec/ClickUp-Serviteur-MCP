@@ -61,13 +61,6 @@ jobs:
         if: steps.stage.outputs.application == 'true'
         run: npm run format:check
 
-      # TEMPORARY branch-only diagnostic; remove before merging.
-      - name: Show exact Prettier corrections after formatting failure
-        if: failure() && steps.stage.outputs.application == 'true'
-        run: |
-          npx --no-install prettier --write src/clickup/catalog-runtime.ts tests/phase7-catalog.test.ts
-          git diff -- src/clickup/catalog-runtime.ts tests/phase7-catalog.test.ts
-
       - name: Enforce ESLint
         if: steps.stage.outputs.application == 'true'
         run: npm run lint
