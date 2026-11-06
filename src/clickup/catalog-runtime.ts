@@ -1136,7 +1136,11 @@ export async function runCatalogOperation(
           const keys = Object.keys(part);
           if (keys.length !== 1) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
           if (typeof part["text"] === "string" && keys[0] === "text") {
-            const content = txt(part["text"], 6000);
+            // Whitespace-only segments are legitimate separators between
+            // tags; the legacy txt() validator forbids them as whole comments.
+            const content = part["text"];
+            if (content.length === 0 || content.length > 6000)
+              throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
             textChars += content.length;
             if (textChars > 6000) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
             rich.push({ text: content });
