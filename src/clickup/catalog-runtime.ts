@@ -1777,8 +1777,7 @@ export async function runCatalogOperation(
         "GET",
         v2("list/" + val(a, "list_id") + "/task?page=0&subtasks=false&include_closed=true"),
       );
-      if (!Array.isArray(tasks["tasks"]))
-        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      if (!Array.isArray(tasks["tasks"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       const ids = tasks["tasks"]
         .slice(0, N)
         .map((x) => obj(x)?.["id"])
