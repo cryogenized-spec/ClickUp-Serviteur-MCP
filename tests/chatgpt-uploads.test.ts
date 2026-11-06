@@ -72,7 +72,7 @@ function mockHost(
     if (url.pathname === "/api/v2/task/abc123/attachment" && init?.method === "POST") {
       uploaded = true;
       const body = init.body as FormData;
-      expect(body.get("attachment[0]")).not.toBeNull();
+      expect(body.get("attachment")).not.toBeNull();
       return json({ id: "new-attachment", title: "photo.png", url: "https://clickup.com/asset" });
     }
     if (url.pathname === "/api/v2/task/abc123")

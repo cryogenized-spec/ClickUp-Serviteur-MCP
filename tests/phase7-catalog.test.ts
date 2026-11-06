@@ -995,7 +995,8 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     );
     expect(output).toMatchObject({ id: "attachment-1" });
     expect(sent).not.toBeNull();
-    const blob = sent!.get("attachment[0]") as File;
+    const blob = sent!.get("attachment") as File;
+    expect(sent!.get("attachment[0]")).toBeNull();
     expect(blob.name).toBe("note.txt");
     expect(await blob.text()).toBe("hello");
     expect(f).toHaveBeenCalledTimes(4);

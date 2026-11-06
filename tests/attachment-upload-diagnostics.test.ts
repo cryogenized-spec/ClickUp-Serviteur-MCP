@@ -30,7 +30,7 @@ describe("ClickUp multipart upload diagnostic codes", () => {
       if (url.pathname === "/api/v2/task/abc123/attachment" && init?.method === "POST") {
         uploads++;
         const form = init.body as FormData;
-        expect(form.get("attachment[0]")).not.toBeNull();
+        expect(form.get("attachment")).not.toBeNull();
         const headers = init.headers as Record<string, string>;
         expect(headers["Content-Type"]).toBeUndefined();
         expect(headers["Authorization"]).toBe("test-secret-should-not-leak");
