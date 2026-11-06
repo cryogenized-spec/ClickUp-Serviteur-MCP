@@ -215,10 +215,12 @@ async function send(
     if (
       !t.includes("application/json") ||
       (length !== null && (!/^[0-9]+$/.test(length) || Number(length) > 1_000_000))
-    )
+    ) {
+      await res.body?.cancel().catch(() => undefined);
       throw new ReadFailure(
         method === "GET" ? "CLICKUP_BAD_RESPONSE" : "CLICKUP_WRITE_OUTCOME_UNKNOWN",
       );
+    }
     // Do not use res.text(): it can allocate unbounded memory when an upstream
     // omits Content-Length and streams more than the response limit.
     const text = await readBoundedJsonBody(res);
