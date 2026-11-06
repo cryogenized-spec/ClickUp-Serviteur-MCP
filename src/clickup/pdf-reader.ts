@@ -128,6 +128,12 @@ export async function extractVerifiedTaskPdf(
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   let loadingTask: UnpdfLoadingTask | undefined;
+  let cleanupPromise: Promise<void> | undefined;
+  const release = () => {
+    if (!loadingTask) return undefined;
+    cleanupPromise ??= loadingTask.destroy().catch(() => undefined);
+    return cleanupPromise;
+  };
   let expired = false;
   try {
     const extraction = (async () => {
@@ -155,7 +161,7 @@ export async function extractVerifiedTaskPdf(
         expired = true;
         // Reject promptly and stop the underlying PDF.js loading task; the
         // finally block also ensures cleanup if normal parsing completes.
-        if (loadingTask) void loadingTask.destroy().catch(() => undefined);
+        void release();
         reject(new ReadFailure("CLICKUP_PDF_TIMEOUT"));
       }, MAX_PARSER_TIME_MS);
     });
@@ -190,6 +196,6 @@ export async function extractVerifiedTaskPdf(
   } finally {
     expired = true;
     if (timer !== undefined) clearTimeout(timer);
-    if (loadingTask) await loadingTask.destroy().catch(() => undefined);
+    await release();
   }
 }
