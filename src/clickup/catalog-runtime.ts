@@ -593,6 +593,7 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_create_bulk_tasks",
   "clickup_update_bulk_tasks",
   "clickup_get_task_comments",
+  "clickup_read_task_pdf",
   "clickup_get_threaded_replies",
   "clickup_create_task_comment",
   "clickup_edit_task_comment",
@@ -659,6 +660,7 @@ const WORKSPACE_SCOPE_OPERATIONS = new Set([
   "clickup_attach_file_to_task",
   "clickup_update_bulk_tasks",
   "clickup_get_task_comments",
+  "clickup_read_task_pdf",
   "clickup_get_threaded_replies",
   "clickup_create_task_comment",
   "clickup_edit_task_comment",
@@ -874,6 +876,20 @@ export async function runCatalogOperation(
     }
     case "clickup_get_task":
       return short(await task("task_id"));
+    case "clickup_read_task_pdf": {
+      const verified = await task("task_id");
+      const attachments = verified["attachments"];
+      if (!Array.isArray(attachments) || attachments.length > 200)
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const selected = attachments
+        .map(obj)
+        .find((item) => String(item?.["id"]) === String(a["attachment_id"]));
+      if (!selected) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      // No caller-provided URLs: the signed link is taken only from the
+      // authenticated task GET after its Workspace/home-List verification.
+      const { extractVerifiedTaskPdf } = await import("./pdf-reader.js");
+      return extractVerifiedTaskPdf(selected, f);
+    }
     case "clickup_update_task":
       await task("task_id");
       return short(
