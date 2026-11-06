@@ -167,6 +167,6 @@ export async function extractVerifiedTaskPdf(
     throw new ReadFailure("CLICKUP_PDF_PARSE_FAILED");
   } finally {
     if (timer !== undefined) clearTimeout(timer);
-    await pdf?.destroy().catch(() => undefined);
+    if (pdf && typeof pdf.destroy === "function") await pdf.destroy().catch(() => undefined);
   }
 }
