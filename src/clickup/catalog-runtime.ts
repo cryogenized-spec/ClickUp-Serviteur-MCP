@@ -394,6 +394,9 @@ export async function uploadAttachmentBytes(
   const uploadBytes = new Uint8Array(data.byteLength);
   uploadBytes.set(data);
   const form = new FormData();
+  // ClickUp's v2 endpoint reports UPLOAD_002 ("Incorrect filename") for
+  // attachment[0] in some single-file uploads despite the array documentation.
+  // The production-compatible single-file field is the unindexed "attachment".
   form.append("attachment", new Blob([uploadBytes], { type: mime }), filename);
   await quotaCall(grant, "reserve");
   const abort = new AbortController();
