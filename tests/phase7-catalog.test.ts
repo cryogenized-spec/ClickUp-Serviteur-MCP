@@ -2071,8 +2071,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
   it("rejects status-only envelopes instead of presenting plan-restricted data as success", async () => {
     const api = vi.fn(async (req: RequestInfo | URL) => {
       const path = new URL(String(req)).pathname;
-      if (path === "/api/v2/list/12345/task")
-        return reply({ tasks: [{ id: "abc123" }] });
+      if (path === "/api/v2/list/12345/task") return reply({ tasks: [{ id: "abc123" }] });
       if (path.endsWith("/time_in_status") || path.includes("/bulk_time_in_status/"))
         return reply({ incomplete: false, first_page_only: true });
       return reply(fixture(path));
