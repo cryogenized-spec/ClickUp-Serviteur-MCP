@@ -132,7 +132,11 @@ describe("read-only ClickUp PDF repair-card extraction (#85)", () => {
     ]) {
       const api = mockFetch();
       await expect(
-        extractVerifiedTaskPdf({ ...attachment(), url: source }, api.fetcher as typeof fetch, "555"),
+        extractVerifiedTaskPdf(
+          { ...attachment(), url: source },
+          api.fetcher as typeof fetch,
+          "555",
+        ),
       ).rejects.toThrow("CLICKUP_PDF_HOST_NOT_ALLOWED");
       expect(api.cdnGets).toBe(0);
     }
