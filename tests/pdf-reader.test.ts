@@ -100,7 +100,15 @@ describe("read-only ClickUp PDF repair-card extraction (#85)", () => {
   });
 
   it("rejects path-like, traversal, or malformed attachment IDs without downloading", async () => {
-    for (const candidate of ["../repair.pdf", ".pdf", "a..pdf", "a/b.pdf", "a\\\\b.pdf", "bad id.pdf", "a?token=1.pdf"]) {
+    for (const candidate of [
+      "../repair.pdf",
+      ".pdf",
+      "a..pdf",
+      "a/b.pdf",
+      "a\\\\b.pdf",
+      "bad id.pdf",
+      "a?token=1.pdf",
+    ]) {
       const api = mockFetch();
       await expect(
         extractVerifiedTaskPdf(
