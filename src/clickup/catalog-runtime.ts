@@ -1778,19 +1778,29 @@ export async function runCatalogOperation(
         v2("list/" + val(a, "list_id") + "/task?page=0&subtasks=false&include_closed=true"),
       );
       if (!Array.isArray(tasks["tasks"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      const ids = tasks["tasks"]
-        .slice(0, N)
-        .map((x) => obj(x)?.["id"])
-        .filter((x) => x !== undefined)
-        .map(id);
-      if (ids.length === 0 && tasks["tasks"].length > 0)
-        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const ids = tasks["tasks"].slice(0, N).map((entry) => {
+        try {
+          return id(obj(entry)?.["id"]);
+        } catch {
+          // Upstream task rows with missing/invalid IDs must not silently
+          // disappear from a partial status report.
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        }
+      });
+      if (new Set(ids).size !== ids.length) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       if (ids.length === 0) return { source: "clickup-api-v2", tasks: [] };
       const params = ids.map((x) => "task_ids=" + x).join("&");
       const statusTime = await call("GET", v2("task/bulk_time_in_status/task_ids?" + params));
       if (!ids.every((taskId) => hasTimeInStatus(statusTime[taskId])))
         throw new ReadFailure("CLICKUP_STATUS_TIME_DATA_UNAVAILABLE");
-      return short(statusTime);
+      // The query deliberately reads only page zero; report coverage limits
+      // instead of misrepresenting a sampled List as fully assessed.
+      const listCoverageIncomplete =
+        tasks["tasks"].length > N || tasks["last_page"] === false || tasks["tasks"].length >= 100;
+      return short({
+        ...statusTime,
+        incomplete: listCoverageIncomplete || statusTime["incomplete"] === true,
+      });
     }
     default:
       throw new ReadFailure("CLICKUP_TOOL_NOT_IMPLEMENTED");

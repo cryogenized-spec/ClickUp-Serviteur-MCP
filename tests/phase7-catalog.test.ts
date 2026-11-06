@@ -2113,6 +2113,67 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     ).rejects.toThrow("CLICKUP_STATUS_TIME_DATA_UNAVAILABLE");
   });
 
+  it("rejects partially malformed or duplicate List task rows before requesting status data", async () => {
+    for (const rows of [
+      [{ id: "abc123" }, { name: "Missing ID" }],
+      [{ id: "abc123" }, { id: "abc123" }],
+    ]) {
+      const requests: string[] = [];
+      const api = vi.fn(async (req: RequestInfo | URL) => {
+        const path = new URL(String(req)).pathname;
+        requests.push(path);
+        if (path === "/api/v2/list/12345/task") return reply({ tasks: rows });
+        return reply(fixture(path));
+      });
+      await expect(
+        runCatalogOperation(
+          "clickup_get_list_time_in_status",
+          { list_id: "12345", max_results: 2 },
+          makeGrant(),
+          api as typeof fetch,
+        ),
+      ).rejects.toThrow("CLICKUP_BAD_RESPONSE");
+      expect(requests.some((path) => path.includes("bulk_time_in_status"))).toBe(false);
+    }
+  });
+
+  it("flags first-page and max-results caps when reporting valid status data", async () => {
+    for (const { rows, maxResults, lastPage } of [
+      { rows: [{ id: "abc123" }, { id: "abc124" }, { id: "abc125" }], maxResults: 2 },
+      { rows: [{ id: "abc123" }], maxResults: 5, lastPage: false },
+    ]) {
+      const api = vi.fn(async (req: RequestInfo | URL) => {
+        const url = new URL(String(req));
+        if (url.pathname === "/api/v2/list/12345/task")
+          return reply({
+            tasks: rows,
+            ...(lastPage === undefined ? {} : { last_page: lastPage }),
+          });
+        if (url.pathname.includes("/bulk_time_in_status/"))
+          return reply(
+            Object.fromEntries(
+              url.searchParams
+                .getAll("task_ids")
+                .map((taskId) => [taskId, { current_status: { status: "Open", total_time: 300 } }]),
+            ),
+          );
+        return reply(fixture(url.pathname));
+      });
+      const data = await runCatalogOperation(
+        "clickup_get_list_time_in_status",
+        { list_id: "12345", max_results: maxResults },
+        makeGrant(),
+        api as typeof fetch,
+      );
+      expect(data).toMatchObject({
+        abc123: { current_status: { status: "Open", total_time: 300 } },
+        incomplete: true,
+        first_page_only: true,
+      });
+      if (maxResults === 2) expect(data["abc125"]).toBeUndefined();
+    }
+  });
+
   it("refuses malformed List task metadata instead of inventing an empty List", async () => {
     const api = vi.fn(async (req: RequestInfo | URL) => {
       const path = new URL(String(req)).pathname;
