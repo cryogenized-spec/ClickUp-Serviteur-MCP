@@ -1192,8 +1192,7 @@ export async function runCatalogOperation(
             if (requested["type"] === "tag") {
               if (
                 stored["type"] !== "tag" ||
-                String(obj(stored["user"])?.["id"]) !==
-                  String(obj(requested["user"])?.["id"])
+                String(obj(stored["user"])?.["id"]) !== String(obj(requested["user"])?.["id"])
               )
                 throw Error("Mention did not persist");
             } else if (stored["type"] === "tag" || stored["text"] !== requested["text"]) {
