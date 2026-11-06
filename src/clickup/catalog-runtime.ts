@@ -158,7 +158,7 @@ async function readBoundedJsonBody(response: Response, maxBytes = 1_000_000): Pr
       bytes.set(chunk, offset);
       offset += chunk.byteLength;
     }
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return new TextDecoder().decode(bytes);
   } finally {
     reader.releaseLock();
   }
