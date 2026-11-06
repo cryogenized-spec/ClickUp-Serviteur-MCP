@@ -143,6 +143,7 @@ const F = {
     24,
   ),
   comment_id: str("Exact ClickUp comment identifier.", 100),
+  attachment_id: str("Exact PDF attachment ID from the verified task; never supply a URL.", 100),
   parent_comment_id: str(
     "Verified parent comment ID on the same authorized task; create a threaded reply.",
     100,
@@ -379,6 +380,16 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Attach a small user-provided PDF report as base64 bytes.",
     ["task_id", "file_name", "file_base64"],
     ["media_type"],
+  ),
+
+  tool(
+    "clickup_read_task_pdf",
+    "Read Task PDF Job Card",
+    "attachments",
+    "read",
+    "Read bounded text-layer PDF content from an attachment ID belonging to a verified authorized task. No arbitrary URL input, no upload, no OCR. Never log signed ClickUp download links; large, encrypted and scanned PDFs return explicit errors.",
+    "Read the authorized repair job card PDF and identify the model or serial described inside.",
+    ["task_id", "attachment_id"],
   ),
 
   // COMMENTS (4)
