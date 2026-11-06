@@ -1196,10 +1196,7 @@ export async function runCatalogOperation(
                   String(obj(requested["user"])?.["id"])
               )
                 throw Error("Mention did not persist");
-            } else if (
-              stored["type"] === "tag" ||
-              stored["text"] !== requested["text"]
-            ) {
+            } else if (stored["type"] === "tag" || stored["text"] !== requested["text"]) {
               throw Error("Text changed in rich readback");
             }
           }
