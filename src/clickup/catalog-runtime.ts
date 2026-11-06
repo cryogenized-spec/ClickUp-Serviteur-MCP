@@ -55,6 +55,69 @@ const clip = (v: unknown): unknown => {
   if (typeof v === "string") return v.slice(0, 12000);
   return v;
 };
+/**
+ * ClickUp Docs can insert backslashes around standalone text brackets.
+ * Do not equate this with unchanged Markdown: links, code, tables, lists,
+ * headings, references and embedded syntax may change meaning when escaped.
+ * This is a narrow allowlist for independently observed plain-text annotations.
+ */
+function plainBracketEscapesOnly(requested: string, stored: string): boolean {
+  // The only accepted provider normalization is one complete, standalone,
+  // plain-text annotation line such as [QA note] -> \[QA note\].
+  // Any Markdown syntax or other difference remains an uncertain write.
+  const source = requested.split("\n");
+  const readback = stored.split("\n");
+  if (source.length !== readback.length) return false;
+  let confirmed = 0;
+  for (let i = 0; i < source.length; i++) {
+    const line = source[i]!;
+    const actual = readback[i]!;
+    if (
+      line.includes("\\") ||
+      line.includes(String.fromCharCode(96)) ||
+      line.includes("*") ||
+      line.includes("_") ||
+      line.includes("|") ||
+      line.includes("<") ||
+      line.includes(">") ||
+      line.includes("#") ||
+      line.includes("!") ||
+      line.includes("(") ||
+      line.includes(")") ||
+      line.includes("{") ||
+      line.includes("}") ||
+      line.includes("~") ||
+      line.includes("[") !== line.includes("]")
+    )
+      return false;
+    if (line === actual) {
+      // A second Markdown annotation, even unchanged, makes the document
+      // context ambiguous. No normalization claim in this case.
+      if (line.includes("[") || line.includes("]")) return false;
+      continue;
+    }
+    if (
+      confirmed !== 0 ||
+      line.length < 3 ||
+      line.length > 242 ||
+      !line.startsWith("[") ||
+      !line.endsWith("]")
+    )
+      return false;
+    const label = line.slice(1, -1);
+    if (!label.trim() || label.includes("[") || label.includes("]")) return false;
+    for (const character of label) {
+      const code = character.charCodeAt(0);
+      const letter = (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+      const digit = code >= 48 && code <= 57;
+      if (!letter && !digit && !"- ;:.,?/".includes(character)) return false;
+    }
+    if (actual !== "\\[" + label + "\\]") return false;
+    confirmed++;
+  }
+  return confirmed === 1;
+}
+
 function buildArgs(a: Json, key: string): Json {
   const b = obj(a[key]);
   if (!b) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
@@ -1510,6 +1573,18 @@ export async function runCatalogOperation(
           const verified = await call("GET", pagePath + "?content_format=text%2Fmd");
           if (verified["content"] === content)
             return { success: true, source: "clickup-api", verified_by_readback: true };
+          // Only exactly observed standalone plain-text bracket escaping
+          // qualifies as confirmed provider normalization after readback.
+          const stored = verified["content"];
+          if (typeof stored === "string" && plainBracketEscapesOnly(content, stored)) {
+            return {
+              success: true,
+              source: "clickup-api",
+              verified_by_readback: true,
+              provider_normalized: true,
+              warning: "ClickUp escaped Markdown brackets; saved text differs.",
+            };
+          }
         } catch {
           // Preserve the original uncertain-write error if verification fails.
         }
