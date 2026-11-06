@@ -65,13 +65,19 @@ function mockFetch(options: { foreign?: boolean; redirect?: boolean; tooLarge?: 
         list: { id: options.foreign ? "12346" : "12345" },
         attachments: [attachment()],
       });
-    if (path === "/api/v2/list/12345")
-      return Response.json({ id: "12345", space: { id: "777" } });
-    if (path === "/api/v2/team/555/space")
-      return Response.json({ spaces: [{ id: "777" }] });
+    if (path === "/api/v2/list/12345") return Response.json({ id: "12345", space: { id: "777" } });
+    if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "777" }] });
     throw Error("Unexpected API route " + path);
   });
-  return { fetcher, get cdnGets() { return cdnGets; }, get cancelled() { return cancelled; } };
+  return {
+    fetcher,
+    get cdnGets() {
+      return cdnGets;
+    },
+    get cancelled() {
+      return cancelled;
+    },
+  };
 }
 
 describe("read-only ClickUp PDF repair-card extraction (#85)", () => {
@@ -120,7 +126,10 @@ describe("read-only ClickUp PDF repair-card extraction (#85)", () => {
   });
 
   it("rejects foreign-host and lookalike signed URLs", async () => {
-    for (const source of ["https://127.0.0.1/", "https://t555.p.clickup-attachments.com.evil.test/f"]) {
+    for (const source of [
+      "https://127.0.0.1/",
+      "https://t555.p.clickup-attachments.com.evil.test/f",
+    ]) {
       const api = mockFetch();
       await expect(
         extractVerifiedTaskPdf({ ...attachment(), url: source }, api.fetcher as typeof fetch),
