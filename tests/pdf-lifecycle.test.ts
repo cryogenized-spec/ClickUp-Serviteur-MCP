@@ -91,7 +91,7 @@ describe("PDF.js loading task lifecycle and timeouts (#85)", () => {
         maxImageSize: 4_194_304,
       }),
     );
-    expect(output.pages).toEqual([{ page: 1, text: "QA text only", truncated: false }]);
+    expect(output["pages"]).toEqual([{ page: 1, text: "QA text only", truncated: false }]);
     expect(destroy).toHaveBeenCalledOnce();
   });
 });
