@@ -31,7 +31,12 @@ const expected = [
 ];
 
 function mockApi(
-  options: { author?: number; dropTag?: boolean; postStatus?: number; expectedComment?: unknown[] } = {},
+  options: {
+    author?: number;
+    dropTag?: boolean;
+    postStatus?: number;
+    expectedComment?: unknown[];
+  } = {},
 ) {
   const expectedParts = options.expectedComment ?? expected;
   let created = false;
@@ -127,11 +132,7 @@ describe("genuine ClickUp task comment @mentions (#88)", () => {
   });
 
   it("preserves whitespace-only separators between real mentions", async () => {
-    const requested = [
-      { mention_user_id: "801" },
-      { text: "\n\n" },
-      { mention_user_id: "802" },
-    ];
+    const requested = [{ mention_user_id: "801" }, { text: "\n\n" }, { mention_user_id: "802" }];
     const stored = [
       { type: "tag", user: { id: 801 } },
       { text: "\n\n" },
