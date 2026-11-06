@@ -135,6 +135,38 @@ function pathEncoded(p: string) {
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   return "https://api.clickup.com/" + p;
 }
+/** Read untrusted upstream JSON within a strict byte budget; cancel large streams. */
+async function readBoundedJsonBody(
+  response: Response,
+  overflowCode: string,
+  maxBytes = 1_000_000,
+): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      if (size + part.value.byteLength > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new ReadFailure(overflowCode);
+      }
+      chunks.push(part.value);
+      size += part.value.byteLength;
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(bytes);
+  } finally {
+    reader.releaseLock();
+  }
+}
 async function send(
   grant: ReadGrant,
   fetcher: typeof fetch,
@@ -183,16 +215,22 @@ async function send(
       );
     }
     const t = res.headers.get("content-type") ?? "";
-    const length = Number(res.headers.get("content-length") ?? "0");
-    if (!t.includes("application/json") || length > 1000000)
+    const length = res.headers.get("content-length");
+    if (
+      !t.includes("application/json") ||
+      (length !== null && (!/^[0-9]+$/.test(length) || Number(length) > 1_000_000))
+    ) {
+      await res.body?.cancel().catch(() => undefined);
       throw new ReadFailure(
         method === "GET" ? "CLICKUP_BAD_RESPONSE" : "CLICKUP_WRITE_OUTCOME_UNKNOWN",
       );
-    const text = await res.text();
-    if (text.length > 1000000)
-      throw new ReadFailure(
-        method === "GET" ? "CLICKUP_BAD_RESPONSE" : "CLICKUP_WRITE_OUTCOME_UNKNOWN",
-      );
+    }
+    // Do not use res.text(): it can allocate unbounded memory when an upstream
+    // omits Content-Length and streams more than the response limit.
+    const text = await readBoundedJsonBody(
+      res,
+      method === "GET" ? "CLICKUP_BAD_RESPONSE" : "CLICKUP_WRITE_OUTCOME_UNKNOWN",
+    );
     const result: unknown = JSON.parse(text);
     // ClickUp v3 Docs page_listing returns a top-level array, unlike most REST routes.
     const data =
