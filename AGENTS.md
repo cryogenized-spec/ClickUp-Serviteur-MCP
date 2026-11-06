@@ -11,6 +11,7 @@ Build one secure remote MCP server backed by ClickUp's supported REST API, acces
 1. Read [README.md](README.md), [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md), [docs/DECISIONS.md](docs/DECISIONS.md), and the active reviewed design/plan.
 2. Read [docs/WORKFLOW.md](docs/WORKFLOW.md), [docs/phases/ROADMAP.md](docs/phases/ROADMAP.md), and [docs/SECURITY_PERIMETER.md](docs/SECURITY_PERIMETER.md); inspect repository HEAD and latest relevant changes.
 3. Read [docs/SKILLS.md](docs/SKILLS.md) and use the appropriate upstream-authored development skills where the agent supports them.
+   - Before drafting/updating ClickUp task descriptions, inventory tables or comments, read the custom [ClickUp formatting skill](.agents/skills/clickup-formatting/SKILL.md). It follows the current model-facing schema; do not assume the repository skill is installed inside ChatGPT.
 4. Name one deliverable, its acceptance test and its exclusions. Don't invent unverified work or credentials.
 5. At end, update PROJECT_STATE with verified evidence, blockers, the commit/PR and one next action.
 
