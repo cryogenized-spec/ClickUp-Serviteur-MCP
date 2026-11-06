@@ -394,7 +394,7 @@ export async function uploadAttachmentBytes(
   const uploadBytes = new Uint8Array(data.byteLength);
   uploadBytes.set(data);
   const form = new FormData();
-  form.append("attachment[0]", new Blob([uploadBytes], { type: mime }), filename);
+  form.append("attachment", new Blob([uploadBytes], { type: mime }), filename);
   await quotaCall(grant, "reserve");
   const abort = new AbortController();
   const timeout = setTimeout(() => abort.abort(), 10000);
