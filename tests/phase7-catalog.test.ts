@@ -42,7 +42,7 @@ const fakeApi = () =>
 describe("Phase 7 individual OAuth and native catalogue - adversarial tests", () => {
   it("registers all 50 REST backed capabilities including the read-only PDF job-card tool", () => {
     expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(50);
-    expect(new Set(OPERATIONAL_CATALOG_NAMES).size).toBe(49);
+    expect(new Set(OPERATIONAL_CATALOG_NAMES).size).toBe(50);
     expect(
       OPERATIONAL_CATALOG_NAMES.every((n) => CLICKUP_MODEL_TOOL_CATALOG.some((s) => s.name === n)),
     ).toBe(true);
