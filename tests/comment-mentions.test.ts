@@ -35,7 +35,8 @@ function mockApi(options: { author?: number; dropTag?: boolean; postStatus?: num
   let postCount = 0;
   const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(String(request)).pathname;
-    if (path === "/api/v2/task/abc123") return Response.json({ id: "abc123", list: { id: "12345" } });
+    if (path === "/api/v2/task/abc123")
+      return Response.json({ id: "abc123", list: { id: "12345" } });
     if (path === "/api/v2/list/12345") return Response.json({ id: "12345", space: { id: "777" } });
     if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "777" }] });
     if (path === "/api/v2/team")
@@ -60,7 +61,8 @@ function mockApi(options: { author?: number; dropTag?: boolean; postStatus?: num
           expect(body.comment).toEqual(expected);
           expect(body.comment_text).toBeUndefined();
         }
-        if (options.postStatus) return Response.json({ err: "failure" }, { status: options.postStatus });
+        if (options.postStatus)
+          return Response.json({ err: "failure" }, { status: options.postStatus });
         created = true;
         return Response.json({ id: "456" });
       }
@@ -99,9 +101,8 @@ describe("genuine ClickUp task comment @mentions (#88)", () => {
     expect(tool?.inputSchema.required).toEqual(["task_id"]);
     expect(tool?.inputSchema.properties["text"]?.type).toBe("string");
     expect(
-      CLICKUP_MODEL_TOOL_CATALOG.find(
-        (entry) => entry.name === "clickup_edit_task_comment",
-      )?.inputSchema.properties["mention_segments"],
+      CLICKUP_MODEL_TOOL_CATALOG.find((entry) => entry.name === "clickup_edit_task_comment")
+        ?.inputSchema.properties["mention_segments"],
     ).toBeUndefined();
   });
 
