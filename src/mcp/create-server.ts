@@ -86,6 +86,10 @@ export function createServer(deps?: ReadDependencies): McpServer {
           settings["CLICKUP_LIVE_ENABLED"] === "true" &&
           settings["CLICKUP_OAUTH_ENABLED"] === "true",
         authentication: "github-oauth-plus-individual-clickup-oauth",
+        ...(typeof settings["MCP_BUILD_SHA"] === "string" &&
+        /^[a-f0-9]{40}$/.test(settings["MCP_BUILD_SHA"])
+          ? { build_sha: settings["MCP_BUILD_SHA"] }
+          : {}),
         ...(companyProfile
           ? {
               company_write_mode: settings["CLICKUP_COMPANY_WRITE_MODE"],
