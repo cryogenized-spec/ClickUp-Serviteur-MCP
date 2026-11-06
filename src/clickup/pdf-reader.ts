@@ -110,9 +110,14 @@ export async function extractVerifiedTaskPdf(
   workspaceId: string,
 ): Promise<Record<string, unknown>> {
   const attachmentId = attachment["id"];
+  // ClickUp's actual attachment IDs may be UUID-like names ending in ".pdf".
+  // Permit bounded dot-separated ID segments, but never paths, traversal,
+  // empty segments, whitespace, or arbitrary punctuation.
+  const attachmentKey = String(attachmentId);
   if (
     (typeof attachmentId !== "string" && typeof attachmentId !== "number") ||
-    !/^[a-zA-Z0-9_-]{1,100}$/.test(String(attachmentId))
+    attachmentKey.length > 100 ||
+    !/^[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*$/.test(attachmentKey)
   )
     throw new ReadFailure("CLICKUP_PDF_ATTACHMENT_INVALID");
   if (
