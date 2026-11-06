@@ -1,4 +1,4 @@
-import { extractText, getDocumentProxy } from "unpdf";
+import { extractText, getDocumentProxy } from "./unpdf-runtime.mjs";
 import { ReadFailure } from "./policy.js";
 
 const MAX_PDF_BYTES = 3 * 1024 * 1024;
