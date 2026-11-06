@@ -1573,6 +1573,10 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       "- [x] checked",
       "[^footnote]",
       "[Guide][reference]",
+      "[QA note]\n---",
+      "- item\n[QA note]",
+      "1. item\n[QA note]",
+      "QA baseline\n[QA note]\nFollowing paragraph",
     ];
     for (const content of requests) {
       const stored = content.replace(/\[/g, "\\[").replace(/\]/g, "\\]");
