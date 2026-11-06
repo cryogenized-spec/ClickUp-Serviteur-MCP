@@ -45,10 +45,8 @@ describe("bounded ClickUp REST response reads (#49)", () => {
     let posted = 0;
     const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(request)).pathname;
-      if (path === "/api/v2/list/12345")
-        return Response.json({ id: "12345", space: { id: "777" } });
-      if (path === "/api/v2/team/555/space")
-        return Response.json({ spaces: [{ id: "777" }] });
+      if (path === "/api/v2/list/12345") return Response.json({ id: "12345", space: { id: "777" } });
+      if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "777" }] });
       if (path === "/api/v2/list/12345/task" && init?.method === "POST") {
         posted++;
         return largeJsonResponse(() => (cancelled = true));
