@@ -2145,7 +2145,10 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       const api = vi.fn(async (req: RequestInfo | URL) => {
         const url = new URL(String(req));
         if (url.pathname === "/api/v2/list/12345/task")
-          return reply({ tasks: rows, ...(lastPage === undefined ? {} : { last_page: lastPage }) });
+          return reply({
+            tasks: rows,
+            ...(lastPage === undefined ? {} : { last_page: lastPage }),
+          });
         if (url.pathname.includes("/bulk_time_in_status/"))
           return reply(
             Object.fromEntries(
