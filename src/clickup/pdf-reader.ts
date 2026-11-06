@@ -6,7 +6,9 @@ const MAX_PDF_PAGES = 12;
 const MAX_TEXT_PER_PAGE = 2_000;
 const MAX_PARSER_TIME_MS = 6_000;
 
-function verifiedUrl(value: unknown): URL {
+function verifiedUrl(value: unknown, workspaceId: string): URL {
+  if (!/^[1-9][0-9]{0,19}$/.test(workspaceId))
+    throw new ReadFailure("CLICKUP_PDF_HOST_NOT_ALLOWED");
   if (typeof value !== "string" || value.length > 2_048)
     throw new ReadFailure("CLICKUP_PDF_SOURCE_UNAVAILABLE");
   let url: URL;
@@ -20,7 +22,7 @@ function verifiedUrl(value: unknown): URL {
   // redirects that could perform SSRF or leak signed attachment credentials.
   if (
     url.protocol !== "https:" ||
-    !/^t[0-9]{1,20}\.p\.clickup-attachments\.com$/.test(url.hostname) ||
+    url.hostname !== "t" + workspaceId + ".p.clickup-attachments.com" ||
     url.username !== "" ||
     url.password !== "" ||
     url.port !== "" ||
@@ -104,6 +106,7 @@ async function boundedDownload(source: URL, fetcher: typeof fetch): Promise<Uint
 export async function extractVerifiedTaskPdf(
   attachment: Record<string, unknown>,
   fetcher: typeof fetch,
+  workspaceId: string,
 ): Promise<Record<string, unknown>> {
   const attachmentId = attachment["id"];
   if (
@@ -119,7 +122,7 @@ export async function extractVerifiedTaskPdf(
   const size = Number(attachment["size"]);
   if (!Number.isSafeInteger(size) || size < 1 || size > MAX_PDF_BYTES)
     throw new ReadFailure("CLICKUP_PDF_TOO_LARGE");
-  const source = verifiedUrl(attachment["url"]);
+  const source = verifiedUrl(attachment["url"], workspaceId);
   const bytes = await boundedDownload(source, fetcher);
 
   let timer: ReturnType<typeof setTimeout> | undefined;
