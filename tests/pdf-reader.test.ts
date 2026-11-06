@@ -132,21 +132,33 @@ describe("read-only ClickUp PDF repair-card extraction (#85)", () => {
     ]) {
       const api = mockFetch();
       await expect(
-        extractVerifiedTaskPdf({ ...attachment(), url: source }, api.fetcher as typeof fetch),
+        extractVerifiedTaskPdf({ ...attachment(), url: source }, api.fetcher as typeof fetch, "555"),
       ).rejects.toThrow("CLICKUP_PDF_HOST_NOT_ALLOWED");
       expect(api.cdnGets).toBe(0);
     }
   });
 
+  it("rejects a CDN host belonging to a different Workspace", async () => {
+    const api = mockFetch();
+    await expect(
+      extractVerifiedTaskPdf(
+        { ...attachment(), url: "https://t999.p.clickup-attachments.com/f.pdf" },
+        api.fetcher as typeof fetch,
+        "555",
+      ),
+    ).rejects.toThrow("CLICKUP_PDF_HOST_NOT_ALLOWED");
+    expect(api.cdnGets).toBe(0);
+  });
+
   it("refuses redirects to local networks and oversized chunked PDF data", async () => {
     const redirect = mockFetch({ redirect: true });
     await expect(
-      extractVerifiedTaskPdf(attachment(), redirect.fetcher as typeof fetch),
+      extractVerifiedTaskPdf(attachment(), redirect.fetcher as typeof fetch, "555"),
     ).rejects.toThrow("CLICKUP_PDF_REDIRECT_BLOCKED");
     expect(redirect.cdnGets).toBe(1);
     const large = mockFetch({ tooLarge: true });
     await expect(
-      extractVerifiedTaskPdf(attachment(), large.fetcher as typeof fetch),
+      extractVerifiedTaskPdf(attachment(), large.fetcher as typeof fetch, "555"),
     ).rejects.toThrow("CLICKUP_PDF_TOO_LARGE");
     expect(large.cancelled).toBe(true);
   });
@@ -157,6 +169,7 @@ describe("read-only ClickUp PDF repair-card extraction (#85)", () => {
       extractVerifiedTaskPdf(
         { ...attachment(), size: 3 * 1024 * 1024 + 1 },
         api.fetcher as typeof fetch,
+        "555",
       ),
     ).rejects.toThrow("CLICKUP_PDF_TOO_LARGE");
     expect(api.cdnGets).toBe(0);
