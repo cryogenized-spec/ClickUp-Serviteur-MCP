@@ -67,7 +67,17 @@ function plainBracketEscapesOnly(requested: string, stored: string): boolean {
   // Any Markdown syntax or other difference remains an uncertain write.
   const source = requested.split("\n");
   const readback = stored.split("\n");
-  if (source.length !== readback.length) return false;
+  if (source.length !== readback.length || source.length > 2) return false;
+  // A bracketed line is safe only as the FINAL, isolated annotation.
+  // Context after it could make it a Setext heading; context before it
+  // could make it a lazy continuation of a list. Permit at most one
+  // demonstrably plain prose lead-in line (starting with a letter).
+  if (
+    source.length === 2 &&
+    !/^[A-Za-z][A-Za-z0-9 .,;:!?/-]{0,180}$/.test(source[0]!)
+  )
+    return false;
+  if (!source[source.length - 1]?.startsWith("[")) return false;
   let confirmed = 0;
   for (let i = 0; i < source.length; i++) {
     const line = source[i]!;
