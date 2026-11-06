@@ -8,6 +8,6 @@
  * TypeScript checks callers via the adjacent .d.mts contract, and Wrangler
  * must still bundle the real pinned npm implementation in strict CI.
  */
-import { extractText, getDocumentProxy } from "unpdf";
+import { extractText, getResolvedPDFJS } from "unpdf";
 
-export { extractText, getDocumentProxy };
+export { extractText, getResolvedPDFJS };
