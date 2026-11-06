@@ -274,6 +274,25 @@ async function members(grant: ReadGrant, f: typeof fetch): Promise<Json[]> {
     .map((x: unknown) => obj(x) ?? {})
     .map((x) => obj(x["user"]) ?? x);
 }
+
+/** Never accept a model-supplied member name or unverified Workspace user ID for a comment assignment. */
+async function verifiedCommentAssignee(
+  value: unknown,
+  grant: ReadGrant,
+  fetcher: typeof fetch,
+): Promise<number> {
+  if (
+    typeof value !== "string" ||
+    !/^[1-9]\d{0,15}$/.test(value) ||
+    !Number.isSafeInteger(Number(value))
+  )
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  const eligible = await members(grant, fetcher);
+  if (!eligible.some((user) => String(user["id"]) === value))
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  return Number(value);
+}
+
 const short = (d: Json, limit = 50): Json => {
   const keys = [
     "tasks",
@@ -970,9 +989,50 @@ export async function runCatalogOperation(
     }
     case "clickup_create_task_comment": {
       await task("task_id");
-      const comment = { comment_text: txt(a["text"], 6000), notify_all: false };
-      if (a["parent_comment_id"] === undefined)
-        return call("POST", v2("task/" + val(a, "task_id") + "/comment"), comment);
+      // Preserve the legacy unassigned path and reject an unsupported combination
+      // rather than silently dropping a requested assignment on a threaded reply.
+      if (a["assignee_id"] !== undefined && a["parent_comment_id"] !== undefined)
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const assignee =
+        a["assignee_id"] === undefined
+          ? null
+          : await verifiedCommentAssignee(a["assignee_id"], g, f);
+      const comment = {
+        comment_text: txt(a["text"], 6000),
+        notify_all: false,
+        ...(assignee === null ? {} : { assignee }),
+      };
+      if (a["parent_comment_id"] === undefined) {
+        const taskId = val(a, "task_id");
+        const posted = await call("POST", v2("task/" + taskId + "/comment"), comment);
+        if (assignee === null) return posted;
+        // Never claim that a requested assignment happened based only on POST.
+        const commentId = posted["id"];
+        if (
+          (typeof commentId !== "number" && typeof commentId !== "string") ||
+          !/^[0-9]{1,24}$/.test(String(commentId))
+        )
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+        try {
+          const after = await call("GET", v2("task/" + taskId + "/comment"));
+          if (!Array.isArray(after["comments"])) throw Error("Missing comments");
+          const created = after["comments"]
+            .map(obj)
+            .find((item) => String(item?.["id"]) === String(commentId));
+          if (
+            !created ||
+            String(obj(created["assignee"])?.["id"] ?? created["assignee"]) !== String(assignee)
+          )
+            throw Error("Assignment did not persist");
+        } catch {
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+        }
+        return {
+          ...posted,
+          assignee_id: String(assignee),
+          verified_by_readback: true,
+        };
+      }
       // The reply destination must be independently verified against this task.
       const parents = await call("GET", v2("task/" + val(a, "task_id") + "/comment"));
       if (
@@ -1043,7 +1103,14 @@ export async function runCatalogOperation(
       await task("task_id");
       const taskId = val(a, "task_id");
       const commentId = val(a, "comment_id");
-      const replacement = txt(a["text"], 6000);
+      if (
+        a["text"] === undefined &&
+        a["assignee_id"] === undefined &&
+        a["resolved"] === undefined
+      )
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (a["resolved"] !== undefined && typeof a["resolved"] !== "boolean")
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       const before = await call("GET", v2("task/" + taskId + "/comment"));
       if (!Array.isArray(before["comments"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       const original = before["comments"]
@@ -1053,6 +1120,12 @@ export async function runCatalogOperation(
       // Never let a caller edit another person's comment or an older unseen one.
       if (!original || String(obj(original["user"])?.["id"]) !== g.clickupUserId)
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      // Assignment-only updates must not flatten rich comments or replace images.
+      // Preserve only a verified plain-text comment body, not an inferred string.
+      const replacement =
+        a["text"] === undefined
+          ? txt(original["comment_text"], 6000)
+          : txt(a["text"], 6000);
       // The upstream PUT contract requires assignment/resolution alongside text.
       // Preserve known state. Unassigned, non-group comments with no resolved
       // flag are treated as unresolved; reject ambiguous or group assignments.
@@ -1068,14 +1141,18 @@ export async function runCatalogOperation(
         !/^[0-9]+$/.test(String(assigneeValue))
       )
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      const assignee = Number(assigneeValue);
+      const assignee =
+        a["assignee_id"] === undefined
+          ? Number(assigneeValue)
+          : await verifiedCommentAssignee(a["assignee_id"], g, f);
       const originalResolved = original["resolved"];
       if (
         typeof originalResolved !== "boolean" &&
         !(originalResolved === undefined && assignee === 0)
       )
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      const resolved = originalResolved === true;
+      const resolved =
+        a["resolved"] === undefined ? originalResolved === true : a["resolved"];
       await call(
         "PUT",
         v2("comment/" + commentId),
@@ -1097,6 +1174,20 @@ export async function runCatalogOperation(
         .map(obj)
         .find((item) => String(item?.["id"]) === String(a["comment_id"]));
       if (!edited || edited["comment_text"] !== replacement)
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      const actualAssignee =
+        edited["assignee"] === null
+          ? 0
+          : (obj(edited["assignee"])?.["id"] ?? edited["assignee"]);
+      if (
+        a["assignee_id"] !== undefined &&
+        String(actualAssignee) !== String(assignee)
+      )
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      if (
+        (a["resolved"] !== undefined || typeof originalResolved === "boolean") &&
+        edited["resolved"] !== resolved
+      )
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
       return {
         success: true,
