@@ -888,7 +888,7 @@ export async function runCatalogOperation(
       // No caller-provided URLs: the signed link is taken only from the
       // authenticated task GET after its Workspace/home-List verification.
       const { extractVerifiedTaskPdf } = await import("./pdf-reader.js");
-      return extractVerifiedTaskPdf(selected, f);
+      return extractVerifiedTaskPdf(selected, f, g.workspaceId);
     }
     case "clickup_update_task":
       await task("task_id");
