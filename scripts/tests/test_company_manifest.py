@@ -26,6 +26,7 @@ class CompanyManifestTests(unittest.TestCase):
     def generate(self, override: dict[str, str] | None = None):
         with tempfile.TemporaryDirectory() as directory:
             env = os.environ.copy()
+            env.pop("GITHUB_SHA", None)
             for key in VALID:
                 env.pop(key, None)
             env.update(VALID)
@@ -60,6 +61,23 @@ class CompanyManifestTests(unittest.TestCase):
         self.assertEqual(VALID["COMPANY_OAUTH_KV_ID"], config["kv_namespaces"][0]["id"])
         for secret in ("CLICKUP_TOKEN_KEY", "CLICKUP_CLIENT_SECRET", "GITHUB_CLIENT_SECRET"):
             self.assertNotIn(secret, config["vars"])
+
+    def test_build_sha_is_public_revision_not_a_secret(self):
+        revision = "a" * 40
+        result, config = self.generate({"GITHUB_SHA": revision})
+        self.assertEqual(0, result.returncode, result.stderr)
+        assert config is not None
+        self.assertEqual(revision, config["vars"]["MCP_BUILD_SHA"])
+        self.assertNotIn("GITHUB_SHA", config["vars"])
+
+        result, config = self.generate({"GITHUB_SHA": "invalid-revision"})
+        self.assertNotEqual(0, result.returncode)
+        self.assertIsNone(config)
+
+        result, config = self.generate()
+        self.assertEqual(0, result.returncode, result.stderr)
+        assert config is not None
+        self.assertNotIn("MCP_BUILD_SHA", config["vars"])
 
     def test_missing_required_config_rejected(self):
         for key in VALID:
