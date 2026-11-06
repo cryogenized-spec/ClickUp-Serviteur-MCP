@@ -194,8 +194,24 @@ export async function extractVerifiedTaskPdf(
       throw new ReadFailure("CLICKUP_PDF_ENCRYPTED");
     throw new ReadFailure("CLICKUP_PDF_PARSE_FAILED");
   } finally {
+    // Never let a stalled PDF.js destroy() defeat the advertised parser
+    // deadline. The cancellation promise is guarded and remains observed.
+    const timedOut = expired;
     expired = true;
     if (timer !== undefined) clearTimeout(timer);
-    await release();
+    const cleanup = release();
+    if (cleanup && !timedOut) {
+      let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          cleanup,
+          new Promise<void>((resolve) => {
+            cleanupTimer = setTimeout(resolve, 250);
+          }),
+        ]);
+      } finally {
+        if (cleanupTimer !== undefined) clearTimeout(cleanupTimer);
+      }
+    }
   }
 }
