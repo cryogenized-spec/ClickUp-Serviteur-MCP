@@ -1142,7 +1142,7 @@ export async function runCatalogOperation(
       const originalResolved = original["resolved"];
       if (
         typeof originalResolved !== "boolean" &&
-        !(originalResolved === undefined && assignee === 0)
+        !(originalResolved === undefined && Number(assigneeValue) === 0)
       )
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       const resolved = a["resolved"] === undefined ? originalResolved === true : a["resolved"];
