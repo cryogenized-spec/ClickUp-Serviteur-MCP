@@ -1,4 +1,5 @@
-import { extractText, getDocumentProxy } from "./unpdf-runtime.mjs";
+import { extractText, getResolvedPDFJS } from "./unpdf-runtime.mjs";
+import type { UnpdfLoadingTask } from "./unpdf-runtime.mjs";
 import { ReadFailure } from "./policy.js";
 
 const MAX_PDF_BYTES = 3 * 1024 * 1024;
@@ -126,16 +127,37 @@ export async function extractVerifiedTaskPdf(
   const bytes = await boundedDownload(source, fetcher);
 
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let pdf: Awaited<ReturnType<typeof getDocumentProxy>> | undefined;
+  let loadingTask: UnpdfLoadingTask | undefined;
+  let expired = false;
   try {
     const extraction = (async () => {
-      pdf = await getDocumentProxy(bytes, { maxImageSize: 4_194_304 });
+      // Resolve the library BEFORE invoking getDocument; if that import is
+      // delayed past our deadline, do not start parsing after the request ends.
+      const pdfjs = await getResolvedPDFJS();
+      if (expired) throw new ReadFailure("CLICKUP_PDF_TIMEOUT");
+      loadingTask = pdfjs.getDocument({
+        data: bytes,
+        maxImageSize: 4_194_304,
+        stopAtErrors: true,
+        isEvalSupported: false,
+        useSystemFonts: true,
+      });
+      const pdf = await loadingTask.promise;
+      if (expired) throw new ReadFailure("CLICKUP_PDF_TIMEOUT");
       if (pdf.numPages < 1 || pdf.numPages > MAX_PDF_PAGES)
         throw new ReadFailure("CLICKUP_PDF_PAGE_LIMIT");
-      return extractText(pdf);
+      const data = await extractText(pdf);
+      if (expired) throw new ReadFailure("CLICKUP_PDF_TIMEOUT");
+      return data;
     })();
     const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new ReadFailure("CLICKUP_PDF_TIMEOUT")), MAX_PARSER_TIME_MS);
+      timer = setTimeout(() => {
+        expired = true;
+        // Reject promptly and stop the underlying PDF.js loading task; the
+        // finally block also ensures cleanup if normal parsing completes.
+        if (loadingTask) void loadingTask.destroy().catch(() => undefined);
+        reject(new ReadFailure("CLICKUP_PDF_TIMEOUT"));
+      }, MAX_PARSER_TIME_MS);
     });
     const result = await Promise.race([extraction, timeout]);
     const texts = Array.isArray(result.text) ? result.text : [result.text];
@@ -166,7 +188,8 @@ export async function extractVerifiedTaskPdf(
       throw new ReadFailure("CLICKUP_PDF_ENCRYPTED");
     throw new ReadFailure("CLICKUP_PDF_PARSE_FAILED");
   } finally {
+    expired = true;
     if (timer !== undefined) clearTimeout(timer);
-    if (pdf && typeof pdf.destroy === "function") await pdf.destroy().catch(() => undefined);
+    if (loadingTask) await loadingTask.destroy().catch(() => undefined);
   }
 }
