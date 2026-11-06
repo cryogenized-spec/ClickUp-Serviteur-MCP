@@ -35,12 +35,9 @@ function mockApi(options: { author?: number; dropTag?: boolean; postStatus?: num
   let postCount = 0;
   const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(String(request)).pathname;
-    if (path === "/api/v2/task/abc123")
-      return Response.json({ id: "abc123", list: { id: "12345" } });
-    if (path === "/api/v2/list/12345")
-      return Response.json({ id: "12345", space: { id: "777" } });
-    if (path === "/api/v2/team/555/space")
-      return Response.json({ spaces: [{ id: "777" }] });
+    if (path === "/api/v2/task/abc123") return Response.json({ id: "abc123", list: { id: "12345" } });
+    if (path === "/api/v2/list/12345") return Response.json({ id: "12345", space: { id: "777" } });
+    if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "777" }] });
     if (path === "/api/v2/team")
       return Response.json({
         teams: [
@@ -58,14 +55,12 @@ function mockApi(options: { author?: number; dropTag?: boolean; postStatus?: num
       if (init?.method === "POST") {
         postCount++;
         const body = JSON.parse(String(init.body));
-        if (body.notify_all !== false)
-          throw Error("notify_all must never be enabled implicitly");
+        if (body.notify_all !== false) throw Error("notify_all must never be enabled implicitly");
         if (body.comment && !created) {
           expect(body.comment).toEqual(expected);
           expect(body.comment_text).toBeUndefined();
         }
-        if (options.postStatus)
-          return Response.json({ err: "failure" }, { status: options.postStatus });
+        if (options.postStatus) return Response.json({ err: "failure" }, { status: options.postStatus });
         created = true;
         return Response.json({ id: "456" });
       }
@@ -84,7 +79,12 @@ function mockApi(options: { author?: number; dropTag?: boolean; postStatus?: num
     }
     throw Error("Unexpected request " + path);
   });
-  return { fetcher, get postCount() { return postCount; } };
+  return {
+    fetcher,
+    get postCount() {
+      return postCount;
+    },
+  };
 }
 
 describe("genuine ClickUp task comment @mentions (#88)", () => {
@@ -146,11 +146,21 @@ describe("genuine ClickUp task comment @mentions (#88)", () => {
     [{ task_id: "abc123", mention_segments: [{ mention_user_id: "bogus" }] }],
     [{ task_id: "abc123", mention_segments: [{ mention_user_id: "803" }] }],
     [{ task_id: "abc123", mention_segments: Array(21).fill({ mention_user_id: "801" }) }],
-    [{ task_id: "abc123", mention_segments: [{ mention_user_id: "801" }, { text: "x".repeat(6001) }] }],
+    [
+      {
+        task_id: "abc123",
+        mention_segments: [{ mention_user_id: "801" }, { text: "x".repeat(6001) }],
+      },
+    ],
   ])("rejects invalid/unverified rich requests without posting", async (args) => {
     const api = mockApi();
     await expect(
-      runCatalogOperation("clickup_create_task_comment", args, grant(), api.fetcher as typeof fetch),
+      runCatalogOperation(
+        "clickup_create_task_comment",
+        args,
+        grant(),
+        api.fetcher as typeof fetch,
+      ),
     ).rejects.toThrow(/CLICKUP_(INVALID_ARGUMENT|SCOPE_OR_SCHEMA_REJECTED)/);
     expect(api.postCount).toBe(0);
   });
