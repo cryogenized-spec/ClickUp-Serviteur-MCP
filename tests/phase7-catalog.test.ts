@@ -2133,9 +2133,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
           api as typeof fetch,
         ),
       ).rejects.toThrow("CLICKUP_BAD_RESPONSE");
-      expect(
-        requests.some((path) => path.includes("bulk_time_in_status")),
-      ).toBe(false);
+      expect(requests.some((path) => path.includes("bulk_time_in_status"))).toBe(false);
     }
   });
 
@@ -2154,10 +2152,9 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
         if (url.pathname.includes("/bulk_time_in_status/"))
           return reply(
             Object.fromEntries(
-              url.searchParams.getAll("task_ids").map((taskId) => [
-                taskId,
-                { current_status: { status: "Open", total_time: 300 } },
-              ]),
+              url.searchParams
+                .getAll("task_ids")
+                .map((taskId) => [taskId, { current_status: { status: "Open", total_time: 300 } }]),
             ),
           );
         return reply(fixture(url.pathname));
