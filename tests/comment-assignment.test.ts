@@ -54,7 +54,9 @@ describe("comment assignment, reassignment and resolution", () => {
       (item) => item.name === "clickup_edit_task_comment",
     );
     expect(create?.inputSchema.properties).toHaveProperty("assignee_id");
-    expect(create?.inputSchema.required).toEqual(["task_id", "text"]);
+    expect(create?.inputSchema.properties).toHaveProperty("text");
+    expect(create?.inputSchema.properties).toHaveProperty("mention_segments");
+    expect(create?.inputSchema.required).toEqual(["task_id"]);
     expect(edit?.inputSchema.properties).toHaveProperty("assignee_id");
     expect(edit?.inputSchema.properties).toHaveProperty("resolved");
     expect(edit?.inputSchema.required).toEqual(["task_id", "comment_id"]);

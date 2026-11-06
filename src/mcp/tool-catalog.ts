@@ -167,6 +167,14 @@ const F = {
   resolved: flag("Set assigned-comment resolution state. Omit to preserve the existing state."),
   assignee_ids: arrayOf("Verified ClickUp member IDs.", memberId, 12),
   text: str("Exact message/comment text; posting is a write with external visibility.", 6_000),
+  mention_segments: arrayOf(
+    "For a NEW task comment only. Ordered text and genuine ClickUp member-tag segments; use this INSTEAD of text, never together or for a threaded reply. Tags can notify colleagues, so require explicit approval.",
+    obj("Exactly one of text or mention_user_id.", {
+      text: str("Exact visible text, including spaces and newlines.", 6_000),
+      mention_user_id: memberId,
+    }),
+    20,
+  ),
   max_results: integer("Result cap; request the smallest useful amount.", 1, 50),
   task_page: integer(
     "List or Workspace search: zero-based ClickUp task page; follow next_task_page.",
@@ -407,10 +415,10 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Create Task Comment",
     "comments",
     "write",
-    "Post a visible task comment, optionally assigned to a verified Workspace member. Only task comments (not threaded replies) can be assigned through this tool. Requires independent approval.",
-    "Post the approved supplier update and assign that new comment to the verified purchaser.",
-    ["task_id", "text"],
-    ["parent_comment_id", "assignee_id"],
+    "Post one approved visible comment. Use plain text OR ordered mention_segments for real @mentions of verified Workspace members on a NEW task comment. Mentions may notify those people, independent of comment assignment; notify_all stays false. Rich edits and threaded rich replies are not supported.",
+    "Post an approved new comment with text before and after a verified colleague mention.",
+    ["task_id"],
+    ["text", "mention_segments", "parent_comment_id", "assignee_id"],
   ),
 
   tool(
