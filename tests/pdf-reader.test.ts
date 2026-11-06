@@ -8,7 +8,7 @@ const fileBase64 =
 const pdfBytes = Uint8Array.from(atob(fileBase64), (c) => c.charCodeAt(0));
 const url = "https://t555.p.clickup-attachments.com/example.pdf?signature=synthetic-only";
 const attachment = () => ({
-  id: "attachment_qa1",
+  id: "11111111-2222-4333-8444-555555555555.pdf",
   title: "QA generated test.pdf",
   extension: "pdf",
   mimetype: "application/pdf",
@@ -85,12 +85,12 @@ describe("read-only ClickUp PDF repair-card extraction (#85)", () => {
     const api = mockFetch();
     const output = await runCatalogOperation(
       "clickup_read_task_pdf",
-      { task_id: "abc123", attachment_id: "attachment_qa1" },
+      { task_id: "abc123", attachment_id: "11111111-2222-4333-8444-555555555555.pdf" },
       grant(),
       api.fetcher as typeof fetch,
     );
     expect(output).toMatchObject({
-      attachment_id: "attachment_qa1",
+      attachment_id: "11111111-2222-4333-8444-555555555555.pdf",
       total_pages: 1,
       text_layer_only: true,
     });
@@ -99,12 +99,26 @@ describe("read-only ClickUp PDF repair-card extraction (#85)", () => {
     expect(api.cdnGets).toBe(1);
   });
 
+  it("rejects path-like, traversal, or malformed attachment IDs without downloading", async () => {
+    for (const candidate of ["../repair.pdf", ".pdf", "a..pdf", "a/b.pdf", "a\\\\b.pdf", "bad id.pdf", "a?token=1.pdf"]) {
+      const api = mockFetch();
+      await expect(
+        extractVerifiedTaskPdf(
+          { ...attachment(), id: candidate },
+          api.fetcher as typeof fetch,
+          "555",
+        ),
+      ).rejects.toThrow("CLICKUP_PDF_ATTACHMENT_INVALID");
+      expect(api.cdnGets).toBe(0);
+    }
+  });
+
   it("rejects a foreign List before any CDN request", async () => {
     const api = mockFetch({ foreign: true });
     await expect(
       runCatalogOperation(
         "clickup_read_task_pdf",
-        { task_id: "abc123", attachment_id: "attachment_qa1" },
+        { task_id: "abc123", attachment_id: "11111111-2222-4333-8444-555555555555.pdf" },
         grant(),
         api.fetcher as typeof fetch,
       ),
