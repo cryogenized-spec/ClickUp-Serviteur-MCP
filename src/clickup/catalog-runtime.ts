@@ -1108,6 +1108,12 @@ export async function runCatalogOperation(
     }
     case "clickup_create_task_comment": {
       await task("task_id");
+      const richRequested = a["mention_segments"] !== undefined;
+      if (
+        (richRequested && (a["text"] !== undefined || a["parent_comment_id"] !== undefined)) ||
+        (!richRequested && a["text"] === undefined)
+      )
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       // Preserve the legacy unassigned path and reject an unsupported combination
       // rather than silently dropping a requested assignment on a threaded reply.
       if (a["assignee_id"] !== undefined && a["parent_comment_id"] !== undefined)
@@ -1116,6 +1122,104 @@ export async function runCatalogOperation(
         a["assignee_id"] === undefined
           ? null
           : await verifiedCommentAssignee(a["assignee_id"], g, f);
+      if (richRequested) {
+        const pieces = a["mention_segments"];
+        if (!Array.isArray(pieces) || pieces.length < 1 || pieces.length > 20)
+          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        const eligible = new Set((await members(g, f)).map((user) => String(user["id"])));
+        const rich: Json[] = [];
+        const requestedIds: string[] = [];
+        let textChars = 0;
+        for (const raw of pieces) {
+          const part = obj(raw);
+          if (!part) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+          const keys = Object.keys(part);
+          if (keys.length !== 1) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+          if (typeof part["text"] === "string" && keys[0] === "text") {
+            const content = txt(part["text"], 6000);
+            textChars += content.length;
+            if (textChars > 6000) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+            rich.push({ text: content });
+          } else if (keys[0] === "mention_user_id") {
+            const supplied = part["mention_user_id"];
+            if (
+              typeof supplied !== "string" ||
+              !/^[1-9][0-9]{0,15}$/.test(supplied) ||
+              !Number.isSafeInteger(Number(supplied)) ||
+              !eligible.has(supplied) ||
+              requestedIds.length >= 12
+            )
+              throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+            rich.push({ type: "tag", user: { id: Number(supplied) } });
+            requestedIds.push(supplied);
+          } else {
+            throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+          }
+        }
+        // No model-generated fake '@Name' tags: real mention IDs must be
+        // verified against the exact OAuth-approved Workspace's member list.
+        if (requestedIds.length === 0) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        const taskId = val(a, "task_id");
+        const posted = await call("POST", v2("task/" + taskId + "/comment"), {
+          comment: rich,
+          notify_all: false,
+          ...(assignee === null ? {} : { assignee }),
+        });
+        const commentId = posted["id"];
+        if (
+          (typeof commentId !== "number" && typeof commentId !== "string") ||
+          !/^[0-9]{1,24}$/.test(String(commentId))
+        )
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+        try {
+          const after = await call("GET", v2("task/" + taskId + "/comment"));
+          if (!Array.isArray(after["comments"])) throw Error("Missing comments");
+          const created = after["comments"]
+            .map(obj)
+            .find((item) => String(item?.["id"]) === String(commentId));
+          const actual = created?.["comment"];
+          if (
+            !created ||
+            String(obj(created["user"])?.["id"]) !== g.clickupUserId ||
+            !Array.isArray(actual) ||
+            actual.length !== rich.length
+          )
+            throw Error("Rich comment readback incomplete");
+          for (let i = 0; i < rich.length; i++) {
+            const requested = rich[i]!;
+            const stored = obj(actual[i]);
+            if (!stored) throw Error("Malformed readback segment");
+            if (requested["type"] === "tag") {
+              if (
+                stored["type"] !== "tag" ||
+                String(obj(stored["user"])?.["id"]) !==
+                  String(obj(requested["user"])?.["id"])
+              )
+                throw Error("Mention did not persist");
+            } else if (
+              stored["type"] === "tag" ||
+              stored["text"] !== requested["text"]
+            ) {
+              throw Error("Text changed in rich readback");
+            }
+          }
+          if (
+            assignee !== null &&
+            String(obj(created["assignee"])?.["id"] ?? created["assignee"]) !== String(assignee)
+          )
+            throw Error("Comment assignment did not persist");
+        } catch {
+          // The POST may have succeeded; never post again after uncertain readback.
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+        }
+        return {
+          ...posted,
+          genuine_mentions: requestedIds,
+          verified_by_readback: true,
+          // ClickUp may notify tagged people even though notify_all is false.
+          notification_delivery_unverified: true,
+        };
+      }
       const comment = {
         comment_text: txt(a["text"], 6000),
         notify_all: false,
