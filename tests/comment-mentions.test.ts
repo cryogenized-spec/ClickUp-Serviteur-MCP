@@ -30,7 +30,10 @@ const expected = [
   { text: ". Thank you!\n" },
 ];
 
-function mockApi(options: { author?: number; dropTag?: boolean; postStatus?: number } = {}) {
+function mockApi(
+  options: { author?: number; dropTag?: boolean; postStatus?: number; expectedComment?: unknown[] } = {},
+) {
+  const expectedParts = options.expectedComment ?? expected;
   let created = false;
   let postCount = 0;
   const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
@@ -58,7 +61,7 @@ function mockApi(options: { author?: number; dropTag?: boolean; postStatus?: num
         const body = JSON.parse(String(init.body));
         if (body.notify_all !== false) throw Error("notify_all must never be enabled implicitly");
         if (body.comment && !created) {
-          expect(body.comment).toEqual(expected);
+          expect(body.comment).toEqual(expectedParts);
           expect(body.comment_text).toBeUndefined();
         }
         if (options.postStatus)
@@ -73,7 +76,7 @@ function mockApi(options: { author?: number; dropTag?: boolean; postStatus?: num
                 id: "456",
                 user: { id: options.author ?? 707 },
                 assignee: null,
-                comment: options.dropTag ? expected.slice(0, 3) : expected,
+                comment: options.dropTag ? expectedParts.slice(0, 3) : expectedParts,
               },
             ]
           : [],
@@ -120,6 +123,28 @@ describe("genuine ClickUp task comment @mentions (#88)", () => {
       verified_by_readback: true,
       notification_delivery_unverified: true,
     });
+    expect(api.postCount).toBe(1);
+  });
+
+  it("preserves whitespace-only separators between real mentions", async () => {
+    const requested = [
+      { mention_user_id: "801" },
+      { text: "\n\n" },
+      { mention_user_id: "802" },
+    ];
+    const stored = [
+      { type: "tag", user: { id: 801 } },
+      { text: "\n\n" },
+      { type: "tag", user: { id: 802 } },
+    ];
+    const api = mockApi({ expectedComment: stored });
+    const result = await runCatalogOperation(
+      "clickup_create_task_comment",
+      { task_id: "abc123", mention_segments: requested },
+      grant(),
+      api.fetcher as typeof fetch,
+    );
+    expect(result).toMatchObject({ verified_by_readback: true });
     expect(api.postCount).toBe(1);
   });
 
