@@ -1787,7 +1787,8 @@ export async function runCatalogOperation(
           throw new ReadFailure("CLICKUP_BAD_RESPONSE");
         }
       });
-      if (new Set(ids).size !== ids.length) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      if (new Set(ids).size !== ids.length)
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       if (ids.length === 0) return { source: "clickup-api-v2", tasks: [] };
       const params = ids.map((x) => "task_ids=" + x).join("&");
       const statusTime = await call("GET", v2("task/bulk_time_in_status/task_ids?" + params));
