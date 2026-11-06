@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   dispatch:
-    if: github.repository == 'cryogenized-spec/ClickUp-Serviteur-MCP' && github.event.head_commit.message == 'ops: one-time dispatch existing company deploy after issue 86'
+    if: "${{ github.repository == 'cryogenized-spec/ClickUp-Serviteur-MCP' && github.event.head_commit.message == 'ops: one-time dispatch existing company deploy after issue 86' }}"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
