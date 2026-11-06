@@ -87,6 +87,49 @@ describe("PDF.js loading task lifecycle and timeouts (#85)", () => {
     expect(parser.extract).not.toHaveBeenCalled();
   });
 
+  it("returns the timeout even when PDF.js destruction never settles", async () => {
+    vi.useFakeTimers();
+    const destroy = vi.fn(() => new Promise<void>(() => undefined));
+    const getDocument = vi.fn(() => ({
+      promise: new Promise<unknown>(() => undefined),
+      destroy,
+    }));
+    parser.load.mockResolvedValue({ getDocument });
+    const pending = extractVerifiedTaskPdf(attachment, fetcher as typeof fetch, "555");
+    const outcome = pending.then(
+      () => "unexpected_success",
+      (error: unknown) => error,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDocument).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(6_001);
+    expect(await outcome).toMatchObject({ code: "CLICKUP_PDF_TIMEOUT" });
+    expect(destroy).toHaveBeenCalledOnce();
+  });
+
+  it("caps cleanup latency when successful parsing is followed by a stalled destroy", async () => {
+    vi.useFakeTimers();
+    const destroy = vi.fn(() => new Promise<void>(() => undefined));
+    const getDocument = vi.fn(() => ({
+      promise: Promise.resolve({ numPages: 1 }),
+      destroy,
+    }));
+    parser.load.mockResolvedValue({ getDocument });
+    parser.extract.mockResolvedValue({ totalPages: 1, text: ["test"] });
+    const pending = extractVerifiedTaskPdf(attachment, fetcher as typeof fetch, "555");
+    let settled = false;
+    const result = pending.then((value) => {
+      settled = true;
+      return value;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(251);
+    expect((await result)["pages"]).toMatchObject([{ text: "test" }]);
+    expect(destroy).toHaveBeenCalledOnce();
+  });
+
   it("uses strict PDF parsing and destroys the loading task after success", async () => {
     const destroy = vi.fn(async () => undefined);
     const getDocument = vi.fn(() => ({
