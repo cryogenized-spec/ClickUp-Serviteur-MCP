@@ -163,6 +163,8 @@ const F = {
     12,
   ),
   member_id: str("Numeric ClickUp member ID, not a GitHub user ID.", 24),
+  assignee_id: memberId,
+  resolved: flag("Set assigned-comment resolution state. Omit to preserve the existing state."),
   assignee_ids: arrayOf("Verified ClickUp member IDs.", memberId, 12),
   text: str("Exact message/comment text; posting is a write with external visibility.", 6_000),
   max_results: integer("Result cap; request the smallest useful amount.", 1, 50),
@@ -400,10 +402,10 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Create Task Comment",
     "comments",
     "write",
-    "Post a visible task comment, potentially notifying members. Preview the exact text and require independent approval before posting.",
-    "Post an approved supplier update on the task.",
+    "Post a visible task comment, optionally assigned to a verified Workspace member. Only task comments (not threaded replies) can be assigned through this tool. Requires independent approval.",
+    "Post the approved supplier update and assign that new comment to the verified purchaser.",
     ["task_id", "text"],
-    ["parent_comment_id"],
+    ["parent_comment_id", "assignee_id"],
   ),
 
   tool(
@@ -411,9 +413,10 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Edit Own Task Comment",
     "comments",
     "write",
-    "Replace an existing comment authored by YOUR authenticated ClickUp account on a verified task. Other authors' comments and comments outside the approved List cannot be edited. Requires explicit approval.",
-    "Remove an obsolete plain-text @ prefix from my own task comment.",
-    ["task_id", "comment_id", "text"],
+    "Edit text, reassign or resolve an existing plain-text comment authored by YOUR authenticated ClickUp account on a verified task. Supply at least one of text, assignee_id or resolved. Requires explicit approval.",
+    "Assign my existing supplier enquiry comment without editing the parent task.",
+    ["task_id", "comment_id"],
+    ["text", "assignee_id", "resolved"],
   ),
 
   // TAGS (2)
