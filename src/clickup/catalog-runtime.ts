@@ -597,63 +597,73 @@ export async function runCatalogOperation(
   switch (name) {
     case "clickup_search_workspace": {
       const q = txt(a["query"], 240).toLowerCase();
-      // List mode stays confined to its single verified home List.
-      // Owner-authorised Workspace mode scans task pages across that one
-      // OAuth-bound Workspace; bounded calls expose a continuation page.
+      // Both List and Workspace modes paginate within their exact authorised
+      // scopes. The offset preserves matches when a result limit is reached
+      // partway through a ClickUp page.
       const startPage = a["task_page"] ?? 0;
-      if (
-        !Number.isSafeInteger(startPage) ||
-        Number(startPage) < 0 ||
-        Number(startPage) > 100_000 ||
-        (!workspaceScope && startPage !== 0)
-      )
+      const startOffset = a["task_offset"] ?? 0;
+      if (!Number.isSafeInteger(startPage) || Number(startPage) < 0 || Number(startPage) > 100_000)
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (!Number.isSafeInteger(startOffset) || Number(startOffset) < 0 || Number(startOffset) > 99)
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       if (!workspaceScope) await listInWorkspace(g, f, g.listId);
-      const tasks: unknown[] = [];
-      let pagesScanned = 0;
-      let taskPageTruncated = false;
-      if (workspaceScope) {
-        const maxPagesPerCall = 10;
-        for (let offset = 0; offset < maxPagesPerCall; offset++) {
-          const page = Number(startPage) + offset;
-          const batch = await call(
-            "GET",
-            v2("team/" + W + "/task?page=" + page + "&subtasks=true&include_closed=true"),
-          );
-          if (!Array.isArray(batch["tasks"]) || batch["tasks"].length > 100)
-            throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-          tasks.push(...batch["tasks"]);
-          pagesScanned++;
-          if (batch["tasks"].length < 100) break;
-          if (offset === maxPagesPerCall - 1) taskPageTruncated = true;
-        }
-      } else {
-        const batch = await call(
-          "GET",
-          v2("list/" + id(g.listId) + "/task?page=0&subtasks=true&include_closed=true"),
-        );
-        if (!Array.isArray(batch["tasks"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-        tasks.push(...batch["tasks"]);
-      }
-      // A ClickUp task can appear in additional Lists. Only expose its home-List
-      // data under this one-List grant, and fail closed on incomplete metadata.
-      for (const candidate of tasks) {
-        const t = obj(candidate);
-        if (!t || (!workspaceScope && String(obj(t["list"])?.["id"]) !== g.listId))
-          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      }
       const match = (v: unknown) => JSON.stringify(v).toLowerCase().includes(q);
-      const matchingTasks = tasks.filter(match);
+      const matchingTasks: unknown[] = [];
+      let pagesScanned = 0;
+      let nextTaskPage: number | null = null;
+      let nextTaskOffset = 0;
+      const maxPagesPerCall = 10;
+      for (let offset = 0; offset < maxPagesPerCall; offset++) {
+        const page = Number(startPage) + offset;
+        if (page > 100_000) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        const target = workspaceScope ? "team/" + W : "list/" + id(g.listId);
+        const query = "?page=" + page + "&subtasks=true&include_closed=true";
+        const batch = await call("GET", v2(target + "/task" + query));
+        if (!Array.isArray(batch["tasks"]) || batch["tasks"].length > 100)
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        const pageTasks = batch["tasks"];
+        const pageOffset = offset === 0 ? Number(startOffset) : 0;
+        if (pageOffset > 0 && pageOffset >= pageTasks.length)
+          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        // Validate the ENTIRE page before traversing further or returning
+        // any part of a List-scoped result.
+        for (const candidate of pageTasks) {
+          const task = obj(candidate);
+          if (!task || (!workspaceScope && String(obj(task["list"])?.["id"]) !== g.listId))
+            throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+        }
+        pagesScanned++;
+        for (let item = pageOffset; item < pageTasks.length; item++) {
+          if (!match(pageTasks[item])) continue;
+          matchingTasks.push(pageTasks[item]);
+          if (matchingTasks.length === N) {
+            const moreInPage = item + 1 < pageTasks.length;
+            const morePages = pageTasks.length === 100 && batch["last_page"] !== true;
+            if (moreInPage || morePages) {
+              nextTaskPage = moreInPage ? page : page + 1;
+              nextTaskOffset = moreInPage ? item + 1 : 0;
+            }
+            break;
+          }
+        }
+        if (matchingTasks.length === N) break;
+        if (pageTasks.length < 100 || batch["last_page"] === true) break;
+        if (offset === maxPagesPerCall - 1) nextTaskPage = page + 1;
+      }
+      const taskPageTruncated = nextTaskPage !== null;
       if (!workspaceScope) {
         // Never search Workspace Docs, Folders or unrelated Lists under a single-List grant.
         return {
           source: "clickup-api-v2",
           scope: "list",
           tasks: clip(matchingTasks.slice(0, N)),
+          pages_scanned: pagesScanned,
+          next_task_page: nextTaskPage,
+          next_task_offset: nextTaskOffset,
           docs: [],
           lists: [],
           folders: [],
-          incomplete: tasks.length >= 100 || matchingTasks.length > N,
+          incomplete: taskPageTruncated,
         };
       }
       const docs = await call("GET", v3("workspaces/" + W + "/docs?limit=50"));
@@ -684,7 +694,8 @@ export async function runCatalogOperation(
         scope: "workspace",
         tasks: clip(matchingTasks.slice(0, N)),
         pages_scanned: pagesScanned,
-        next_task_page: taskPageTruncated ? Number(startPage) + pagesScanned : null,
+        next_task_page: nextTaskPage,
+        next_task_offset: nextTaskOffset,
         docs: clip(d.filter(match).slice(0, N)),
         lists: clip(foundLists.filter(match).slice(0, N)),
         folders: clip(foundFolders.filter(match).slice(0, N)),
