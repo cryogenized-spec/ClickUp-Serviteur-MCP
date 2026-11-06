@@ -178,6 +178,7 @@ export const COMPANY_LIST_TASK_OPERATIONS: ReadonlySet<string> = new Set([
   "clickup_start_time_tracking",
   "clickup_add_time_entry",
   "clickup_get_task_comments",
+  "clickup_read_task_pdf",
   "clickup_get_threaded_replies",
   "clickup_get_task_time_entries",
   "clickup_get_task_time_in_status",
