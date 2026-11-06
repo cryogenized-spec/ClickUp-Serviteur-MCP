@@ -2133,7 +2133,9 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
           api as typeof fetch,
         ),
       ).rejects.toThrow("CLICKUP_BAD_RESPONSE");
-      expect(requests.some((path) => path.includes("bulk_time_in_status"))).toBe(false);
+      expect(
+        requests.some((path) => path.includes("bulk_time_in_status")),
+      ).toBe(false);
     }
   });
 
