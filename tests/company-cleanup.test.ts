@@ -23,7 +23,8 @@ type MockOptions = {
   taskName?: string;
   subtasks?: unknown[];
   commentAuthor?: number;
-  commentReplies?: number;
+  commentReplies?: unknown;
+  omitReplyCount?: boolean;
 };
 function mockApi(options: MockOptions = {}) {
   const requests: Array<{ method: string; path: string; query: string }> = [];
@@ -48,7 +49,9 @@ function mockApi(options: MockOptions = {}) {
           {
             id: "123456",
             user: { id: options.commentAuthor ?? 707 },
-            reply_count: options.commentReplies ?? 0,
+            ...(options.omitReplyCount
+              ? {}
+              : { reply_count: options.commentReplies === undefined ? 0 : options.commentReplies }),
             comment_text: "Formatting verification",
           },
         ],
@@ -150,6 +153,10 @@ describe("sole-owner ClickUp cleanup", () => {
     for (const [opts, id] of [
       [{ commentAuthor: 999 }, "123456"],
       [{ commentReplies: 2 }, "123456"],
+      [{ commentReplies: null }, "123456"],
+      [{ commentReplies: -1 }, "123456"],
+      [{ commentReplies: "bad" }, "123456"],
+      [{ omitReplyCount: true }, "123456"],
       [{}, "999999"],
     ] as const) {
       const api = mockApi(opts);
@@ -196,7 +203,7 @@ describe("sole-owner ClickUp cleanup", () => {
         const listed = (await client.listTools()).tools;
         for (const name of COMPANY_OWNER_CLEANUP_OPERATIONS) {
           expect(listed.some((item) => item.name === name)).toBe(enable === "true");
-          if (enable === "true" && name.startsWith("clickup_delete_")) {
+          if (enable === "true") {
             expect(listed.find((item) => item.name === name)?.annotations?.destructiveHint).toBe(
               true,
             );
