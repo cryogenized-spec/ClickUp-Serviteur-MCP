@@ -1,8 +1,8 @@
-# Custom NeonSales MCP — 3 November 2026 SAST live audit and merge reconciliation
+# Custom ClickUp Serviteur MCP — 3 November 2026 SAST live audit and merge reconciliation
 
 ## Verified boundaries
 
-Only the connected **NeonSales ClickUp MCP** was used for real ClickUp queries. No first-party ClickUp connector, company Workspace, credentials in source, production writes, or secrets were involved. Live identity reports `connected:true`, `workspace_exclusive:true`, `workspace_scope_approved:true`, `workspace_scope_enabled:true`, `mcp_read_scope_granted:true`, `mcp_write_scope_granted:true` for the separately approved dummy Workspace `9012707978`; scoped List `901219425894` is **Workshop Action Register**. The presence of `mcp_write_scope_granted:true` does **not** authorize unreviewed writes.
+Only the connected **ClickUp Serviteur MCP** was used for real ClickUp queries. No first-party ClickUp connector, company Workspace, credentials in source, production writes, or secrets were involved. Live identity reports `connected:true`, `workspace_exclusive:true`, `workspace_scope_approved:true`, `workspace_scope_enabled:true`, `mcp_read_scope_granted:true`, `mcp_write_scope_granted:true` for the separately approved dummy Workspace `9012707978`; scoped List `901219425894` is **Workshop Action Register**. The presence of `mcp_write_scope_granted:true` does **not** authorize unreviewed writes.
 
 ## Real read-only tests in this session
 
@@ -25,13 +25,13 @@ Only the connected **NeonSales ClickUp MCP** was used for real ClickUp queries. 
 | `clickup_get_task_time_in_status` | `CLICKUP_UPSTREAM_DENIED` | **UNAVAILABLE**, plan/ClickApp-dependent |
 | `clickup_get_list_time_in_status` | `CLICKUP_STATUS_TIME_DATA_UNAVAILABLE` | **UNAVAILABLE**, plan/ClickApp-dependent |
 
-The live reads used server-held individual OAuth and never changed task data. This table is **not 48/48 live certification**; some effects are unavailable on the current ClickUp plan or require verified disposable fixtures. More detailed earlier permitted write/readback evidence is recorded in [issue #65](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/issues/65) and the [2 November historical smoke report](MCP_LIVE_SMOKE_2026-11-02.md).
+The live reads used server-held individual OAuth and never changed task data. This table is **not 48/48 live certification**; some effects are unavailable on the current ClickUp plan or require verified disposable fixtures. More detailed earlier permitted write/readback evidence is recorded in [issue #65](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/issues/65) and the [2 November historical smoke report](MCP_LIVE_SMOKE_2026-11-02.md).
 
 ## GitHub reconciled
 
-- Merged: [#28](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/pull/28) (`@eslint/js 10.0.1`), [#29](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/pull/29) (`eslint 10.14.0`), and [#51](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/pull/51) (historical smoke evidence clearly marked as old).
-- Closed **without merge**: [#37](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/pull/37) (conflicting older audit), [#30](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/pull/30) (TypeScript 7 peer conflict), [#26](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/pull/26) (Wrangler/workers-types peer conflict). Track compatible upgrades in [issue #69](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/issues/69); do not `npm --force`.
-- Verified the merged `main` baseline `fe0c8c8422cafa5dfb6539c8eda6cca1a9944584` passed [Strict CI](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/actions/runs/41613957871) and [CodeQL](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/actions/runs/41613957627). Any subsequent documentation commits require fresh CI before final acceptance.
+- Merged: [#28](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/28) (`@eslint/js 10.0.1`), [#29](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/29) (`eslint 10.14.0`), and [#51](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/51) (historical smoke evidence clearly marked as old).
+- Closed **without merge**: [#37](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/37) (conflicting older audit), [#30](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/30) (TypeScript 7 peer conflict), [#26](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/26) (Wrangler/workers-types peer conflict). Track compatible upgrades in [issue #69](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/issues/69); do not `npm --force`.
+- Verified the merged `main` baseline `fe0c8c8422cafa5dfb6539c8eda6cca1a9944584` passed [Strict CI](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/actions/runs/41613957871) and [CodeQL](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/actions/runs/41613957627). Any subsequent documentation commits require fresh CI before final acceptance.
 - As of this audit checkpoint, GitHub reported **zero open PRs**. This report is a new reviewable documentation change, not a source-code fix or staging deployment.
 
 ## Deployment discrepancy — release gate
