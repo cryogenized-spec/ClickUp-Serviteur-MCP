@@ -308,7 +308,12 @@ async function listInWorkspace(grant: ReadGrant, f: typeof fetch, listId: unknow
   return list;
 }
 async function taskInWorkspace(grant: ReadGrant, f: typeof fetch, taskId: unknown): Promise<Json> {
-  const task = await send(grant, f, "GET", v2("task/" + id(taskId) + "?include_markdown_description=true"));
+  const task = await send(
+    grant,
+    f,
+    "GET",
+    v2("task/" + id(taskId) + "?include_markdown_description=true"),
+  );
   if (String(task["id"]) !== String(taskId))
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   await listInWorkspace(grant, f, obj(task["list"])?.["id"]);
@@ -391,8 +396,7 @@ function listDescriptionBody(a: Json): Json {
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   if (a["description_markdown"] !== undefined)
     return { markdown_content: txt(a["description_markdown"], 40_000) };
-  if (a["description"] !== undefined)
-    return { content: txt(a["description"], 8000) };
+  if (a["description"] !== undefined) return { content: txt(a["description"], 8000) };
   return {};
 }
 
@@ -1724,7 +1728,11 @@ export async function runCatalogOperation(
       return call(
         "POST",
         v3("workspaces/" + W + "/chat/channels/" + val(a, "channel_id") + "/messages"),
-        { type: "message", content: txt(a["text"], 40_000), content_format: validatedContentFormat(a) },
+        {
+          type: "message",
+          content: txt(a["text"], 40_000),
+          content_format: validatedContentFormat(a),
+        },
       );
     case "clickup_create_document": {
       const body: Json = { name: txt(a["name"], 180), create_page: true };
@@ -1787,13 +1795,20 @@ export async function runCatalogOperation(
         // Never retry the write. Verify that the exact requested content
         // persisted with one independent read before reporting success.
         try {
-          const verified = await call("GET", pagePath + "?content_format=" + encodeURIComponent(format));
+          const verified = await call(
+            "GET",
+            pagePath + "?content_format=" + encodeURIComponent(format),
+          );
           if (verified["content"] === content)
             return { success: true, source: "clickup-api", verified_by_readback: true };
           // Only exactly observed standalone plain-text bracket escaping
           // qualifies as confirmed provider normalization after readback.
           const stored = verified["content"];
-          if (format === "text/md" && typeof stored === "string" && plainBracketEscapesOnly(content, stored)) {
+          if (
+            format === "text/md" &&
+            typeof stored === "string" &&
+            plainBracketEscapesOnly(content, stored)
+          ) {
             return {
               success: true,
               source: "clickup-api",
