@@ -204,6 +204,9 @@ export function isCompanyNonDestructiveOperation(name: string): boolean {
 export const COMPANY_OWNER_CLEANUP_OPERATIONS: ReadonlySet<string> = new Set([
   "clickup_delete_task",
   "clickup_delete_task_comment",
+  "clickup_remove_tag_from_task",
+  "clickup_remove_task_link",
+  "clickup_remove_dependency",
 ]);
 
 export function isCompanyOwnerCleanupOperation(name: string): boolean {
