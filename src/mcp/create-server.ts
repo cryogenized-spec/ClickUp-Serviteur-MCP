@@ -6,6 +6,7 @@ import {
   requireReadGrant,
   requireWriteGrant,
   isCompanyNonDestructiveOperation,
+  isCompanyOwnerCleanupOperation,
 } from "../clickup/policy.js";
 import {
   createScopedTask,
@@ -73,11 +74,15 @@ export function createServer(deps?: ReadDependencies): McpServer {
   const companyListOnly = companyProfile && settings?.["CLICKUP_RESOURCE_SCOPE"] !== "workspace";
   const companyWritesEnabled =
     !companyProfile || settings?.["CLICKUP_COMPANY_WRITE_MODE"] === "non_destructive";
+  const companyCleanupEnabled =
+    companyProfile && companyWritesEnabled && settings?.["CLICKUP_COMPANY_CLEANUP_ENABLED"] === "true" &&
+    settings?.["CLICKUP_RESOURCE_SCOPE"] === "workspace";
   const companyCatalogAllows = (name: string, effect: string): boolean =>
     !companyProfile ||
     effect === "read" ||
     (companyWritesEnabled &&
-      isCompanyNonDestructiveOperation(name) &&
+      (isCompanyNonDestructiveOperation(name) ||
+        (companyCleanupEnabled && isCompanyOwnerCleanupOperation(name))) &&
       (!companyListOnly || COMPANY_LIST_TASK_OPERATIONS.has(name)));
   const runtimeInfo = settings
     ? {
@@ -93,7 +98,8 @@ export function createServer(deps?: ReadDependencies): McpServer {
         ...(companyProfile
           ? {
               company_write_mode: settings["CLICKUP_COMPANY_WRITE_MODE"],
-              destructive_actions_enabled: false,
+              destructive_actions_enabled: companyCleanupEnabled,
+              cleanup_scope: companyCleanupEnabled ? "owner_verified_objects" : "disabled",
             }
           : {}),
         note: "Activation flags only, NOT evidence of a completed ClickUp connection. Task activity stays in ClickUp; tool approvals stay in the MCP client.",
@@ -401,7 +407,9 @@ export function createServer(deps?: ReadDependencies): McpServer {
           ...(write ? { scopeChallenge: requireScopes("mcp:read", "mcp:write") } : {}),
           annotations: {
             readOnlyHint: !write,
-            destructiveHint: write && !additiveWrites.has(spec.name) && !companyProfile,
+            destructiveHint:
+              spec.effect === "destructive" ||
+              (write && !additiveWrites.has(spec.name) && !companyProfile),
             idempotentHint: !write,
           },
         },
