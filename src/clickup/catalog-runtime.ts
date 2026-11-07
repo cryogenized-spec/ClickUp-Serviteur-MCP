@@ -1223,10 +1223,9 @@ export async function runCatalogOperation(
                 throw Error("Mention did not persist");
               if ("user" in stored) {
                 // When ClickUp returns an identity, it must match exactly.
-                if (
-                  String(obj(stored["user"])?.["id"]) !==
-                  String(obj(requested["user"])?.["id"])
-                )
+                const storedUserId = obj(stored["user"])?.["id"];
+                const requestedUserId = obj(requested["user"])?.["id"];
+                if (storedUserId === undefined || String(storedUserId) !== String(requestedUserId))
                   throw Error("Mention identity changed");
               } else {
                 // ClickUp may normalize a genuine mention to { type: "tag" }.
