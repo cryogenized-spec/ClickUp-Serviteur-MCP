@@ -1,4 +1,4 @@
-# Claude entry point — NeonSales ClickUp MCP
+# Claude entry point — ClickUp Serviteur MCP
 
 Read and follow [AGENTS.md](AGENTS.md) as the canonical project rules. Then read [README.md](README.md), [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md), [docs/DECISIONS.md](docs/DECISIONS.md), [docs/phases/ROADMAP.md](docs/phases/ROADMAP.md), [docs/SECURITY_PERIMETER.md](docs/SECURITY_PERIMETER.md), and the active design/implementation plan. Do not recreate assumptions from prior chats.
 
