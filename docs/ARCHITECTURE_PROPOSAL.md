@@ -1,10 +1,10 @@
-# Architecture proposal — NeonSales ClickUp MCP
+# Architecture proposal — ClickUp Serviteur MCP
 
 **Draft for human review, 2026-10-10 SAST. Not approved. Not implemented here.**
 
 ## Purpose / boundary
 
-Build a privately owned, modest-cost, **single remote MCP service** that lets ChatGPT Plugins and Claude custom connectors work with permitted NeonSales ClickUp tasks through the official REST API. The AI models run in the user's own subscription interfaces, **not** inside this service; no model API credentials are needed for that interaction. We do not promise unlimited calls or compatibility until each actual UI has passed an authenticated tool invocation.
+Build a privately owned, modest-cost, **single remote MCP service** that lets ChatGPT Plugins and Claude custom connectors work with permitted Serviteur ClickUp tasks through the official REST API. The AI models run in the user's own subscription interfaces, **not** inside this service; no model API credentials are needed for that interaction. We do not promise unlimited calls or compatibility until each actual UI has passed an authenticated tool invocation.
 
 **v0.1 POC:** one operator, one approved Workspace/List, read-only tools, and at most one independent-approval-controlled disposable test-task write. No multi-user production operations, financial transactions, security surveillance or mass staff monitoring.
 
@@ -25,7 +25,7 @@ ChatGPT (supported custom plugin)       Claude (custom remote connector)
                 \                       /
                  \  HTTPS + MCP OAuth   /
                   v                   v
-         [single NeonSales remote MCP Worker]
+         [single Serviteur remote MCP Worker]
          AuthN/AuthZ, scopes, allowlist, quotas,
          input validation, provenance and audit
                          |
