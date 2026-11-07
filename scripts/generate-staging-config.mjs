@@ -12,12 +12,13 @@ if (typeof kv !== "string" || !/^[a-f0-9]{32}$/i.test(kv)) {
 // The repository owner's public numeric GitHub ID. It is NOT an OAuth token.
 // Workspace mode defaults on for this staging owner allowlist only.
 // Other users stay List-scoped, and exclusive ClickUp OAuth remains required.
-const workspaceOwnerIds = process.env.STAGING_WORKSPACE_GITHUB_IDS ?? "256972168";
-if (!/^[1-9]\d{0,15}(?:,[1-9]\d{0,15}){0,3}$/.test(workspaceOwnerIds)) {
+// Every fork must explicitly authorize its own GitHub account(s).
+const workspaceOwnerIds = process.env.STAGING_WORKSPACE_GITHUB_IDS;
+if (typeof workspaceOwnerIds !== "string" || !/^[1-9]\d{0,15}(?:,[1-9]\d{0,15}){0,3}$/.test(workspaceOwnerIds)) {
   throw new Error("STAGING_WORKSPACE_GITHUB_IDS contains invalid GitHub ID(s)");
 }
 const stage = {
-  name: "neonsales-clickup-mcp-staging",
+  name: "clickup-serviteur-staging",
   vars: { CLICKUP_WORKSPACE_GITHUB_IDS: workspaceOwnerIds, CLICKUP_RESOURCE_SCOPE: "workspace" },
   // Existing OAuth/ClickUp dashboard variables must not disappear on deploy.
   // Cloudflare documents keep_vars for preserving dashboard-managed bindings.
