@@ -75,7 +75,9 @@ export function createServer(deps?: ReadDependencies): McpServer {
   const companyWritesEnabled =
     !companyProfile || settings?.["CLICKUP_COMPANY_WRITE_MODE"] === "non_destructive";
   const companyCleanupEnabled =
-    companyProfile && companyWritesEnabled && settings?.["CLICKUP_COMPANY_CLEANUP_ENABLED"] === "true" &&
+    companyProfile &&
+    companyWritesEnabled &&
+    settings?.["CLICKUP_COMPANY_CLEANUP_ENABLED"] === "true" &&
     settings?.["CLICKUP_RESOURCE_SCOPE"] === "workspace";
   const companyCatalogAllows = (name: string, effect: string): boolean =>
     !companyProfile ||
