@@ -225,11 +225,14 @@ export async function requireWriteGrant(
   if (env?.["CLICKUP_COMPANY_PROFILE"] === "true") {
     if (env["CLICKUP_COMPANY_WRITE_MODE"] !== "non_destructive")
       throw new ReadFailure("CLICKUP_COMPANY_WRITE_DISABLED");
-    if (!operation || !(
-      isCompanyNonDestructiveOperation(operation) ||
-      (env["CLICKUP_COMPANY_CLEANUP_ENABLED"] === "true" &&
-        isCompanyOwnerCleanupOperation(operation))
-    ))
+    if (
+      !operation ||
+      !(
+        isCompanyNonDestructiveOperation(operation) ||
+        (env["CLICKUP_COMPANY_CLEANUP_ENABLED"] === "true" &&
+          isCompanyOwnerCleanupOperation(operation))
+      )
+    )
       throw new ReadFailure("CLICKUP_COMPANY_OPERATION_DISABLED");
   }
   const details = record(auth);
@@ -238,8 +241,12 @@ export async function requireWriteGrant(
     throw new ReadFailure("CLICKUP_WRITE_SCOPE_REQUIRED");
   }
   const grant = await requireReadGrant(auth, bindings);
-  if (operation && isCompanyOwnerCleanupOperation(operation) &&
-      env?.["CLICKUP_COMPANY_PROFILE"] === "true" && !grant.companyCleanupAccess)
+  if (
+    operation &&
+    isCompanyOwnerCleanupOperation(operation) &&
+    env?.["CLICKUP_COMPANY_PROFILE"] === "true" &&
+    !grant.companyCleanupAccess
+  )
     throw new ReadFailure("CLICKUP_COMPANY_OPERATION_DISABLED");
   return grant;
 }
