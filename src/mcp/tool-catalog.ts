@@ -407,7 +407,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Delete Task",
     "tasks",
     "destructive",
-    "Delete an owner-created disposable [SERVITEUR-QA] task after matching its exact title and confirming. Company cleanup never deletes ordinary workplace tasks.",
+    "Send exactly one verified task to ClickUp Trash after confirming its exact current title and ID. No bulk deletion; requires owner-enabled cleanup and explicit confirmation.",
     "Remove my disposable Serviteur test task after inspecting it.",
     ["task_id"],
     ["confirm_delete", "expected_task_name"],
