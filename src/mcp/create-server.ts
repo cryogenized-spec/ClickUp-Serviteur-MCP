@@ -62,7 +62,7 @@ function toolSuccess(value: Record<string, unknown>) {
 }
 
 export function createServer(deps?: ReadDependencies): McpServer {
-  const server = new McpServer({ name: "clickup-serviteur-mcp", version: "0.2.0" });
+  const server = new McpServer({ name: "clickup-serviteur-mcp", version: "0.3.0-beta.1" });
 
   // Retain the historical Phase 3 diagnostic for a standalone SDK test,
   // but never misreport a configured Phase 6 Worker as Phase 3 read-only.
