@@ -954,6 +954,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     expect(JSON.parse(String(options?.body))).toEqual({
       type: "message",
       content: "Test dispatch status",
+      content_format: "text/md",
     });
   });
 

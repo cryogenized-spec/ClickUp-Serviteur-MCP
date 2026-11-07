@@ -60,8 +60,23 @@ const clip = (v: unknown): unknown => {
         .filter(([k]) => !/token|secret|authorization|password/i.test(k))
         .map(([k, x]) => [k, clip(x)]),
     );
-  if (typeof v === "string") return v.slice(0, 12000);
+  if (typeof v === "string") return v.slice(0, 40_000);
   return v;
+};
+/** Signal when a bounded API response lost string content, including nested data. */
+const hasClippedText = (value: unknown): boolean => {
+  const pending: unknown[] = [value];
+  for (let i = 0; i < pending.length; i++) {
+    if (i >= 10_000) return true;
+    const item = pending[i];
+    if (typeof item === "string" && item.length > 40_000) return true;
+    if (Array.isArray(item)) pending.push(...item);
+    else {
+      const record = obj(item);
+      if (record) pending.push(...Object.values(record));
+    }
+  }
+  return false;
 };
 /**
  * ClickUp Docs can insert backslashes around standalone text brackets.
@@ -308,7 +323,12 @@ async function listInWorkspace(grant: ReadGrant, f: typeof fetch, listId: unknow
   return list;
 }
 async function taskInWorkspace(grant: ReadGrant, f: typeof fetch, taskId: unknown): Promise<Json> {
-  const task = await send(grant, f, "GET", v2("task/" + id(taskId)));
+  const task = await send(
+    grant,
+    f,
+    "GET",
+    v2("task/" + id(taskId) + "?include_markdown_description=true"),
+  );
   if (String(task["id"]) !== String(taskId))
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   await listInWorkspace(grant, f, obj(task["list"])?.["id"]);
@@ -329,6 +349,7 @@ const taskBody = (a: Json, update = false): Json => {
   const permitted = new Set([
     "name",
     "description",
+    "description_markdown",
     "status",
     "priority",
     "due_date_ms",
@@ -336,7 +357,9 @@ const taskBody = (a: Json, update = false): Json => {
   ]);
   if (Object.keys(a).some((key) => !permitted.has(key)))
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-  for (const key of ["name", "description", "status"] as const) {
+  if (a["description"] !== undefined && a["description_markdown"] !== undefined)
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  for (const key of ["name", "description", "description_markdown", "status"] as const) {
     if (a[key] !== undefined && typeof a[key] !== "string")
       throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   }
@@ -373,12 +396,32 @@ const taskBody = (a: Json, update = false): Json => {
   return {
     ...(a["name"] !== undefined ? { name: txt(a["name"], 180) } : {}),
     ...(a["description"] !== undefined ? { description: txt(a["description"]) } : {}),
+    ...(a["description_markdown"] !== undefined
+      ? { markdown_content: txt(a["description_markdown"], 40_000) }
+      : {}),
     ...(a["status"] !== undefined ? { status: txt(a["status"], 80) } : {}),
     ...(a["priority"] !== undefined ? { priority: a["priority"] } : {}),
     ...(a["due_date_ms"] !== undefined ? { due_date: a["due_date_ms"], due_date_time: true } : {}),
     ...(memberIds !== null ? { assignees: update ? { add: memberIds, rem: [] } : memberIds } : {}),
   };
 };
+/** ClickUp v2 List endpoints accept content OR markdown_content, not both. */
+function listDescriptionBody(a: Json): Json {
+  if (a["description"] !== undefined && a["description_markdown"] !== undefined)
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  if (a["description_markdown"] !== undefined)
+    return { markdown_content: txt(a["description_markdown"], 40_000) };
+  if (a["description"] !== undefined) return { content: txt(a["description"], 8000) };
+  return {};
+}
+
+/** ClickUp v3 Docs and Chat define these two exact content formats. */
+function validatedContentFormat(a: Json): "text/md" | "text/plain" {
+  const value = a["content_format"] ?? "text/md";
+  if (value !== "text/md" && value !== "text/plain")
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  return value;
+}
 async function members(grant: ReadGrant, f: typeof fetch): Promise<Json[]> {
   const d = await send(grant, f, "GET", v2("team"));
   const team = Array.isArray(d["teams"])
@@ -430,7 +473,12 @@ const short = (d: Json, limit = 50): Json => {
   return clip({
     ...d,
     ...Object.fromEntries(arrays.map((k) => [k, (d[k] as unknown[]).slice(0, limit)])),
-    incomplete: truncated || nestedPagesClipped || possibleMorePages || d["incomplete"] === true,
+    incomplete:
+      truncated ||
+      nestedPagesClipped ||
+      possibleMorePages ||
+      hasClippedText(d) ||
+      d["incomplete"] === true,
     first_page_only: true,
   }) as Json;
 };
@@ -1589,21 +1637,25 @@ export async function runCatalogOperation(
       };
     }
     case "clickup_create_list": {
+      const listDescription = listDescriptionBody(a);
       if (a["folder_id"] !== undefined) {
         await folder("folder_id");
         return call("POST", v2("folder/" + val(a, "folder_id") + "/list"), {
           name: txt(a["name"], 180),
+          ...listDescription,
         });
       }
       await inWorkspace(g, f, a["space_id"]);
       return call("POST", v2("space/" + val(a, "space_id") + "/list"), {
         name: txt(a["name"], 180),
+        ...listDescription,
       });
     }
     case "clickup_create_list_in_folder":
       await folder("folder_id");
       return call("POST", v2("folder/" + val(a, "folder_id") + "/list"), {
         name: txt(a["name"], 180),
+        ...listDescriptionBody(a),
       });
     case "clickup_get_list": {
       const result = await list("list_id");
@@ -1634,7 +1686,7 @@ export async function runCatalogOperation(
       await list("list_id");
       return call("PUT", v2("list/" + val(a, "list_id")), {
         name: txt(a["name"], 180),
-        ...(a["description"] ? { content: txt(a["description"]) } : {}),
+        ...listDescriptionBody(a),
       });
     case "clickup_get_folder":
       return short(await folder("folder_id"));
@@ -1696,7 +1748,11 @@ export async function runCatalogOperation(
       return call(
         "POST",
         v3("workspaces/" + W + "/chat/channels/" + val(a, "channel_id") + "/messages"),
-        { type: "message", content: txt(a["text"], 6000) },
+        {
+          type: "message",
+          content: txt(a["text"], 40_000),
+          content_format: validatedContentFormat(a),
+        },
       );
     case "clickup_create_document": {
       const body: Json = { name: txt(a["name"], 180), create_page: true };
@@ -1736,10 +1792,11 @@ export async function runCatalogOperation(
       return call("POST", v3("workspaces/" + W + "/docs/" + val(a, "document_id") + "/pages"), {
         name: txt(a["name"], 180),
         content: typeof a["doc_content"] === "string" ? a["doc_content"] : "",
-        content_format: "text/md",
+        content_format: validatedContentFormat(a),
       });
     case "clickup_update_document_page": {
       const content = txt(a["doc_content"], 12000);
+      const format = validatedContentFormat(a);
       const pagePath = v3(
         "workspaces/" + W + "/docs/" + val(a, "document_id") + "/pages/" + val(a, "page_id"),
       );
@@ -1747,7 +1804,7 @@ export async function runCatalogOperation(
         return await call(
           "PUT",
           pagePath,
-          { content, content_edit_mode: "replace", content_format: "text/md" },
+          { content, content_edit_mode: "replace", content_format: format },
           "empty-write-ack",
         );
       } catch (error) {
@@ -1758,13 +1815,20 @@ export async function runCatalogOperation(
         // Never retry the write. Verify that the exact requested content
         // persisted with one independent read before reporting success.
         try {
-          const verified = await call("GET", pagePath + "?content_format=text%2Fmd");
+          const verified = await call(
+            "GET",
+            pagePath + "?content_format=" + encodeURIComponent(format),
+          );
           if (verified["content"] === content)
             return { success: true, source: "clickup-api", verified_by_readback: true };
           // Only exactly observed standalone plain-text bracket escaping
           // qualifies as confirmed provider normalization after readback.
           const stored = verified["content"];
-          if (typeof stored === "string" && plainBracketEscapesOnly(content, stored)) {
+          if (
+            format === "text/md" &&
+            typeof stored === "string" &&
+            plainBracketEscapesOnly(content, stored)
+          ) {
             return {
               success: true,
               source: "clickup-api",
