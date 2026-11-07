@@ -8,7 +8,7 @@ Build the smallest **real** TypeScript MCP SDK v2 runtime using official `@model
 
 ## Four-user nonnegotiable requirement
 
-The intended product serves **2–4 different authorized NeonSales staff**, connecting using their own ChatGPT or Claude subscriptions. A shared MCP host must not confuse users, identities, scopes, approval rights, cached results or audit records. The same ClickUp backend credential or organizational quota may be shared only behind server-side authorization and rate-budget enforcement. **Do not assume 100 REST calls/minute remains uncongested under parallel fan-out**.
+The intended product serves **2–4 different authorized Serviteur staff**, connecting using their own ChatGPT or Claude subscriptions. A shared MCP host must not confuse users, identities, scopes, approval rights, cached results or audit records. The same ClickUp backend credential or organizational quota may be shared only behind server-side authorization and rate-budget enforcement. **Do not assume 100 REST calls/minute remains uncongested under parallel fan-out**.
 
 **Phase 2 design-only contracts:** future `Principal` is a server-validated immutable tuple of `subject`, `clientId`, allowed scopes and organization/list policy. Phase 3 will implement real OAuth, role mapping and verified per-user identity. Phase 4 will implement coordinated cross-instance rate limiting. Absolutely no user identity is derived from untrusted headers or client-provided tool parameters.
 
