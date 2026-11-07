@@ -11,6 +11,8 @@ export interface ReadGrant {
   readonly resourceScope?: "list" | "workspace";
   /** Runtime-proven company List-only mode; permits preflight-verified task edits. */
   readonly companyListTaskAccess?: boolean;
+  /** Company owner opt-in cleanup, never inferred from ordinary write grants. */
+  readonly companyCleanupAccess?: boolean;
   readonly workspaceId: string;
   readonly apiToken: string;
   readonly quota: {
@@ -115,6 +117,13 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
       env["CLICKUP_COMPANY_PROFILE"] === "true" &&
       env["CLICKUP_COMPANY_WRITE_MODE"] === "non_destructive" &&
       effectiveScope === "list",
+    companyCleanupAccess:
+      env["CLICKUP_COMPANY_PROFILE"] === "true" &&
+      env["CLICKUP_COMPANY_WRITE_MODE"] === "non_destructive" &&
+      env["CLICKUP_COMPANY_CLEANUP_ENABLED"] === "true" &&
+      workspaceApproved &&
+      effectiveScope === "workspace" &&
+      user.workspaceExclusive === true,
     workspaceId: user.workspaceId,
     apiToken: user.token,
     quota: quota as unknown as ReadGrant["quota"],
@@ -188,6 +197,19 @@ export function isCompanyNonDestructiveOperation(name: string): boolean {
   return COMPANY_SAFE_WRITE_OPERATIONS.has(name);
 }
 
+/** Owner-only cleanup operations that become available only after an explicit
+ * company deployment opt-in; ordinary non-destructive mode remains unchanged.
+ * No general delete-List/Folder/Doc privilege is inferred from this grant.
+ */
+export const COMPANY_OWNER_CLEANUP_OPERATIONS: ReadonlySet<string> = new Set([
+  "clickup_delete_task",
+  "clickup_delete_task_comment",
+]);
+
+export function isCompanyOwnerCleanupOperation(name: string): boolean {
+  return COMPANY_OWNER_CLEANUP_OPERATIONS.has(name);
+}
+
 /** Enforced before obtaining the per-user token, including direct MCP calls. */
 export async function requireWriteGrant(
   auth: unknown,
@@ -200,7 +222,11 @@ export async function requireWriteGrant(
   if (env?.["CLICKUP_COMPANY_PROFILE"] === "true") {
     if (env["CLICKUP_COMPANY_WRITE_MODE"] !== "non_destructive")
       throw new ReadFailure("CLICKUP_COMPANY_WRITE_DISABLED");
-    if (!operation || !isCompanyNonDestructiveOperation(operation))
+    if (!operation || !(
+      isCompanyNonDestructiveOperation(operation) ||
+      (env["CLICKUP_COMPANY_CLEANUP_ENABLED"] === "true" &&
+        isCompanyOwnerCleanupOperation(operation))
+    ))
       throw new ReadFailure("CLICKUP_COMPANY_OPERATION_DISABLED");
   }
   const details = record(auth);
@@ -208,5 +234,9 @@ export async function requireWriteGrant(
   if (!Array.isArray(scopes) || !scopes.includes("mcp:write")) {
     throw new ReadFailure("CLICKUP_WRITE_SCOPE_REQUIRED");
   }
-  return requireReadGrant(auth, bindings);
+  const grant = await requireReadGrant(auth, bindings);
+  if (operation && isCompanyOwnerCleanupOperation(operation) &&
+      env?.["CLICKUP_COMPANY_PROFILE"] === "true" && !grant.companyCleanupAccess)
+    throw new ReadFailure("CLICKUP_COMPANY_OPERATION_DISABLED");
+  return grant;
 }
