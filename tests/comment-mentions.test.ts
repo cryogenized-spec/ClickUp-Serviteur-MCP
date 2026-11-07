@@ -75,6 +75,8 @@ function mockApi(
         created = true;
         return Response.json({ id: "456" });
       }
+      let readbackParts = options.readbackComment ?? expectedParts;
+      if (options.dropTag) readbackParts = expectedParts.slice(0, 3);
       return Response.json({
         comments: created
           ? [
@@ -82,9 +84,7 @@ function mockApi(
                 id: "456",
                 user: { id: options.author ?? 707 },
                 assignee: null,
-                comment: options.dropTag
-                  ? expectedParts.slice(0, 3)
-                  : (options.readbackComment ?? expectedParts),
+                comment: readbackParts,
               },
             ]
           : [],
@@ -134,7 +134,7 @@ describe("genuine ClickUp task comment @mentions (#88)", () => {
     expect(api.postCount).toBe(1);
   });
 
-  it("accepts ClickUp's observed ID-free tag normalization without claiming identity", async () => {
+  it("accepts ID-free tag normalization without claiming identity", async () => {
     const api = mockApi({
       readbackComment: [
         expected[0],
@@ -164,7 +164,7 @@ describe("genuine ClickUp task comment @mentions (#88)", () => {
     expect(api.postCount).toBe(1);
   });
 
-  it("requires an exact match when a tag's user ID is present in readback", async () => {
+  it("requires a matching ID when tag identity is returned", async () => {
     const api = mockApi({
       readbackComment: [
         expected[0],
@@ -185,7 +185,7 @@ describe("genuine ClickUp task comment @mentions (#88)", () => {
     expect(api.postCount).toBe(1);
   });
 
-  it("rejects malformed identity even when the tag type survives", async () => {
+  it("rejects malformed identity on a tag", async () => {
     const api = mockApi({
       readbackComment: [
         expected[0],
@@ -206,7 +206,7 @@ describe("genuine ClickUp task comment @mentions (#88)", () => {
     expect(api.postCount).toBe(1);
   });
 
-  it("does not accept literal @text in place of a structured tag", async () => {
+  it("rejects literal @text in place of a tag", async () => {
     const api = mockApi({
       readbackComment: [
         expected[0],
