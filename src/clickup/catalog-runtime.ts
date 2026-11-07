@@ -1459,10 +1459,20 @@ export async function runCatalogOperation(
       const matched = comments["comments"]
         .map(obj)
         .find((entry) => String(entry?.["id"]) === commentId);
+      // A comment without a verified zero reply count is not safe to delete.
+      // Missing, null, negative and malformed values must fail closed.
+      const rawReplies = matched?.["reply_count"];
+      const replies =
+        typeof rawReplies === "number"
+          ? rawReplies
+          : typeof rawReplies === "string" && /^[0-9]+$/.test(rawReplies)
+            ? Number(rawReplies)
+            : NaN;
       if (
         !matched ||
         String(obj(matched["user"])?.["id"]) !== g.clickupUserId ||
-        (matched["reply_count"] !== undefined && Number(matched["reply_count"]) > 0)
+        !Number.isSafeInteger(replies) ||
+        replies !== 0
       )
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       // A specific own comment on a verified task; never delete someone else's
