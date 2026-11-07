@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 
 const root = process.cwd();
-const temporary = await mkdtemp(path.join(os.tmpdir(), "neonsales-workerd-smoke-"));
+const temporary = await mkdtemp(path.join(os.tmpdir(), "Serviteur-workerd-smoke-"));
 const configPath = path.join(root, `.workerd-smoke-${process.pid}.json`);
 const originIp = "127.0.0.1";
 const timeLimit = 75_000;
@@ -89,7 +89,7 @@ async function stop() {
 async function runWorker(port, certPath, keyPath, withKv) {
   const origin = `https://${originIp}:${port}`;
   const cfg = {
-    name: "neonsales-mcp-local-security-test",
+    name: "clickup-serviteur-mcp-local-security-test",
     main: path.resolve(root, "src/index.ts"),
     compatibility_date: "2026-10-10",
     compatibility_flags: ["global_fetch_strictly_public"],
