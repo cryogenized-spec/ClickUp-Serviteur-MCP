@@ -60,8 +60,23 @@ const clip = (v: unknown): unknown => {
         .filter(([k]) => !/token|secret|authorization|password/i.test(k))
         .map(([k, x]) => [k, clip(x)]),
     );
-  if (typeof v === "string") return v.slice(0, 12000);
+  if (typeof v === "string") return v.slice(0, 40_000);
   return v;
+};
+/** Signal when a bounded API response lost string content, including nested data. */
+const hasClippedText = (value: unknown): boolean => {
+  const pending: unknown[] = [value];
+  for (let i = 0; i < pending.length; i++) {
+    if (i >= 10_000) return true;
+    const item = pending[i];
+    if (typeof item === "string" && item.length > 40_000) return true;
+    if (Array.isArray(item)) pending.push(...item);
+    else {
+      const record = obj(item);
+      if (record) pending.push(...Object.values(record));
+    }
+  }
+  return false;
 };
 /**
  * ClickUp Docs can insert backslashes around standalone text brackets.
@@ -458,7 +473,8 @@ const short = (d: Json, limit = 50): Json => {
   return clip({
     ...d,
     ...Object.fromEntries(arrays.map((k) => [k, (d[k] as unknown[]).slice(0, limit)])),
-    incomplete: truncated || nestedPagesClipped || possibleMorePages || d["incomplete"] === true,
+    incomplete:
+      truncated || nestedPagesClipped || possibleMorePages || hasClippedText(d) || d["incomplete"] === true,
     first_page_only: true,
   }) as Json;
 };
