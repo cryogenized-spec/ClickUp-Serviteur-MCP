@@ -21,7 +21,9 @@ function mockClickUp() {
   const fetcher = vi.fn(async (request: RequestInfo | URL, options?: RequestInit) => {
     const url = new URL(String(request));
     const method = options?.method ?? "GET";
-    const body = options?.body ? (JSON.parse(String(options.body)) as Record<string, unknown>) : null;
+    const body = options?.body
+      ? (JSON.parse(String(options.body)) as Record<string, unknown>)
+      : null;
     requests.push({ method, url, body });
     expect(url.hostname).toBe("api.clickup.com");
     const path = url.pathname;
@@ -48,7 +50,11 @@ const lastWrite = (requests: ReturnType<typeof mockClickUp>["requests"]) => {
 
 describe("ClickUp API-native Markdown authoring surfaces", () => {
   it("exposes explicit Markdown inputs alongside legacy plain task fields", () => {
-    for (const name of ["clickup_create_task", "clickup_update_task", "clickup_create_bulk_tasks"]) {
+    for (const name of [
+      "clickup_create_task",
+      "clickup_update_task",
+      "clickup_create_bulk_tasks",
+    ]) {
       const definition = CLICKUP_MODEL_TOOL_CATALOG.find((entry) => entry.name === name);
       expect(definition).toBeDefined();
       const properties =
@@ -104,7 +110,10 @@ describe("ClickUp API-native Markdown authoring surfaces", () => {
     await expect(
       runCatalogOperation(
         "clickup_create_task",
-        { list_id: "12345", new_task: { name: "QA", description: "plain", description_markdown: "# MD" } },
+        {
+          list_id: "12345",
+          new_task: { name: "QA", description: "plain", description_markdown: "# MD" },
+        },
         grant,
         api.fetcher as typeof fetch,
       ),
@@ -120,7 +129,9 @@ describe("ClickUp API-native Markdown authoring surfaces", () => {
       grant,
       api.fetcher as typeof fetch,
     );
-    expect(lastWrite(api.requests).body).toMatchObject({ markdown_content: "# Inventory\n\n| A | B |" });
+    expect(lastWrite(api.requests).body).toMatchObject({
+      markdown_content: "# Inventory\n\n| A | B |",
+    });
     expect(lastWrite(api.requests).body).not.toHaveProperty("content");
 
     await runCatalogOperation(
@@ -138,7 +149,12 @@ describe("ClickUp API-native Markdown authoring surfaces", () => {
     await expect(
       runCatalogOperation(
         "clickup_update_list",
-        { list_id: "12345", name: "QA list", description: "plain", description_markdown: "**rich**" },
+        {
+          list_id: "12345",
+          name: "QA list",
+          description: "plain",
+          description_markdown: "**rich**",
+        },
         grant,
         api.fetcher as typeof fetch,
       ),
@@ -190,7 +206,12 @@ describe("ClickUp API-native Markdown authoring surfaces", () => {
     });
     await runCatalogOperation(
       "clickup_update_document_page",
-      { document_id: "doc1", page_id: "page1", doc_content: "**literal**", content_format: "text/plain" },
+      {
+        document_id: "doc1",
+        page_id: "page1",
+        doc_content: "**literal**",
+        content_format: "text/plain",
+      },
       grant,
       api.fetcher as typeof fetch,
     );
