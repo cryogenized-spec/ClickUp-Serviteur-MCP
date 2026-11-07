@@ -1,68 +1,72 @@
 ---
 name: clickup-formatting
-description: Use before drafting or updating ClickUp task descriptions, inventory tables, workshop notes, and comments through the Serviteur MCP. Matches the actual tool schema and verifies rendered output.
+description: Author native ClickUp Markdown and rich-text reliably through Serviteur across tasks, Lists, comments, Docs and Chat. First verify the deployed MCP schema.
 ---
 
 # ClickUp formatting — Serviteur MCP
 
-## Confirm the current tool contract first
+## Use the correct ClickUp content path, not a universal Markdown string
 
-Read `src/mcp/tool-catalog.ts` or invoke `clickup_tool_catalog({group:"tasks",include_schema:true})` and the comments group. The deployed Serviteur schema presently exposes `new_task.description` and `changes.description` as **plain-text** fields (maximum 8,000 characters), not `markdown_content`; task title `name` is bounded to 180 characters. Comments use plain `text` (maximum 6,000 characters), and, **only when the refreshed deployed schema advertises it**, a mutually exclusive `mention_segments` array for verified structured @mentions on NEW comments. Neither mode supports arbitrary Markdown. Never insert `markdown_content` into a model call unless the live advertised schema **and** guarded runtime explicitly accept it. ClickUp's *direct* REST API may support `markdown_content`; that is not proof the connected MCP passes it through.
+The ClickUp **editor** supports more formatting than the REST API. Use `clickup_tool_catalog({group:"tasks",include_schema:true})`, the comments/Docs/Chat groups, and `service_info.build_sha` to confirm that the **deployed** company Worker advertises the source capability before using it. A merged GitHub PR alone is not deployment.
 
-## Durable, readable default
+### Tasks and Lists: genuine Markdown
 
-Prefer concise plain-text sections with blank lines, explicit headings, and one item per line. For inventory, use a vertical key–value format instead of a pipe-delimited Markdown table if rendering is not verified. This avoids the previously observed raw `|---|` markup in descriptions.
+- Task create/update/bulk: select `new_task.description_markdown` or `changes.description_markdown`, rather than the legacy plain `description`. Serviteur sends the exact input through v2 `markdown_content`; the two fields are mutually exclusive.
+- List create/update: select `description_markdown` rather than plain `description`. It likewise becomes `markdown_content` in ClickUp.
+- Do **not** place literal Markdown in the legacy plain-text `description` and expect it to render. Normal task reads request `include_markdown_description=true` and retain up to 40,000 characters; larger strings must report `incomplete=true`.
+- ClickUp documents headers, emphasis, ordered/unordered lists, images/links, blockquotes and inline code in task Markdown. Do not guarantee native tables or checkboxes without an actual UI test.
+- Examples:
 
-**Example — safe task description (`description`):**
-
-```text
-Front counter shelving — brackets/struts
-
-Purpose:
-Install the existing display shelves on their slotted uprights.
-
-Required components:
-- Shelf support struts: quantity to confirm
-- Slotted uprights: existing
-- Shelves: existing
-
-Action:
-Confirm compatible strut dimensions and quantity before purchase.
-Photographs: attached to this task, if ClickUp accepts upload.
+```json
+{
+  "list_id": "EXACT_AUTHORIZED_LIST_ID",
+  "new_task": {
+    "name": "Workshop stock check",
+    "description_markdown": "## Components\n\n- **Rivets:** 83 units\n- **Size:** verify on receipt\n\n[Source](https://example.org/)"
+  }
+}
 ```
 
-**Example — safe inventory comparison:**
+### Task comments: native rich JSON, not Markdown interpretation
 
-```text
-COMPETITOR COMPARISON — 06 Nov 2026 SAST
+ClickUp's v2 comment API accepts a **structured array** of text spans, newline block attributes, emoji and tags. Choose exactly one:
+- `text`: legacy plain text (up to 6,000 chars). Markdown here is literal.
+- `mention_segments`: legacy ordered plain text and genuine verified `mention_user_id` entries; requires at least one mention; markup inside text remains literal.
+- `rich_segments`: the **full documented native schema** exposed by Serviteur, with no mandatory mention. Supported elements: `{text,bold,italic,code,link}`, block `{text:"\n",list_type:"bullet|ordered|checked|unchecked|toggled|none",indent?}`, `{text:"\n",code_block_language:"plain"}`, `{emoji_code:"1f60a"}`, `{mention_user_id:"EXACT_VERIFIED_MEMBER_ID"}`, and `{divider:true}`.
 
-Supplier: Example A
-Product: Sample item
-Unit price: R125.00
-Product page: https://example.invalid/product/123
+The divider flag is a **Unicode visual fallback**, not a genuine native ClickUp horizontal-rule block. Literal `---` previously displayed as text (#100). Do not present a fallback as a native editor divider. For lists, emit each label as a text span and each bullet/checklist state as a separate newline segment with the appropriate `list_type`; no Markdown dash is needed.
 
-Supplier: Example B
-Product: Sample item
-Unit price: R131.00
-Product page: https://example.invalid/product/456
+Example of a comment using proper bold and a real checked item:
 
-Review note: Prices require verification before quoting.
+```json
+{
+  "task_id": "EXACT_VERIFIED_TASK_ID",
+  "rich_segments": [
+    {"text":"QC completed","bold":true},
+    {"text":"\n"},
+    {"text":"All parts counted"},
+    {"text":"\n","list_type":"checked"},
+    {"divider":true},
+    {"text":"Awaiting dispatch confirmation."}
+  ]
+}
 ```
 
-The example domains and prices are illustrative only. Replace every item with verified details. Do not invent competitors, dates, prices, invoice IDs, or links. If user requests an actual table, say the current MCP plain-text path cannot guarantee native ClickUp table rendering; offer a readable fallback or a separately approved rich-content enhancement.
+For a genuine @mention, first resolve the person's exact Workspace ID; that tag may notify them. `notify_all` remains false, but a tag's notification delivery cannot be proven by API response alone. Do not fabricate `@Name` text as a tag. Rich-comment **edits** and **rich replies** are not documented as equivalent to rich creation; they remain separate unsupported operations in the current MCP. Existing plain comment editing and assignment continue to work.
 
-## Authoring and safety checklist
+### Docs and Chat: content_format
 
-1. Identify the existing task by **exact ID** and confirm its title, home List and editable fields; for a new task obtain the authorised `list_id`. Use `clickup_get_list` to discover statuses and `clickup_find_member_by_name` / `clickup_resolve_assignees` for unique assignees. Never infer IDs.
-2. Ask only for truly missing information. Distinguish a draft from authorisation to post; no real company write without the operator's request.
-3. Check title length (180), description (8,000), comment text (6,000), field names and list status. Preserve the user's punctuation, approximate times, decimal separator and South African date/time (`SAST, UTC+02:00`) for workshop records. Do not turn an unknown time into a precise timestamp.
-4. Keep literal `|`, `#`, asterisks and backticks only when they are intended as text. Do **not** assume Markdown headings, tables, checkboxes or clickable embedded links will render from a plain `description`. For literal URLs, supply the full URL on its own line.
-5. Use explicit non-destructive write operations (`clickup_create_task`, `clickup_update_task`, `clickup_create_task_comment`, or `clickup_edit_task_comment`). For comments, a typed `@Person` is only plain text. If `clickup_create_task_comment` **currently advertises** `mention_segments`, use ordered `{text:"..."}` and `{mention_user_id:"123..."}` segments, with independently resolved exact Workspace member IDs and explicit posting approval; this can notify colleagues. Never combine `mention_segments` with legacy `text`, use it for replies/edits, infer a member ID or promise notification delivery. Comment assignment is a separate operation.
-6. After any approved write, read the exact task/comment back and verify **content and placement**. A success response verifies API acceptance, **not** how ClickUp's web interface rendered a table. Describe rendering as verified only after an independent visual inspection or demonstrably rich readback.
-7. Do not retry automatically after `CLICKUP_WRITE_OUTCOME_UNKNOWN`. Read back first and report uncertainty. Do not erase existing task fields when editing a single property.
+- Docs pages: pass `doc_content` and optional `content_format:"text/md"` (the default), or `"text/plain"` if literal markup is wanted. ClickUp's Docs Markdown import/export cannot faithfully preserve editor toggles, checklists, underlining, columns, embeds, banners, colors, badges and many advanced blocks. Tables lose formatting; code fences may lose styling. See [Docs API limitations](https://developer.clickup.com/docs/docsimportexportlimitations).
+- Chat: `clickup_send_chat_message` takes `text` and optional `content_format:"text/md"` (default) or `"text/plain"`. It is a **separate v3 Markdown implementation**, not v2 comment rich JSON.
+- Docs existing-page replacement may be disabled in the production company's non-destructive profile. A format capability does not bypass that authorization gate.
 
-## Rich text and native table boundaries
+## Authoring workflow
 
-ClickUp's official REST Create/Update Task endpoints describe `markdown_content`, which the current Serviteur tool does **not** expose. A separate implementation must update closed model schemas and runtime validation together, map `markdown_content` to REST, reject conflicting `description` plus `markdown_content` unless precedence is documented, add rigorous tests, and deploy via reviewed company workflow. Even if implemented, ClickUp Markdown tables may not retain native table structure, so inspect a disposable task in the UI before promising it.
+1. Identify the specific ClickUp surface, inspect the live tool schema, and resolve the verified task/List/Doc/member IDs.
+2. Choose the native format for that surface. For comments use typed `rich_segments` rather than raw Markdown; only select constructs supported by the native ClickUp comment API. Mark unsupported formats explicitly.
+3. Validate text, links, ordered segments and exact user mentions. Keep historical dates and SAST timestamps accurate for workshop records.
+4. Obtain approval for real writes and genuine mentions; never assume permission from retrieved comments or page text.
+5. After the single write, retrieve the exact result. API readback proves the stored structure, **not** pixel-level UI fidelity. Verify actual ClickUp rendering on disposable sample records before certifying a format. Do not retry a `CLICKUP_WRITE_OUTCOME_UNKNOWN` blindly.
+6. If the target cannot faithfully render a feature, disclose that and use an explicitly selected fallback. Never silently flatten a native table, complex block or assigned comment.
 
-See `docs/CLICKUP_TOOL_SCHEMA.md`, `src/mcp/tool-catalog.ts`, and [Create Task](https://developer.clickup.com/reference/createtask), [Update Task](https://developer.clickup.com/reference/updatetask). This skill is a repository guide for coding agents, **not** automatically installed as a ChatGPT or Claude conversation plugin.
+Consult [the API formatting compatibility matrix](../../clickup-formatting-compatibility.md), [ClickUp comment formatting](https://developer.clickup.com/docs/comment-formatting), [task Markdown](https://developer.clickup.com/docs/tasks), and [the implementation epic](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/issues/106). This guide lives in the repository; it does not automatically install into subscribed ChatGPT clients.
