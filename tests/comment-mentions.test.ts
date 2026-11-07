@@ -36,6 +36,7 @@ function mockApi(
     dropTag?: boolean;
     postStatus?: number;
     expectedComment?: unknown[];
+    readbackComment?: unknown[];
   } = {},
 ) {
   const expectedParts = options.expectedComment ?? expected;
@@ -81,7 +82,9 @@ function mockApi(
                 id: "456",
                 user: { id: options.author ?? 707 },
                 assignee: null,
-                comment: options.dropTag ? expectedParts.slice(0, 3) : expectedParts,
+                comment: options.dropTag
+                  ? expectedParts.slice(0, 3)
+                  : (options.readbackComment ?? expectedParts),
               },
             ]
           : [],
@@ -128,6 +131,99 @@ describe("genuine ClickUp task comment @mentions (#88)", () => {
       verified_by_readback: true,
       notification_delivery_unverified: true,
     });
+    expect(api.postCount).toBe(1);
+  });
+
+  it("accepts ClickUp's observed ID-free tag normalization without claiming identity", async () => {
+    const api = mockApi({
+      readbackComment: [
+        expected[0],
+        { type: "tag" },
+        expected[2],
+        { type: "tag" },
+        expected[4],
+      ],
+    });
+    const result = await runCatalogOperation(
+      "clickup_create_task_comment",
+      { task_id: "abc123", mention_segments: segments },
+      grant(),
+      api.fetcher as typeof fetch,
+    );
+    expect(result).toMatchObject({
+      id: "456",
+      write_acknowledged: true,
+      requested_mention_user_ids: ["801", "802"],
+      verified_tag_structure_by_readback: true,
+      mention_identity_verified_by_readback: false,
+      verified_by_readback: false,
+      readback_status: "structure_only",
+      notification_delivery_unverified: true,
+    });
+    expect(result).not.toHaveProperty("genuine_mentions");
+    expect(api.postCount).toBe(1);
+  });
+
+  it("requires an exact match when a tag's user ID is present in readback", async () => {
+    const api = mockApi({
+      readbackComment: [
+        expected[0],
+        { type: "tag", user: { id: 999 } },
+        expected[2],
+        expected[3],
+        expected[4],
+      ],
+    });
+    await expect(
+      runCatalogOperation(
+        "clickup_create_task_comment",
+        { task_id: "abc123", mention_segments: segments },
+        grant(),
+        api.fetcher as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    expect(api.postCount).toBe(1);
+  });
+
+  it("rejects malformed identity even when the tag type survives", async () => {
+    const api = mockApi({
+      readbackComment: [
+        expected[0],
+        { type: "tag", user: {} },
+        expected[2],
+        expected[3],
+        expected[4],
+      ],
+    });
+    await expect(
+      runCatalogOperation(
+        "clickup_create_task_comment",
+        { task_id: "abc123", mention_segments: segments },
+        grant(),
+        api.fetcher as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    expect(api.postCount).toBe(1);
+  });
+
+  it("does not accept literal @text in place of a structured tag", async () => {
+    const api = mockApi({
+      readbackComment: [
+        expected[0],
+        { text: "@QA Member A" },
+        expected[2],
+        expected[3],
+        expected[4],
+      ],
+    });
+    await expect(
+      runCatalogOperation(
+        "clickup_create_task_comment",
+        { task_id: "abc123", mention_segments: segments },
+        grant(),
+        api.fetcher as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
     expect(api.postCount).toBe(1);
   });
 
