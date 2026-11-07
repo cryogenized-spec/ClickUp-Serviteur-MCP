@@ -474,7 +474,11 @@ const short = (d: Json, limit = 50): Json => {
     ...d,
     ...Object.fromEntries(arrays.map((k) => [k, (d[k] as unknown[]).slice(0, limit)])),
     incomplete:
-      truncated || nestedPagesClipped || possibleMorePages || hasClippedText(d) || d["incomplete"] === true,
+      truncated ||
+      nestedPagesClipped ||
+      possibleMorePages ||
+      hasClippedText(d) ||
+      d["incomplete"] === true,
     first_page_only: true,
   }) as Json;
 };
