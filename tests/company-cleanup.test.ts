@@ -53,8 +53,10 @@ function mockApi(options: MockOptions = {}) {
           },
         ],
       });
-    if (method === "DELETE" &&
-        (url.pathname === "/api/v2/task/abc123" || url.pathname === "/api/v2/comment/123456"))
+    if (
+      method === "DELETE" &&
+      (url.pathname === "/api/v2/task/abc123" || url.pathname === "/api/v2/comment/123456")
+    )
       return new Response(null, { status: 204 });
     throw Error("Unexpected API request: " + method + " " + url.pathname);
   });
@@ -86,7 +88,9 @@ describe("sole-owner ClickUp cleanup", () => {
       api.fetcher as typeof fetch,
     );
     expect(response).toMatchObject({
-      success: true, task_id: "abc123", action: "sent_to_trash",
+      success: true,
+      task_id: "abc123",
+      action: "sent_to_trash",
     });
     expect(api.requests.map((r) => r.method + " " + r.path)).toEqual([
       "GET /api/v2/task/abc123",
@@ -132,7 +136,10 @@ describe("sole-owner ClickUp cleanup", () => {
       api.fetcher as typeof fetch,
     );
     expect(response).toMatchObject({
-      success: true, task_id: "abc123", comment_id: "123456", action: "deleted_own_comment",
+      success: true,
+      task_id: "abc123",
+      comment_id: "123456",
+      action: "deleted_own_comment",
     });
     expect(api.requests.filter((r) => r.method === "DELETE")).toEqual([
       { method: "DELETE", path: "/api/v2/comment/123456", query: "" },
@@ -190,8 +197,9 @@ describe("sole-owner ClickUp cleanup", () => {
         for (const name of COMPANY_OWNER_CLEANUP_OPERATIONS) {
           expect(listed.some((item) => item.name === name)).toBe(enable === "true");
           if (enable === "true" && name.startsWith("clickup_delete_")) {
-            expect(listed.find((item) => item.name === name)?.annotations?.destructiveHint)
-              .toBe(true);
+            expect(listed.find((item) => item.name === name)?.annotations?.destructiveHint).toBe(
+              true,
+            );
           }
         }
         const info = await client.callTool({ name: "service_info", arguments: {} });
