@@ -9,10 +9,9 @@ const kv = process.env.STAGING_OAUTH_KV_ID;
 if (typeof kv !== "string" || !/^[a-f0-9]{32}$/i.test(kv)) {
   throw new Error("Missing valid STAGING_OAUTH_KV_ID in GitHub staging environment vars");
 }
-// The repository owner's public numeric GitHub ID. It is NOT an OAuth token.
-// Workspace mode defaults on for this staging owner allowlist only.
-// Other users stay List-scoped, and exclusive ClickUp OAuth remains required.
-// Every fork must explicitly authorize its own GitHub account(s).
+// Every installation must explicitly configure its authorized GitHub identities.
+// These IDs are NOT OAuth tokens; a personal ClickUp OAuth grant and exact Workspace
+// exclusivity are still required before any Workspace-wide access.
 const workspaceOwnerIds = process.env.STAGING_WORKSPACE_GITHUB_IDS;
 if (typeof workspaceOwnerIds !== "string" || !/^[1-9]\d{0,15}(?:,[1-9]\d{0,15}){0,3}$/.test(workspaceOwnerIds)) {
   throw new Error("STAGING_WORKSPACE_GITHUB_IDS contains invalid GitHub ID(s)");
