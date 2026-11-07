@@ -41,6 +41,7 @@ jobs:
       - name: Generate isolated staging config from GitHub environment variable
         env:
           STAGING_OAUTH_KV_ID: ${{ vars.STAGING_OAUTH_KV_ID }}
+          STAGING_WORKSPACE_GITHUB_IDS: ${{ vars.STAGING_WORKSPACE_GITHUB_IDS }}
         run: node scripts/generate-staging-config.mjs
       - name: Deploy reviewed HEAD to staging Worker only
         env:
