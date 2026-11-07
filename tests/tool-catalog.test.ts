@@ -33,7 +33,7 @@ async function clientHarness(schemaPreview: boolean, fetcher: typeof fetch) {
 describe("Official ClickUp MCP capability catalogue (model-facing only)", () => {
   it("contains the hosted capabilities and custom Serviteur tools", () => {
     expect(CLICKUP_MODEL_TOOL_CATALOG).toHaveLength(51);
-    expect(new Set(CLICKUP_MODEL_TOOL_CATALOG.map((tool) => tool.name)).size).toBe(50);
+    expect(new Set(CLICKUP_MODEL_TOOL_CATALOG.map((tool) => tool.name)).size).toBe(51);
     expect(new Set(CLICKUP_MODEL_TOOL_CATALOG.map((tool) => tool.group))).toEqual(
       new Set(CLICKUP_TOOL_GROUPS),
     );
