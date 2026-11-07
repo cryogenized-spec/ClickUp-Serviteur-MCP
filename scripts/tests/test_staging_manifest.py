@@ -49,6 +49,11 @@ class StagingManifestTests(unittest.TestCase):
         self.assertEqual("clickup-serviteur-staging", config["name"])
         self.assertTrue(config["keep_vars"])
 
+    def test_workflow_forwards_explicit_owner_allowlist(self) -> None:
+        workflow = (ROOT / ".github/workflows/deploy-staging.yml").read_text(encoding="utf-8")
+        self.assertIn('STAGING_OAUTH_KV_ID: ${{ vars.STAGING_OAUTH_KV_ID }}', workflow)
+        self.assertIn('STAGING_WORKSPACE_GITHUB_IDS: ${{ vars.STAGING_WORKSPACE_GITHUB_IDS }}', workflow)
+
     def test_malformed_owner_allowlist_is_rejected_before_deployment(self) -> None:
         for value in ("abc", "0", "111222333,", "111222333,,123", "111222333;123"):
             with self.subTest(value=value):
