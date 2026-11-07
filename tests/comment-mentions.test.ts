@@ -36,6 +36,7 @@ function mockApi(
     dropTag?: boolean;
     postStatus?: number;
     expectedComment?: unknown[];
+    readbackComment?: unknown[];
   } = {},
 ) {
   const expectedParts = options.expectedComment ?? expected;
@@ -74,6 +75,8 @@ function mockApi(
         created = true;
         return Response.json({ id: "456" });
       }
+      let readbackParts = options.readbackComment ?? expectedParts;
+      if (options.dropTag) readbackParts = expectedParts.slice(0, 3);
       return Response.json({
         comments: created
           ? [
@@ -81,7 +84,7 @@ function mockApi(
                 id: "456",
                 user: { id: options.author ?? 707 },
                 assignee: null,
-                comment: options.dropTag ? expectedParts.slice(0, 3) : expectedParts,
+                comment: readbackParts,
               },
             ]
           : [],
@@ -129,6 +132,51 @@ describe("genuine ClickUp task comment @mentions (#88)", () => {
       notification_delivery_unverified: true,
     });
     expect(api.postCount).toBe(1);
+  });
+
+  it("acknowledges normalized tags without certifying target IDs", async () => {
+    const normalized = expected.map((part) => ("type" in part ? { type: "tag" } : part));
+    const api = mockApi({ readbackComment: normalized });
+    const result = await runCatalogOperation(
+      "clickup_create_task_comment",
+      { task_id: "abc123", mention_segments: segments },
+      grant(),
+      api.fetcher as typeof fetch,
+    );
+    expect(result).toMatchObject({
+      id: "456",
+      write_acknowledged: true,
+      requested_mention_user_ids: ["801", "802"],
+      verified_tag_structure_by_readback: true,
+      mention_identity_verified_by_readback: false,
+      verified_by_readback: false,
+      readback_status: "structure_only",
+      notification_delivery_unverified: true,
+    });
+    expect(result).not.toHaveProperty("genuine_mentions");
+    expect(api.postCount).toBe(1);
+  });
+
+  it("does not accept forged, malformed or text-only tags", async () => {
+    const invalidTags = [
+      { type: "tag", user: { id: 999 } },
+      { type: "tag", user: {} },
+      { text: "@QA Member A" },
+    ];
+    for (const badTag of invalidTags) {
+      const readbackComment: unknown[] = [...expected];
+      readbackComment[1] = badTag;
+      const api = mockApi({ readbackComment });
+      await expect(
+        runCatalogOperation(
+          "clickup_create_task_comment",
+          { task_id: "abc123", mention_segments: segments },
+          grant(),
+          api.fetcher as typeof fetch,
+        ),
+      ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      expect(api.postCount).toBe(1);
+    }
   });
 
   it("preserves whitespace-only separators between real mentions", async () => {

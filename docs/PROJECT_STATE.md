@@ -1,3 +1,13 @@
+# 7 November 2026 SAST — #88 genuine @mention readback normalization candidate
+
+**Observed:** One owner-approved company task-comment test posted a structured mention. ClickUp's subsequent GET returned a positional `{"type":"tag"}` entry without `user.id`, while the persisted comment and author were present. Existing strict identity readback wrongly reported `CLICKUP_WRITE_OUTCOME_UNKNOWN`; the comment was already created and must not be reposted.
+
+**Source candidate:** Draft [PR #99](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/99) modifies only the rich-comment readback check and synthetic mention tests. An ID-free tag may now be acknowledged as **structure-only**: `verified_tag_structure_by_readback:true`, `mention_identity_verified_by_readback:false`, `verified_by_readback:false`, `readback_status:"structure_only"`. The original verified requested IDs remain request metadata, not proof of persisted identities. Provided-but-mismatching IDs, missing tags, changed text, foreign author and uncertain writes remain errors without automatic retries. Existing exact-ID verification remains available.
+
+**Next:** Obtain exact-head green CI and specialist review before owner-controlled merge and protected **manual** company Worker deployment; check the deployed SHA afterward. Do not treat source-only changes as a live fix, claim notifications from self-mentions, or re-post the earlier QA comment. Rich comment editing remains unsupported and #88 stays open.
+
+---
+
 # 5 November 2026 SAST — owner-only task comment editing prepared
 
 A new `clickup_edit_task_comment` capability is being developed on branch `feat/edit-own-task-comments`. It requires an exact task ID, existing comment ID, and replacement text; verifies the task's home List under the authenticated person's grant, then confirms the comment belongs to that same ClickUp user before submitting an update. A post-write readback must confirm the replacement. The company profile permits this non-destructive edit while continuing to deny deleting tasks/comments, moving tasks and authorising cross-List edits. This is SOURCE work only until CI, review, merge, manual Cloudflare deployment and ChatGPT plugin refresh. No live ClickUp comment has been edited by this change.
