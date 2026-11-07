@@ -151,8 +151,13 @@ const F = {
     24,
   ),
   comment_id: str("Exact ClickUp comment identifier.", 100),
-  confirm_delete: flag("Must be true for company cleanup; confirms deletion of the exact verified item."),
-  expected_task_name: str("Exact currently observed task title; required for company test-task deletion.", 180),
+  confirm_delete: flag(
+    "Must be true for company cleanup; confirms deletion of the exact verified item.",
+  ),
+  expected_task_name: str(
+    "Exact currently observed task title; required for company test-task deletion.",
+    180,
+  ),
   attachment_id: str("Exact PDF attachment ID from the verified task; never supply a URL.", 100),
   parent_comment_id: str(
     "Verified parent comment ID on the same authorized task; create a threaded reply.",
