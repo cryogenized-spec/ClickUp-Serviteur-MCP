@@ -74,6 +74,24 @@ describe("full-length Markdown authoring for v3 Docs and Chat", () => {
     expect(api.calls).toHaveLength(1);
   });
 
+  it("reads a complete 30k Docs page and explicitly reports content above the response cap", async () => {
+    for (const length of [30_000, 41_000]) {
+      const text = "A".repeat(length);
+      const fetcher = vi.fn(async () =>
+        Response.json({ id: "page-1", content: text }),
+      );
+      const response = await runCatalogOperation(
+        "clickup_get_document_pages",
+        { document_id: "doc-1", page_id: "page-1" },
+        grant,
+        fetcher as typeof fetch,
+      );
+      expect(String(response["content"])).toHaveLength(Math.min(length, 40_000));
+      expect(response["incomplete"]).toBe(length > 40_000);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("creates and updates 30k Docs page content and retrieves plain export format", async () => {
     const api = mock();
     const markdown = "## Long document\n" + "x".repeat(30_000);
