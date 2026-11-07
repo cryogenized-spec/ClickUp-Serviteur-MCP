@@ -151,6 +151,13 @@ const F = {
     24,
   ),
   comment_id: str("Exact ClickUp comment identifier.", 100),
+  confirm_delete: flag(
+    "Must be true for company cleanup; confirms deletion of the exact verified item.",
+  ),
+  expected_task_name: str(
+    "Exact currently observed task title; required for company test-task deletion.",
+    180,
+  ),
   attachment_id: str("Exact PDF attachment ID from the verified task; never supply a URL.", 100),
   parent_comment_id: str(
     "Verified parent comment ID on the same authorized task; create a threaded reply.",
@@ -405,9 +412,10 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Delete Task",
     "tasks",
     "destructive",
-    "Permanently delete an identified task/subtask. Destructive and separately approval-gated; schema does not enable deletion.",
-    "Delete a disposable test-only task after explicit confirmation.",
+    "Send exactly one verified task to ClickUp Trash after confirming its exact current title and ID. No bulk deletion; requires owner-enabled cleanup and explicit confirmation.",
+    "Remove my disposable Serviteur test task after inspecting it.",
     ["task_id"],
+    ["confirm_delete", "expected_task_name"],
   ),
 
   // BULK (2)
@@ -482,6 +490,16 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Post an approved new comment with text before and after a verified colleague mention.",
     ["task_id"],
     ["text", "mention_segments", "rich_segments", "parent_comment_id", "assignee_id"],
+  ),
+
+  tool(
+    "clickup_delete_task_comment",
+    "Delete Own Task Comment",
+    "comments",
+    "destructive",
+    "Delete the exact comment only when it belongs to the authenticated user on an independently verified authorized task. Confirmation is mandatory; no bulk or third-party comment deletions.",
+    "Remove my own accidental QA formatting comment after verifying its task and ID.",
+    ["task_id", "comment_id", "confirm_delete"],
   ),
 
   tool(

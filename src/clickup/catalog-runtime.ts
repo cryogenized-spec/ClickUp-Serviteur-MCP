@@ -662,6 +662,7 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_read_task_pdf",
   "clickup_get_threaded_replies",
   "clickup_create_task_comment",
+  "clickup_delete_task_comment",
   "clickup_edit_task_comment",
   "clickup_add_tag_to_task",
   "clickup_remove_tag_from_task",
@@ -729,6 +730,7 @@ const WORKSPACE_SCOPE_OPERATIONS = new Set([
   "clickup_read_task_pdf",
   "clickup_get_threaded_replies",
   "clickup_create_task_comment",
+  "clickup_delete_task_comment",
   "clickup_edit_task_comment",
   "clickup_add_tag_to_task",
   "clickup_remove_tag_from_task",
@@ -1052,9 +1054,39 @@ export async function runCatalogOperation(
         ),
       );
     }
-    case "clickup_delete_task":
-      await task("task_id");
-      return call("DELETE", v2("task/" + val(a, "task_id")));
+    case "clickup_delete_task": {
+      const existing = await task("task_id");
+      if (g.companyCleanupAccess === true) {
+        const title = existing["name"];
+        if (
+          a["confirm_delete"] !== true ||
+          typeof title !== "string" ||
+          a["expected_task_name"] !== title
+        )
+          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+        // Verify immediately before deletion that the task still belongs to
+        // this exact authorized List and has no child tasks to delete.
+        const before = await call(
+          "GET",
+          v2("task/" + val(a, "task_id") + "?include_subtasks=true"),
+        );
+        if (
+          String(before["id"]) !== String(existing["id"]) ||
+          String(obj(before["list"])?.["id"]) !== String(obj(existing["list"])?.["id"]) ||
+          before["name"] !== title ||
+          !Array.isArray(before["subtasks"]) ||
+          before["subtasks"].length !== 0
+        )
+          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      }
+      await call("DELETE", v2("task/" + val(a, "task_id")));
+      return {
+        success: true,
+        source: "clickup-api-v2",
+        task_id: String(existing["id"]),
+        action: "sent_to_trash",
+      };
+    }
     case "clickup_create_bulk_tasks": {
       await list("list_id");
       const tasks = a["tasks"];
@@ -1415,6 +1447,44 @@ export async function runCatalogOperation(
         // A missing readback cannot establish that a reply was committed.
       }
       throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    }
+    case "clickup_delete_task_comment": {
+      if (a["confirm_delete"] !== true) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      await task("task_id");
+      const taskId = val(a, "task_id");
+      const commentId = val(a, "comment_id");
+      const comments = await call("GET", v2("task/" + taskId + "/comment"));
+      if (!Array.isArray(comments["comments"]) || comments["comments"].length > 25)
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const matched = comments["comments"]
+        .map(obj)
+        .find((entry) => String(entry?.["id"]) === commentId);
+      // A comment without a verified zero reply count is not safe to delete.
+      // Missing, null, negative and malformed values must fail closed.
+      const rawReplies = matched?.["reply_count"];
+      const replies =
+        typeof rawReplies === "number"
+          ? rawReplies
+          : typeof rawReplies === "string" && /^[0-9]+$/.test(rawReplies)
+            ? Number(rawReplies)
+            : NaN;
+      if (
+        !matched ||
+        String(obj(matched["user"])?.["id"]) !== g.clickupUserId ||
+        !Number.isSafeInteger(replies) ||
+        replies !== 0
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      // A specific own comment on a verified task; never delete someone else's
+      // comment or a threaded conversation with replies.
+      await call("DELETE", v2("comment/" + commentId));
+      return {
+        success: true,
+        source: "clickup-api-v2",
+        task_id: taskId,
+        comment_id: commentId,
+        action: "deleted_own_comment",
+      };
     }
     case "clickup_edit_task_comment": {
       // A comment ID alone does not prove either task membership or authorship.
