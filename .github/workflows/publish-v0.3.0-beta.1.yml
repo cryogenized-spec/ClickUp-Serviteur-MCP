@@ -1,0 +1,70 @@
+name: Publish ClickUp Serviteur v0.3.0-beta.1 (source prerelease)
+
+# This one-version, owner-repository workflow publishes only the reviewed,
+# immutable beta source commit. No code from pull requests is executed with
+# a write-capable GITHUB_TOKEN; merging the workflow into main triggers it.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-v0.3.0-beta.1.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-clickup-serviteur-v0.3.0-beta.1
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish immutable source beta
+    if: github.repository == 'cryogenized-spec/ClickUp-Serviteur-MCP' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: v0.3.0-beta.1
+      RELEASE_COMMIT: 7aadec22b326a5d9767d47762b506642a8c41ddc
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout reviewed main (full history to verify provenance)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify release commit is an ancestor of reviewed main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "${RELEASE_COMMIT}^{commit}"
+          git merge-base --is-ancestor "$RELEASE_COMMIT" "$GITHUB_SHA"
+          test "$(git show "${RELEASE_COMMIT}:package.json" | node -e 'let s=""; process.stdin.on("data", x=>s+=x); process.stdin.on("end",()=>{let p=JSON.parse(s); if (p.version!=="0.3.0-beta.1"||p.name!=="clickup-serviteur-mcp"||p.license!=="MIT") process.exit(1)})')" = ""
+          git cat-file -e "${RELEASE_COMMIT}:LICENSE"
+          test -s .github/release-notes/v0.3.0-beta.1.md
+
+      - name: Publish GitHub prerelease (idempotent, reject pre-existing tag collision)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists; verify its tag target and prerelease status."
+            existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')"
+            test "$existing" = "$RELEASE_COMMIT"
+            test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq '.isPrerelease')" = true
+            exit 0
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Refusing to publish: tag already exists without a matching release." >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$RELEASE_COMMIT" \
+            --title "ClickUp Serviteur MCP v0.3.0-beta.1" \
+            --notes-file .github/release-notes/v0.3.0-beta.1.md \
+            --prerelease
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isPrerelease,url
