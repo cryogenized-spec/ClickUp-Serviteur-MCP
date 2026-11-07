@@ -4,7 +4,7 @@
 
 ## Mission / boundaries
 
-Build one secure remote MCP server backed by ClickUp's supported REST API, accessible through *both* ChatGPT's supported subscription plugin flow and Claude's remote connector. Neither client has been validated yet. Do not advertise a working integration without real evidence.
+Maintain one secure, self-hosted ClickUp REST-backed MCP server for compatible remote MCP clients. The owner-operated ChatGPT company connection has passed real OAuth and task/comment readback tests, but broader third-party client and API feature coverage is still partial. Treat the public GitHub source, any staging Worker and each private company Worker as separate release and authorization contexts; do not imply universal ClickUp API or client parity.
 
 ## Start every agent session here
 
@@ -25,21 +25,18 @@ Build one secure remote MCP server backed by ClickUp's supported REST API, acces
 
 ## Build / test commands
 
-**Before application scaffold exists:**
+**Current application (v0.3.0-beta.1 source candidate):**
 
 ```bash
+npm ci --ignore-scripts --no-audit --no-fund
 python3 scripts/check_repo_policy.py
-```
-
-**After a real `package.json` and `package-lock.json` are committed:**
-
-```bash
-npm ci --ignore-scripts
+python3 -m unittest discover -s scripts/tests -p "test_*.py" -v
 npm run format:check
 npm run lint
 npm run typecheck
 npm test
 npm run build
+node scripts/staging-local-smoke.mjs
 npm audit --audit-level=high
 ```
 
