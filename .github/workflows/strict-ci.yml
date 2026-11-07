@@ -57,6 +57,12 @@ jobs:
         if: steps.stage.outputs.application == 'true'
         run: npm ci --ignore-scripts --no-audit --no-fund
 
+      - name: Temporary PR-only Prettier diagnostic
+        if: steps.stage.outputs.application == 'true'
+        run: |
+          npx prettier --write src/clickup/policy.ts src/mcp/create-server.ts src/mcp/tool-catalog.ts src/clickup/catalog-runtime.ts tests/company-cleanup.test.ts
+          git diff -- src/clickup/policy.ts src/mcp/create-server.ts src/mcp/tool-catalog.ts src/clickup/catalog-runtime.ts tests/company-cleanup.test.ts
+
       - name: Enforce formatting
         if: steps.stage.outputs.application == 'true'
         run: npm run format:check
