@@ -134,16 +134,9 @@ describe("genuine ClickUp task comment @mentions (#88)", () => {
     expect(api.postCount).toBe(1);
   });
 
-  it("accepts ID-free tag normalization without claiming identity", async () => {
-    const api = mockApi({
-      readbackComment: [
-        expected[0],
-        { type: "tag" },
-        expected[2],
-        { type: "tag" },
-        expected[4],
-      ],
-    });
+  it("acknowledges normalized tags without certifying target IDs", async () => {
+    const normalized = expected.map((part) => ("type" in part ? { type: "tag" } : part));
+    const api = mockApi({ readbackComment: normalized });
     const result = await runCatalogOperation(
       "clickup_create_task_comment",
       { task_id: "abc123", mention_segments: segments },
@@ -164,67 +157,26 @@ describe("genuine ClickUp task comment @mentions (#88)", () => {
     expect(api.postCount).toBe(1);
   });
 
-  it("requires a matching ID when tag identity is returned", async () => {
-    const api = mockApi({
-      readbackComment: [
-        expected[0],
-        { type: "tag", user: { id: 999 } },
-        expected[2],
-        expected[3],
-        expected[4],
-      ],
-    });
-    await expect(
-      runCatalogOperation(
-        "clickup_create_task_comment",
-        { task_id: "abc123", mention_segments: segments },
-        grant(),
-        api.fetcher as typeof fetch,
-      ),
-    ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
-    expect(api.postCount).toBe(1);
-  });
-
-  it("rejects malformed identity on a tag", async () => {
-    const api = mockApi({
-      readbackComment: [
-        expected[0],
-        { type: "tag", user: {} },
-        expected[2],
-        expected[3],
-        expected[4],
-      ],
-    });
-    await expect(
-      runCatalogOperation(
-        "clickup_create_task_comment",
-        { task_id: "abc123", mention_segments: segments },
-        grant(),
-        api.fetcher as typeof fetch,
-      ),
-    ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
-    expect(api.postCount).toBe(1);
-  });
-
-  it("rejects literal @text in place of a tag", async () => {
-    const api = mockApi({
-      readbackComment: [
-        expected[0],
-        { text: "@QA Member A" },
-        expected[2],
-        expected[3],
-        expected[4],
-      ],
-    });
-    await expect(
-      runCatalogOperation(
-        "clickup_create_task_comment",
-        { task_id: "abc123", mention_segments: segments },
-        grant(),
-        api.fetcher as typeof fetch,
-      ),
-    ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
-    expect(api.postCount).toBe(1);
+  it("does not accept forged, malformed or text-only tags", async () => {
+    const invalidTags = [
+      { type: "tag", user: { id: 999 } },
+      { type: "tag", user: {} },
+      { text: "@QA Member A" },
+    ];
+    for (const badTag of invalidTags) {
+      const readbackComment: unknown[] = [...expected];
+      readbackComment[1] = badTag;
+      const api = mockApi({ readbackComment });
+      await expect(
+        runCatalogOperation(
+          "clickup_create_task_comment",
+          { task_id: "abc123", mention_segments: segments },
+          grant(),
+          api.fetcher as typeof fetch,
+        ),
+      ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      expect(api.postCount).toBe(1);
+    }
   });
 
   it("preserves whitespace-only separators between real mentions", async () => {
