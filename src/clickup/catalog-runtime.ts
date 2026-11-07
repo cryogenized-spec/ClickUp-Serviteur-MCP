@@ -1449,8 +1449,7 @@ export async function runCatalogOperation(
       throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
     }
     case "clickup_delete_task_comment": {
-      if (a["confirm_delete"] !== true)
-        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (a["confirm_delete"] !== true) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       await task("task_id");
       const taskId = val(a, "task_id");
       const commentId = val(a, "comment_id");
