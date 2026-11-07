@@ -57,6 +57,12 @@ jobs:
         if: steps.stage.outputs.application == 'true'
         run: npm ci --ignore-scripts --no-audit --no-fund
 
+      - name: Diagnostic formatter diff (temporary PR-only)
+        if: steps.stage.outputs.application == 'true'
+        run: |
+          npx prettier --write src/clickup/catalog-runtime.ts src/mcp/tool-catalog.ts tests/phase7-markdown.test.ts
+          git diff -- src/clickup/catalog-runtime.ts src/mcp/tool-catalog.ts tests/phase7-markdown.test.ts
+
       - name: Enforce formatting
         if: steps.stage.outputs.application == 'true'
         run: npm run format:check
