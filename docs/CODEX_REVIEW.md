@@ -21,7 +21,7 @@
 
 Please investigate this PR as a READ-ONLY specialist reviewer.
 
-Repository: cryogenized-spec/NeonSales-ClickUp-MCP- (private)
+Repository: cryogenized-spec/ClickUp-Serviteur-MCP (private)
 Phase: <phase>
 PR URL: <url>
 BASE_SHA: <verified target SHA>

@@ -5,7 +5,7 @@
 | ID | Date (SAST) | Status | Decision / scope | Reason or next check |
 |---|---|---|---|---|
 | D-001 | 2026-10-10 | ACCEPTED (user direction) | Build a real working POC **before** pitching a benefit to management | Show evidence, not speculative claims |
-| D-002 | 2026-10-10 | ACCEPTED (user direction) | Maintain the project in the **private** `cryogenized-spec/NeonSales-ClickUp-MCP-` repository | Keep a persistent shared source of truth |
+| D-002 | 2026-10-10 | ACCEPTED (user direction) | Maintain the project in the **private** `cryogenized-spec/ClickUp-Serviteur-MCP` repository | Keep a persistent shared source of truth |
 | D-003 | 2026-10-10 | ACCEPTED (user direction) | Support **both** ChatGPT subscription plugin and Claude subscription connector | One integration should serve both |
 | D-004 | 2026-10-10 | ACCEPTED (user direction) | Establish `README.md`, `AGENTS.md` and memory-efficient working documentation **before** more app coding | Context reliability and reviewability |
 | D-005 | 2026-10-10 | ACCEPTED (user direction) | Use TypeScript/npm/Node locally, Cloudflare Workers + Wrangler for deployment, official MCP SDK and OAuth | Owner said proceed; auth design still needs separate review |
@@ -23,7 +23,7 @@
 | D-015 | 2026-10-10 | ACCEPTED (user direction) | GitHub Free private repo: manual owner merge discipline rather than false claims of enforced branch protection | No paid plan; do not weaken standards |
 | D-016 | 2026-10-10 | ACCEPTED (user direction) | Reuse Elara Relay engineering invariants selectively, not its entire unrelated monolithic review skill | One authority per boundary, evidence-driven exact-SHA certification |
 
-| D-017 | 2026-10-10 | ACCEPTED (user direction) | Design for 2–4 independently authenticated NeonSales staff using their own ChatGPT/Claude subscription accounts | Per-user authorization, isolation and audit; shared ClickUp token budget never substitutes for identity |
+| D-017 | 2026-10-10 | ACCEPTED (user direction) | Design for 2–4 independently authenticated Serviteur staff using their own ChatGPT/Claude subscription accounts | Per-user authorization, isolation and audit; shared ClickUp token budget never substitutes for identity |
 | D-018 | 2026-10-10 | ACCEPTED (user direction) | Adversarial and concurrency regression tests required from early phases | Test malformed inputs, duplicate requests, unexpected failures and race conditions |
 
 | D-019 | 2026-10-10 | PROPOSED (Phase 3 implementation) | For POC, use independent GitHub OAuth App sign-in with stable numeric GitHub-ID allowlist, official Cloudflare OAuthProvider v1.2.3 | Staff must have individual GitHub accounts; may replace identity provider after review, do not expose real ClickUp yet |
@@ -35,7 +35,7 @@
 
 | D-024 | 2026-10-11 | ACCEPTED (owner direction) | **No separate action journal, rollback subsystem, activity dashboard or duplicate client tool-approval settings.** ClickUp handles native task history; Claude/ChatGPT handle per-tool prompts. | Avoid duplicated state and extra failure modes. Keep only necessary OAuth identity, resource authorization and quota protections. |
 
-| D-025 | 2026-10-21 | PROPOSED — NOT ACTIVATED | Make NeonSales Workspace (not a single List) the authority for the 48-operation catalogue **only after explicit owner acceptance**. Require one-Workspace ClickUp OAuth consent per staff member and preserve legacy List mode with fail-closed task-ID tools. | Resolves the incompatible cross-List requirements without claiming a nonexistent atomic List precondition; live ClickUp scope/permission and cross-Workspace move tests remain release gates. See [PR25_WORKSPACE_SCOPE_PLAN.md](PR25_WORKSPACE_SCOPE_PLAN.md). |
+| D-025 | 2026-10-21 | PROPOSED — NOT ACTIVATED | Make Serviteur Workspace (not a single List) the authority for the 48-operation catalogue **only after explicit owner acceptance**. Require one-Workspace ClickUp OAuth consent per staff member and preserve legacy List mode with fail-closed task-ID tools. | Resolves the incompatible cross-List requirements without claiming a nonexistent atomic List precondition; live ClickUp scope/permission and cross-Workspace move tests remain release gates. See [PR25_WORKSPACE_SCOPE_PLAN.md](PR25_WORKSPACE_SCOPE_PLAN.md). |
 
 ## Record an accepted decision
 
