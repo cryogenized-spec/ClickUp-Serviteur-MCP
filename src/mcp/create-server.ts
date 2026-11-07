@@ -411,6 +411,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
             readOnlyHint: !write,
             destructiveHint:
               spec.effect === "destructive" ||
+              (companyCleanupEnabled && isCompanyOwnerCleanupOperation(spec.name)) ||
               (write && !additiveWrites.has(spec.name) && !companyProfile),
             idempotentHint: !write,
           },
