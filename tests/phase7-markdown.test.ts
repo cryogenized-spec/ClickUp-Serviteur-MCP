@@ -16,7 +16,7 @@ const grant: ReadGrant = {
   },
 };
 
-function mockClickUp() {
+function mockClickUp(taskMarkdown = "# Existing formatted content") {
   const requests: Array<{ method: string; url: URL; body: Record<string, unknown> | null }> = [];
   const fetcher = vi.fn(async (request: RequestInfo | URL, options?: RequestInit) => {
     const url = new URL(String(request));
@@ -35,7 +35,7 @@ function mockClickUp() {
       return Response.json({
         id: "abc123",
         list: { id: "12345" },
-        markdown_description: "# Existing formatted content",
+        markdown_description: taskMarkdown,
       });
     return Response.json({ id: "new123", name: "Synthetic" });
   });
@@ -96,6 +96,30 @@ describe("ClickUp API-native Markdown authoring surfaces", () => {
     expect(lastWrite(api.requests).body).toMatchObject({ markdown_content: "## Changed" });
     const taskRead = api.requests.find((request) => request.url.pathname === "/api/v2/task/abc123");
     expect(taskRead?.url.searchParams.get("include_markdown_description")).toBe("true");
+  });
+
+  it("returns supported long Markdown without silent truncation, and flags oversized upstream content", async () => {
+    const saved = "# QA\\n" + "x".repeat(20_000);
+    const api = mockClickUp(saved);
+    const task = await runCatalogOperation(
+      "clickup_get_task",
+      { task_id: "abc123" },
+      grant,
+      api.fetcher as typeof fetch,
+    );
+    expect(task["markdown_description"]).toBe(saved);
+    expect(task["incomplete"]).toBe(false);
+
+    const oversized = "# QA\\n" + "x".repeat(41_000);
+    const huge = mockClickUp(oversized);
+    const limited = await runCatalogOperation(
+      "clickup_get_task",
+      { task_id: "abc123" },
+      grant,
+      huge.fetcher as typeof fetch,
+    );
+    expect(String(limited["markdown_description"])).toHaveLength(40_000);
+    expect(limited["incomplete"]).toBe(true);
   });
 
   it("preserves bulk Markdown drafts and refuses ambiguous dual descriptions", async () => {
