@@ -57,12 +57,6 @@ jobs:
         if: steps.stage.outputs.application == 'true'
         run: npm ci --ignore-scripts --no-audit --no-fund
 
-      - name: Show exact isolated formatter diff (temporary)
-        if: steps.stage.outputs.application == 'true'
-        run: |
-          npx prettier --write src/clickup/catalog-runtime.ts
-          git diff -- src/clickup/catalog-runtime.ts
-
       - name: Enforce formatting
         if: steps.stage.outputs.application == 'true'
         run: npm run format:check
