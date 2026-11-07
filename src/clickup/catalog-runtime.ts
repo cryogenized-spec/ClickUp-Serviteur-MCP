@@ -1199,6 +1199,7 @@ export async function runCatalogOperation(
           !/^[0-9]{1,24}$/.test(String(commentId))
         )
           throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+        let mentionIdsVerified = true;
         try {
           const after = await call("GET", v2("task/" + taskId + "/comment"));
           if (!Array.isArray(after["comments"])) throw Error("Missing comments");
@@ -1218,11 +1219,20 @@ export async function runCatalogOperation(
             const stored = obj(actual[i]);
             if (!stored) throw Error("Malformed readback segment");
             if (requested["type"] === "tag") {
-              if (
-                stored["type"] !== "tag" ||
-                String(obj(stored["user"])?.["id"]) !== String(obj(requested["user"])?.["id"])
-              )
+              if (stored["type"] !== "tag" || stored["text"] !== undefined)
                 throw Error("Mention did not persist");
+              if ("user" in stored) {
+                // When ClickUp returns an identity, it must match exactly.
+                if (
+                  String(obj(stored["user"])?.["id"]) !==
+                  String(obj(requested["user"])?.["id"])
+                )
+                  throw Error("Mention identity changed");
+              } else {
+                // ClickUp may normalize a genuine mention to { type: "tag" }.
+                // The tag shape persisted, but its target ID cannot be read back.
+                mentionIdsVerified = false;
+              }
             } else if (stored["type"] === "tag" || stored["text"] !== requested["text"]) {
               throw Error("Text changed in rich readback");
             }
@@ -1238,8 +1248,14 @@ export async function runCatalogOperation(
         }
         return {
           ...posted,
-          genuine_mentions: requestedIds,
-          verified_by_readback: true,
+          write_acknowledged: true,
+          requested_mention_user_ids: requestedIds,
+          ...(mentionIdsVerified ? { genuine_mentions: requestedIds } : {}),
+          verified_tag_structure_by_readback: true,
+          // A tag with no returned user.id proves structure, NOT its target.
+          mention_identity_verified_by_readback: mentionIdsVerified,
+          verified_by_readback: mentionIdsVerified,
+          readback_status: mentionIdsVerified ? "full" : "structure_only",
           // ClickUp may notify tagged people even though notify_all is false.
           notification_delivery_unverified: true,
         };
