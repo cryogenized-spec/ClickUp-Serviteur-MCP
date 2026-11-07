@@ -1,4 +1,4 @@
-name: Deploy NeonSales MCP staging (manual)
+name: Deploy ClickUp Serviteur MCP staging (manual)
 on:
   workflow_dispatch:
 
@@ -6,7 +6,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: neonsales-mcp-staging-deploy
+  group: clickup-serviteur-mcp-staging-deploy
   cancel-in-progress: false
 
 jobs:
