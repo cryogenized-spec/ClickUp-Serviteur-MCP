@@ -1061,9 +1061,7 @@ export async function runCatalogOperation(
         if (
           a["confirm_delete"] !== true ||
           typeof title !== "string" ||
-          !title.startsWith("[SERVITEUR-QA] ") ||
-          a["expected_task_name"] !== title ||
-          String(obj(existing["creator"])?.["id"]) !== g.clickupUserId
+          a["expected_task_name"] !== title
         )
           throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
         // Verify immediately before deletion that the task still belongs to
