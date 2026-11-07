@@ -9,14 +9,14 @@
 | ChatGPT/Claude via MCP | Untrusted tool invocations until remote user OAuth is verified | None when unauthenticated; scoped task READ only after verified authorization |
 | MCP host / Cloudflare Worker | Process boundary, **not** inherently trusted if compromised | Holds deploy secret for ClickUp REST adapter, never exposed to models |
 | ClickUp REST API | External data and operation source | Data returned is untrusted content; API authorization separate from MCP |
-| Human NeonSales operator | Account-bound principal after verified OAuth | POC read allowlist, may independently approve one disposable test change |
+| Human Serviteur operator | Account-bound principal after verified OAuth | POC read allowlist, may independently approve one disposable test change |
 | Reviewer (Codex) | Read-only untrusted analysis tool | Analyze diff, never receive backend or deployment secrets |
 | GitHub PR/CI content | Potentially attacker-controlled | May be inspected in disposable runners; no secret-bearing PR jobs |
 | GitHub Free repository owner/admin | Can bypass ordinary CI if authorized to write | **Procedural**, not enforceable merge security |
 
 ## Multi-user separation, shared underlying rate limit
 
-- POC target is **2–4 authorized, independent NeonSales staff accounts**, each using their own ChatGPT or Claude subscription. Never share account sessions, impersonate a staff member, or treat model-provided `userId` as authenticated identity.
+- POC target is **2–4 authorized, independent Serviteur staff accounts**, each using their own ChatGPT or Claude subscription. Never share account sessions, impersonate a staff member, or treat model-provided `userId` as authenticated identity.
 - Only the OAuth verifier may create immutable request-scoped principals. Link principal to allowed Workspace/List and operation scopes server-side; verify the association for **every** invocation, including parallel calls.
 - A single company ClickUp API token, when used by authorized staff, imposes a **shared 100/min/token budget** on Free Forever, not 100/min per employee. Bursts and retries must be coordinated cross-instance using a durable coordinator (e.g. Durable Object) and backoff. No independent per-isolate counters pretending to be global.
 - Audit trails and approval decisions must include the verified acting human principal and be segregated by scope. A shared ClickUp backend token must not erase attribution.
