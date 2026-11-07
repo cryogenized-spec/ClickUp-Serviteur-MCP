@@ -42,7 +42,7 @@ jobs:
           set -euo pipefail
           git cat-file -e "${RELEASE_COMMIT}^{commit}"
           git merge-base --is-ancestor "$RELEASE_COMMIT" "$GITHUB_SHA"
-          test "$(git show "${RELEASE_COMMIT}:package.json" | node -e 'let s=""; process.stdin.on("data", x=>s+=x); process.stdin.on("end",()=>{let p=JSON.parse(s); if (p.version!=="0.3.0-beta.1"||p.name!=="clickup-serviteur-mcp"||p.license!=="MIT") process.exit(1)})')" = ""
+          git show "${RELEASE_COMMIT}:package.json" | node -e 'let s=""; process.stdin.on("data", x=>s+=x); process.stdin.on("end",()=>{let p=JSON.parse(s); if (p.version!=="0.3.0-beta.1"||p.name!=="clickup-serviteur-mcp"||p.license!=="MIT") process.exit(1)})'
           git cat-file -e "${RELEASE_COMMIT}:LICENSE"
           test -s .github/release-notes/v0.3.0-beta.1.md
 
