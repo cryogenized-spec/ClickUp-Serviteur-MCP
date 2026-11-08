@@ -15,6 +15,8 @@ const grant = (resourceScope: "list" | "workspace" = "list"): ReadGrant => ({
     get: () => ({ fetch: async () => Response.json({ allowed: true }) }),
   },
 });
+// Company List access is a separately granted capability, not inferred from List scope.
+const companyCommentGrant = (): ReadGrant => ({ ...grant(), companyListTaskAccess: true });
 const reply = (value: unknown) =>
   Response.json(value, { headers: { "Content-Type": "application/json" } });
 
@@ -192,7 +194,7 @@ describe("bounded ClickUp v2 pagination with one tool per function", () => {
     const first = await runCatalogOperation(
       "clickup_get_task_comments",
       { task_id: "task1", max_results: 10 },
-      grant(),
+      companyCommentGrant(),
       api.fetcher as typeof fetch,
     );
     expect(first).toMatchObject({
@@ -209,7 +211,7 @@ describe("bounded ClickUp v2 pagination with one tool per function", () => {
         comment_start: first["next_comment_start"],
         comment_start_id: first["next_comment_start_id"],
       },
-      grant(),
+      companyCommentGrant(),
       api.fetcher as typeof fetch,
     );
     expect(next["incomplete"]).toBe(false);
@@ -226,7 +228,7 @@ describe("bounded ClickUp v2 pagination with one tool per function", () => {
     const result = await runCatalogOperation(
       "clickup_get_task_comments",
       { task_id: "task1", max_results: 40 },
-      grant(),
+      companyCommentGrant(),
       api.fetcher as typeof fetch,
     );
     expect(result).toMatchObject({
@@ -244,7 +246,7 @@ describe("bounded ClickUp v2 pagination with one tool per function", () => {
     const result = await runCatalogOperation(
       "clickup_get_threaded_replies",
       { task_id: "task1", comment_id: "comment-29" },
-      grant(),
+      companyCommentGrant(),
       api.fetcher as typeof fetch,
     );
     expect(result["comments"]).toHaveLength(1);
@@ -258,7 +260,7 @@ describe("bounded ClickUp v2 pagination with one tool per function", () => {
       runCatalogOperation(
         "clickup_get_task_comments",
         { task_id: "task1", comment_start_id: "comment-2" },
-        grant(),
+        companyCommentGrant(),
         api.fetcher as typeof fetch,
       ),
     ).rejects.toThrow("CLICKUP_INVALID_ARGUMENT");
@@ -271,7 +273,7 @@ describe("bounded ClickUp v2 pagination with one tool per function", () => {
       runCatalogOperation(
         "clickup_get_threaded_replies",
         { task_id: "task1", comment_id: "foreign" },
-        grant(),
+        companyCommentGrant(),
         api.fetcher as typeof fetch,
       ),
     ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
