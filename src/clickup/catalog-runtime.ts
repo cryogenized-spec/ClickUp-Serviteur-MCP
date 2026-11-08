@@ -502,6 +502,62 @@ const short = (d: Json, limit = 50): Json => {
   }) as Json;
 };
 
+type CommentCursor = Readonly<{ start: number; startId: string }>;
+
+/** ClickUp v2 uses the oldest visible comment's date AND ID as one cursor. */
+function inputCommentCursor(a: Json): CommentCursor | null {
+  const start = a["comment_start"];
+  const startId = a["comment_start_id"];
+  if (start === undefined && startId === undefined) return null;
+  if (
+    !Number.isSafeInteger(start) ||
+    Number(start) <= 0 ||
+    Number(start) > 9_000_000_000_000 ||
+    typeof startId !== "string" ||
+    !/^[A-Za-z0-9_-]{1,100}$/.test(startId)
+  )
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  return { start: Number(start), startId };
+}
+function commentCursorFrom(comment: Json): CommentCursor | null {
+  const date = comment["date"];
+  const commentId = comment["id"];
+  if (
+    (typeof date !== "number" && typeof date !== "string") ||
+    !/^\d{1,13}$/.test(String(date)) ||
+    !Number.isSafeInteger(Number(date)) ||
+    Number(date) <= 0 ||
+    Number(date) > 9_000_000_000_000 ||
+    typeof commentId !== "string" ||
+    !/^[A-Za-z0-9_-]{1,100}$/.test(commentId)
+  )
+    return null;
+  return { start: Number(date), startId: commentId };
+}
+async function taskCommentPage(
+  read: (path: string) => Promise<Json>,
+  taskId: string,
+  cursor: CommentCursor | null,
+): Promise<Json[]> {
+  const params = new URLSearchParams();
+  if (cursor !== null) {
+    params.set("start", String(cursor.start));
+    params.set("start_id", cursor.startId);
+  }
+  const path = v2("task/" + id(taskId) + "/comment" + (cursor ? "?" + params.toString() : ""));
+  const result = await read(path);
+  if (
+    !Array.isArray(result["comments"]) ||
+    result["comments"].length > 25 ||
+    result["comments"].some((entry: unknown) => {
+      const comment = obj(entry);
+      return !comment || typeof comment["id"] !== "string";
+    })
+  )
+    throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+  return result["comments"] as Json[];
+}
+
 /** REST adapters use individual OAuth. Base64 attachment uploads are capped
  * at 500 KiB because MCP tool args are text; no remote file URLs are fetched. */
 async function uploadAttachment(
@@ -1223,18 +1279,75 @@ export async function runCatalogOperation(
         typeof a["media_type"] === "string" ? a["media_type"] : "application/octet-stream",
       );
     }
-    case "clickup_get_task_comments":
+    case "clickup_get_task_comments": {
       await task("task_id");
-      return short(await call("GET", v2("task/" + val(a, "task_id") + "/comment")), N);
+      const taskId = String(a["task_id"]);
+      const read = (path: string) => call("GET", path);
+      let cursor = inputCommentCursor(a);
+      const comments: Json[] = [];
+      const seen = new Set<string>();
+      let pagesScanned = 0;
+      let incomplete = false;
+      let continuationUnavailable = false;
+      let next: CommentCursor | null = null;
+      // The API returns at most 25 comments per page; 3 reads suffice for
+      // max_results <= 50, with a hard bound against unexpected upstream loops.
+      for (let pageIndex = 0; pageIndex < 3; pageIndex++) {
+        const batch = await taskCommentPage(read, taskId, cursor);
+        pagesScanned++;
+        for (const comment of batch) {
+          const key = String(comment["id"]);
+          if (seen.has(key)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+          seen.add(key);
+        }
+        const visible = batch.slice(0, N - comments.length);
+        comments.push(...visible);
+        const mayHaveMore = batch.length === 25 || batch.length > visible.length;
+        if (mayHaveMore) {
+          next = commentCursorFrom(visible[visible.length - 1]!);
+          if (!next) continuationUnavailable = true;
+        } else {
+          next = null;
+        }
+        incomplete = mayHaveMore;
+        if (comments.length === N || batch.length < 25 || !next) break;
+        cursor = next;
+      }
+      return {
+        source: "clickup-api-v2",
+        comments: clip(comments),
+        pages_scanned: pagesScanned,
+        next_comment_start: next?.start ?? null,
+        next_comment_start_id: next?.startId ?? null,
+        incomplete,
+        continuation_unavailable: continuationUnavailable,
+        first_page_only: pagesScanned === 1,
+      };
+    }
     case "clickup_get_threaded_replies": {
       await task("task_id");
-      const comments = await call("GET", v2("task/" + val(a, "task_id") + "/comment"));
-      if (!Array.isArray(comments["comments"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      const parent = comments["comments"]
-        .map(obj)
-        .find((comment) => String(comment?.["id"]) === String(a["comment_id"]));
-      // Only comments verifiably belonging to the validated task are eligible.
-      // Older comments outside the first upstream page fail closed.
+      const read = (path: string) => call("GET", path);
+      let cursor = inputCommentCursor(a);
+      let parent: Json | undefined;
+      const seen = new Set<string>();
+      // Only a parent obtained from the already authorized task's own
+      // comment endpoint may authorize the subsequent comment-ID API read.
+      // Explicit cursors permit older parents beyond the bounded scan.
+      for (let pageIndex = 0; pageIndex < 10; pageIndex++) {
+        const batch = await taskCommentPage(read, String(a["task_id"]), cursor);
+        for (const comment of batch) {
+          const key = String(comment["id"]);
+          if (seen.has(key)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+          seen.add(key);
+        }
+        parent = batch.find((comment) => String(comment["id"]) === String(a["comment_id"]));
+        if (parent) break;
+        if (batch.length < 25) break;
+        const next = commentCursorFrom(batch[batch.length - 1]!);
+        if (!next || (cursor && cursor.start === next.start && cursor.startId === next.startId))
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        cursor = next;
+      }
       if (!parent) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       const result = await call("GET", v2("comment/" + val(a, "comment_id") + "/reply"));
       const replies = Array.isArray(result["comments"])
