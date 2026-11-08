@@ -502,6 +502,62 @@ const short = (d: Json, limit = 50): Json => {
   }) as Json;
 };
 
+type CommentCursor = Readonly<{ start: number; startId: string }>;
+
+/** ClickUp v2 uses the oldest visible comment's date AND ID as one cursor. */
+function inputCommentCursor(a: Json): CommentCursor | null {
+  const start = a["comment_start"];
+  const startId = a["comment_start_id"];
+  if (start === undefined && startId === undefined) return null;
+  if (
+    !Number.isSafeInteger(start) ||
+    Number(start) <= 0 ||
+    Number(start) > 9_000_000_000_000 ||
+    typeof startId !== "string" ||
+    !/^[A-Za-z0-9_-]{1,100}$/.test(startId)
+  )
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  return { start: Number(start), startId };
+}
+function commentCursorFrom(comment: Json): CommentCursor | null {
+  const date = comment["date"];
+  const commentId = comment["id"];
+  if (
+    (typeof date !== "number" && typeof date !== "string") ||
+    !/^\d{1,13}$/.test(String(date)) ||
+    !Number.isSafeInteger(Number(date)) ||
+    Number(date) <= 0 ||
+    Number(date) > 9_000_000_000_000 ||
+    typeof commentId !== "string" ||
+    !/^[A-Za-z0-9_-]{1,100}$/.test(commentId)
+  )
+    return null;
+  return { start: Number(date), startId: commentId };
+}
+async function taskCommentPage(
+  read: (path: string) => Promise<Json>,
+  taskId: string,
+  cursor: CommentCursor | null,
+): Promise<Json[]> {
+  const params = new URLSearchParams();
+  if (cursor !== null) {
+    params.set("start", String(cursor.start));
+    params.set("start_id", cursor.startId);
+  }
+  const path = v2("task/" + id(taskId) + "/comment" + (cursor ? "?" + params.toString() : ""));
+  const result = await read(path);
+  if (
+    !Array.isArray(result["comments"]) ||
+    result["comments"].length > 25 ||
+    result["comments"].some((entry: unknown) => {
+      const comment = obj(entry);
+      return !comment || typeof comment["id"] !== "string";
+    })
+  )
+    throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+  return result["comments"] as Json[];
+}
+
 /** REST adapters use individual OAuth. Base64 attachment uploads are capped
  * at 500 KiB because MCP tool args are text; no remote file URLs are fetched. */
 async function uploadAttachment(
@@ -899,45 +955,84 @@ export async function runCatalogOperation(
     case "clickup_search_tasks_by_tag": {
       const target = a["list_id"] ?? g.listId;
       if (!workspaceScope || a["list_id"] !== undefined) await listInWorkspace(g, f, target);
-      const result = await call(
-        "GET",
+      // Keep one named tool per operation. Search every bounded page rather than
+      // silently dropping matches beyond the first 100 ClickUp tasks.
+      const startPage = a["task_page"] ?? 0;
+      const startOffset = a["task_offset"] ?? 0;
+      if (!Number.isSafeInteger(startPage) || Number(startPage) < 0 || Number(startPage) > 100_000)
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (!Number.isSafeInteger(startOffset) || Number(startOffset) < 0 || Number(startOffset) > 99)
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const targetPath =
         workspaceScope && a["list_id"] === undefined
-          ? v2("team/" + W + "/task?page=0&subtasks=true&include_closed=true")
-          : v2(
-              "list/" +
-                id(target) +
-                "/task?page=0&subtasks=true&include_closed=true" +
-                (workspaceScope ? "&include_timl=true" : ""),
-            ),
-      );
-      if (!Array.isArray(result["tasks"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      const tasks = result["tasks"];
-      for (const candidate of tasks) {
-        const t = obj(candidate);
-        const homeList = obj(t?.["list"])?.["id"];
-        if (
-          !t ||
-          (typeof homeList !== "number" && typeof homeList !== "string") ||
-          !/^[1-9]\d{0,17}$/.test(String(homeList)) ||
-          (!workspaceScope && String(homeList) !== g.listId)
-        )
-          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      }
-      const found = tasks.filter((x) => {
-        const t = obj(x);
-        if (!t) return false;
-        return name.endsWith("by_type")
-          ? String(t["custom_item_id"]) === String(a["task_type"])
-          : Array.isArray(t["tags"]) &&
-              t["tags"].some(
-                (tag: unknown) =>
-                  String(obj(tag)?.["name"]).toLowerCase() === String(a["tag"]).toLowerCase(),
-              );
+          ? "team/" + W + "/task"
+          : "list/" + id(target) + "/task";
+      const params = new URLSearchParams({
+        subtasks: "true",
+        include_closed: "true",
       });
+      if (workspaceScope && a["list_id"] !== undefined) params.set("include_timl", "true");
+      const found: Json[] = [];
+      let pagesScanned = 0;
+      let nextTaskPage: number | null = null;
+      let nextTaskOffset = 0;
+      const maxPagesPerCall = 10;
+      for (let scanned = 0; scanned < maxPagesPerCall; scanned++) {
+        const page = Number(startPage) + scanned;
+        if (page > 100_000) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        params.set("page", String(page));
+        const result = await call("GET", v2(targetPath + "?" + params.toString()));
+        if (!Array.isArray(result["tasks"]) || result["tasks"].length > 100)
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        const tasks = result["tasks"];
+        const offset = scanned === 0 ? Number(startOffset) : 0;
+        if (offset > 0 && offset >= tasks.length) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        // Validate the entire upstream page before releasing even one result.
+        for (const candidate of tasks) {
+          const t = obj(candidate);
+          const homeList = obj(t?.["list"])?.["id"];
+          if (
+            !t ||
+            (typeof homeList !== "number" && typeof homeList !== "string") ||
+            !/^[1-9]\d{0,17}$/.test(String(homeList)) ||
+            (!workspaceScope && String(homeList) !== g.listId)
+          )
+            throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+        }
+        pagesScanned++;
+        for (let item = offset; item < tasks.length; item++) {
+          const t = obj(tasks[item])!;
+          const matches =
+            name === "clickup_search_tasks_by_type"
+              ? String(t["custom_item_id"] ?? 0) === String(a["task_type"])
+              : Array.isArray(t["tags"]) &&
+                t["tags"].some(
+                  (tag: unknown) =>
+                    String(obj(tag)?.["name"]).toLowerCase() === String(a["tag"]).toLowerCase(),
+                );
+          if (!matches) continue;
+          found.push(t);
+          if (found.length === N) {
+            const moreInPage = item + 1 < tasks.length;
+            const morePages = tasks.length === 100 && result["last_page"] !== true;
+            if (moreInPage || morePages) {
+              nextTaskPage = moreInPage ? page : page + 1;
+              nextTaskOffset = moreInPage ? item + 1 : 0;
+            }
+            break;
+          }
+        }
+        if (found.length === N) break;
+        if (tasks.length < 100 || result["last_page"] === true) break;
+        if (scanned === maxPagesPerCall - 1) nextTaskPage = page + 1;
+      }
       return {
         source: "clickup-api-v2",
-        tasks: clip(found.slice(0, N)),
-        incomplete: tasks.length >= 100 || found.length > N,
+        tasks: clip(found),
+        pages_scanned: pagesScanned,
+        next_task_page: nextTaskPage,
+        next_task_offset: nextTaskOffset,
+        incomplete: nextTaskPage !== null,
       };
     }
     case "clickup_create_task": {
@@ -1183,18 +1278,84 @@ export async function runCatalogOperation(
         typeof a["media_type"] === "string" ? a["media_type"] : "application/octet-stream",
       );
     }
-    case "clickup_get_task_comments":
+    case "clickup_get_task_comments": {
       await task("task_id");
-      return short(await call("GET", v2("task/" + val(a, "task_id") + "/comment")), N);
+      const taskId = String(a["task_id"]);
+      const read = (path: string) => call("GET", path);
+      let cursor = inputCommentCursor(a);
+      const comments: Json[] = [];
+      const seen = new Set<string>();
+      let pagesScanned = 0;
+      let incomplete = false;
+      let continuationUnavailable = false;
+      let next: CommentCursor | null = null;
+      // The API returns at most 25 comments per page; 3 reads suffice for
+      // max_results <= 50, with a hard bound against unexpected upstream loops.
+      for (let pageIndex = 0; pageIndex < 3; pageIndex++) {
+        const batch = await taskCommentPage(read, taskId, cursor);
+        pagesScanned++;
+        for (const comment of batch) {
+          const key = String(comment["id"]);
+          if (seen.has(key)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+          seen.add(key);
+        }
+        const visible = batch.slice(0, N - comments.length);
+        comments.push(...visible);
+        const mayHaveMore = batch.length === 25 || batch.length > visible.length;
+        if (mayHaveMore) {
+          next = commentCursorFrom(visible[visible.length - 1]!);
+          if (!next) continuationUnavailable = true;
+        } else {
+          next = null;
+        }
+        incomplete = mayHaveMore;
+        if (comments.length === N || batch.length < 25 || !next) break;
+        cursor = next;
+      }
+      // Pagination completeness and rich-content completeness are distinct:
+      // a short upstream page may still contain text or formatted spans that
+      // exceed the existing safe response bounds.
+      const richCommentsClipped = comments.some((entry) => {
+        const spans = obj(entry)?.["comment"];
+        return Array.isArray(spans) && spans.length > 100;
+      });
+      const payloadClipped = hasClippedText({ comments }) || richCommentsClipped;
+      return {
+        source: "clickup-api-v2",
+        comments: clip(comments),
+        pages_scanned: pagesScanned,
+        next_comment_start: next?.start ?? null,
+        next_comment_start_id: next?.startId ?? null,
+        incomplete: incomplete || payloadClipped,
+        content_truncated: payloadClipped,
+        continuation_unavailable: continuationUnavailable,
+        first_page_only: pagesScanned === 1,
+      };
+    }
     case "clickup_get_threaded_replies": {
       await task("task_id");
-      const comments = await call("GET", v2("task/" + val(a, "task_id") + "/comment"));
-      if (!Array.isArray(comments["comments"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      const parent = comments["comments"]
-        .map(obj)
-        .find((comment) => String(comment?.["id"]) === String(a["comment_id"]));
-      // Only comments verifiably belonging to the validated task are eligible.
-      // Older comments outside the first upstream page fail closed.
+      const read = (path: string) => call("GET", path);
+      let cursor = inputCommentCursor(a);
+      let parent: Json | undefined;
+      const seen = new Set<string>();
+      // Only a parent obtained from the already authorized task's own
+      // comment endpoint may authorize the subsequent comment-ID API read.
+      // Explicit cursors permit older parents beyond the bounded scan.
+      for (let pageIndex = 0; pageIndex < 10; pageIndex++) {
+        const batch = await taskCommentPage(read, String(a["task_id"]), cursor);
+        for (const comment of batch) {
+          const key = String(comment["id"]);
+          if (seen.has(key)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+          seen.add(key);
+        }
+        parent = batch.find((comment) => String(comment["id"]) === String(a["comment_id"]));
+        if (parent) break;
+        if (batch.length < 25) break;
+        const next = commentCursorFrom(batch[batch.length - 1]!);
+        if (!next || (cursor && cursor.start === next.start && cursor.startId === next.startId))
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        cursor = next;
+      }
       if (!parent) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       const result = await call("GET", v2("comment/" + val(a, "comment_id") + "/reply"));
       const replies = Array.isArray(result["comments"])
