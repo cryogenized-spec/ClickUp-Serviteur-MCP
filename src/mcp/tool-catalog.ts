@@ -380,7 +380,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Find tasks carrying an existing named tag, with bounded task-page continuation. Tags are not statuses or custom fields.",
     "Find tasks tagged urgent.",
     ["tag"],
-    ["list_id", "max_results"],
+    ["list_id", "max_results", "task_page", "task_offset"],
   ),
 
   // TASKS (5)
