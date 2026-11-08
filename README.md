@@ -4,11 +4,13 @@
 
 **Release candidate: v0.3.0-beta.1 — public source beta (7 November 2026)**
 
+**Official MCP Registry:** [View the active v0.3.0-beta.1 listing (JSON)](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.cryogenized-spec%2Fclickup-serviteur-mcp) · [Self-hosting and registry setup](docs/MCP_REGISTRY.md) · [Glama maintainer metadata](glama.json)
+
 ClickUp Serviteur is a remote [Model Context Protocol](https://modelcontextprotocol.io/) server exposing ClickUp REST operations to MCP-compatible AI clients, including ChatGPT and Claude clients that support remote MCP. Each installation is operated by its own administrator, uses a separate Cloudflare Worker, and verifies both MCP-client identity and the individual's ClickUp OAuth credentials. This is an independent community project, **not** a product of or affiliated with ClickUp.
 
 **Public source does not mean public access to a running Worker.** The reference company deployment is a privately authorized installation. Do not connect strangers to that endpoint, copy another operator's Workspace IDs, or reuse any shared credentials.
 
-**Official MCP Registry:** [Self-hosted registry installation and publication guide](docs/MCP_REGISTRY.md). Each user must supply the HTTPS hostname of their *own* configured Worker; the listing does not provide a shared public ClickUp service.
+**Registry listings are discovery metadata, not public access.** Each user must supply the HTTPS hostname of their *own* configured Worker; there is no shared public ClickUp service.
 
 ## Features
 
