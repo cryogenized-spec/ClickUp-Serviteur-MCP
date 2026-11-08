@@ -1090,11 +1090,9 @@ export async function runCatalogOperation(
       const checklist = authorizedTaskChecklist(verifiedTask, a["checklist_id"]);
       if (!Array.isArray(checklist["items"]) || checklist["items"].length > 500)
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      const result = await call(
-        "POST",
-        v2("checklist/" + key + "/checklist_item"),
-        { name: txt(a["name"], 500) },
-      );
+      const result = await call("POST", v2("checklist/" + key + "/checklist_item"), {
+        name: txt(a["name"], 500),
+      });
       const stored = obj(result["checklist"]);
       if (!stored || String(stored["id"]) !== String(a["checklist_id"]))
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
@@ -1121,11 +1119,18 @@ export async function runCatalogOperation(
         ...(hasResolution ? { resolved: a["resolved"] } : {}),
       };
       // No automatic retry: a timeout after PUT leaves the result uncertain.
-      await call("PUT", v2("checklist/" + key + "/checklist_item/" + itemId), body, "empty-write-ack");
+      await call(
+        "PUT",
+        v2("checklist/" + key + "/checklist_item/" + itemId),
+        body,
+        "empty-write-ack",
+      );
       const after = await task("task_id");
       const verifiedChecklist = authorizedTaskChecklist(after, a["checklist_id"]);
       const updated = Array.isArray(verifiedChecklist["items"])
-        ? verifiedChecklist["items"].map(obj).find((item) => item?.["id"] === a["checklist_item_id"])
+        ? verifiedChecklist["items"]
+            .map(obj)
+            .find((item) => item?.["id"] === a["checklist_item_id"])
         : null;
       if (
         !updated ||
@@ -1152,8 +1157,12 @@ export async function runCatalogOperation(
       if (
         views.some((view) => {
           const parent = obj(view?.["parent"]);
-          return !view || !parent || Number(parent["type"]) !== 6 ||
-            String(parent["id"]) !== String(a["list_id"]);
+          return (
+            !view ||
+            !parent ||
+            Number(parent["type"]) !== 6 ||
+            String(parent["id"]) !== String(a["list_id"])
+          );
         })
       )
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
@@ -1171,12 +1180,20 @@ export async function runCatalogOperation(
       if (
         views.some((view) => {
           const parent = obj(view?.["parent"]);
-          return !view || !parent || Number(parent["type"]) !== 7 ||
-            String(parent["id"]) !== g.workspaceId;
+          return (
+            !view ||
+            !parent ||
+            Number(parent["type"]) !== 7 ||
+            String(parent["id"]) !== g.workspaceId
+          );
         })
       )
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      return { source: "clickup-api-v2", views: clip(views.slice(0, N)), incomplete: views.length > N };
+      return {
+        source: "clickup-api-v2",
+        views: clip(views.slice(0, N)),
+        incomplete: views.length > N,
+      };
     }
     case "clickup_get_view_tasks": {
       await list("list_id");
