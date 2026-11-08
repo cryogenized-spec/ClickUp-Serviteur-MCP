@@ -151,6 +151,13 @@ const F = {
     24,
   ),
   comment_id: str("Exact ClickUp comment identifier.", 100),
+  confirm_delete: flag(
+    "Must be true for company cleanup; confirms deletion of the exact verified item.",
+  ),
+  expected_task_name: str(
+    "Exact currently observed task title; required for company test-task deletion.",
+    180,
+  ),
   attachment_id: str("Exact PDF attachment ID from the verified task; never supply a URL.", 100),
   parent_comment_id: str(
     "Verified parent comment ID on the same authorized task; create a threaded reply.",
@@ -187,6 +194,40 @@ const F = {
   assignee_ids: arrayOf("Verified ClickUp member IDs.", memberId, 12),
   text: str("Exact message/comment text; posting is a write with external visibility.", 6_000),
   content: str("Full Chat message body, up to the ClickUp v3 documented 40,000-character limit. Use instead of legacy text.", 40_000),
+  rich_segments: arrayOf(
+    "ClickUp native rich comment spans: text attributes, newline list or code-block attributes, verified user mentions, emoji, or an explicit visible divider fallback. Use INSTEAD of text or mention_segments.",
+    obj(
+      "One ordered rich-text span, newline-formatting block, real @mention, emoji or divider fallback.",
+      {
+        text: str(
+          "Literal text span (Markdown markup is NOT parsed). Newline attributes require text set to a single newline.",
+          40_000,
+        ),
+        bold: flag("Apply bold styling to this text span."),
+        italic: flag("Apply italic styling to this text span."),
+        code: flag("Apply inline code styling to this text span."),
+        link: str("Absolute http(s) or mailto URL attached to the text span.", 2_048),
+        list_type: {
+          type: "string",
+          description:
+            "For a newline only: native bullet, ordered, checked, unchecked, toggled or none list style.",
+          enum: ["bullet", "ordered", "checked", "unchecked", "toggled", "none"],
+        },
+        code_block_language: str(
+          "For a newline only: native code-block language (plain, javascript, etc).",
+          32,
+        ),
+        indent: integer("For a newline only: list indentation level (0-8).", 0, 8),
+        mention_user_id: memberId,
+        emoji_code: str(
+          "Unicode emoji hex code point, e.g. 1f60a. Server creates a native ClickUp emoticon node.",
+          8,
+        ),
+        divider: flag("Explicit Unicode divider fallback, NOT a native ClickUp divider block."),
+      },
+    ),
+    100,
+  ),
   mention_segments: arrayOf(
     "For a NEW task comment only. Ordered text and genuine ClickUp member-tag segments; use this INSTEAD of text, never together or for a threaded reply. Tags can notify colleagues, so require explicit approval.",
     obj("Exactly one of text or mention_user_id.", {
@@ -372,9 +413,10 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Delete Task",
     "tasks",
     "destructive",
-    "Permanently delete an identified task/subtask. Destructive and separately approval-gated; schema does not enable deletion.",
-    "Delete a disposable test-only task after explicit confirmation.",
+    "Send exactly one verified task to ClickUp Trash after confirming its exact current title and ID. No bulk deletion; requires owner-enabled cleanup and explicit confirmation.",
+    "Remove my disposable Serviteur test task after inspecting it.",
     ["task_id"],
+    ["confirm_delete", "expected_task_name"],
   ),
 
   // BULK (2)
@@ -445,10 +487,20 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Create Task Comment",
     "comments",
     "write",
-    "Post one approved visible comment. Use plain text OR ordered mention_segments for real @mentions of verified Workspace members on a NEW task comment. Mentions may notify those people, independent of comment assignment; notify_all stays false. Rich edits and threaded rich replies are not supported.",
+    "Create plain text, legacy mention_segments, or full ClickUp-native rich_segments (bold/italic/code/hyperlinks/lists/checklists/toggles/code blocks/emoji/verified @mentions). Choose one content mode. Markdown syntax in a text span remains literal; explicit divider produces a Unicode fallback. Rich editing and threaded rich replies not supported.",
     "Post an approved new comment with text before and after a verified colleague mention.",
     ["task_id"],
-    ["text", "mention_segments", "parent_comment_id", "assignee_id"],
+    ["text", "mention_segments", "rich_segments", "parent_comment_id", "assignee_id"],
+  ),
+
+  tool(
+    "clickup_delete_task_comment",
+    "Delete Own Task Comment",
+    "comments",
+    "destructive",
+    "Delete the exact comment only when it belongs to the authenticated user on an independently verified authorized task. Confirmation is mandatory; no bulk or third-party comment deletions.",
+    "Remove my own accidental QA formatting comment after verifying its task and ID.",
+    ["task_id", "comment_id", "confirm_delete"],
   ),
 
   tool(

@@ -1,65 +1,78 @@
 # ClickUp Serviteur MCP
 
-> **5 November 2026 source candidate:** A custom 49th tool, `clickup_edit_task_comment`, adds owner-only correction of task comments with task/List and author verification plus readback. The historical 48-tool catalogue counts below describe the earlier release; editing is unavailable in the connected MCP until this change passes CI, is merged, is deployed to the company Worker and the ChatGPT app tools are refreshed.
+**Self-hosted ClickUp integration for MCP clients** · TypeScript · Cloudflare Workers · dual OAuth · [MIT License](LICENSE)
 
-> **Current checkpoint — 3 November 2026 SAST:** The **custom** MCP is connected to the owner-approved **dummy** ClickUp Workspace; OAuth read/write grants and Workspace scope are enabled for that dummy identity. Multiple read routes and authorization denials have been validated live, but **not 48/48 verified**. GitHub `main` is CI-green; **the latest per-user List-target selector merged in PR #67 has not yet been manually deployed to staging**, so the connected ChatGPT tool list still lacks it. Never send company tasks through this staging profile. See the [3 November live audit](docs/MCP_LIVE_AUDIT_2026-11-03.md) and [release readiness roadmap](docs/RELEASE_READINESS_ROADMAP_2026-11-02.md).
+**Release candidate: v0.3.0-beta.1 — public source beta (7 November 2026)**
 
-A private, cloud-hosted [Model Context Protocol](https://modelcontextprotocol.io/) server connecting authorized staff members to ClickUp through **their own individual ClickUp OAuth accounts**. The same remote MCP endpoint is intended for supported Claude and ChatGPT clients.
+ClickUp Serviteur is a remote [Model Context Protocol](https://modelcontextprotocol.io/) server exposing ClickUp REST operations to MCP-compatible AI clients, including ChatGPT and Claude clients that support remote MCP. Each installation is operated by its own administrator, uses a separate Cloudflare Worker, and verifies both MCP-client identity and the individual's ClickUp OAuth credentials. This is an independent community project, **not** a product of or affiliated with ClickUp.
 
-> **Integration checkpoint — 12 October 2026 (SAST):** OAuth, 48 ClickUp REST-backed catalogue tool adapters, Codex security remediations, and cloud-only GitHub Actions deployment workflow are **merged into `main`**. Strict CI at commit `46c834c714c08aa1b13e2f026351292c0fcc9315` passed all checks. The owner previously connected the custom MCP from Claude to a Cloudflare-hosted staging endpoint; this is not evidence that the new 48 operations have been deployed or tested with real ClickUp credentials. **Staging deployment/CLI configuration and then hands-on Claude/ChatGPT + ClickUp acceptance remain.** No local always-on service, duplicate journal, rollback system or second tool-approval UI.
+**Public source does not mean public access to a running Worker.** The reference company deployment is a privately authorized installation. Do not connect strangers to that endpoint, copy another operator's Workspace IDs, or reuse any shared credentials.
 
-## Responsibilities — no duplicate systems
+## Features
 
-| Platform | Sole responsibility |
-|---|---|
-| **ClickUp** | Task data, staff permissions, activity/history, native attribution, existing comments, updates and any recovery it natively supports |
-| **Claude / ChatGPT** | Per-tool allow/deny prompts, low-risk approvals and user-specific tool trust preferences |
-| **ClickUp Serviteur MCP** | OAuth verification and account mapping, forwarding bounded ClickUp API calls under each user's own token, input validation, fixed-resource scoping and upstream ClickUp rate-limit response handling (no artificial per-user/shared request ceiling) |
-| **Cloudflare Workers** | Permanent HTTPS remote MCP hosting and encrypted per-user credential storage |
-| **GitHub Actions** | Hosted CI and manual deployment to an isolated Cloudflare Worker; never hosts the persistent application |
+- Real ClickUp REST-backed tools for scoped task search, task creation, assignment and editing; lists, folders, tags, dependencies, task links, comments, Custom Fields, time entries, Docs and Chat where supported by the upstream REST API.
+- Native task/List Markdown descriptions and Markdown readback; Docs and Chat have separate `text/md` and `text/plain` handling. Native structured rich task comments support emphasis, links, list/checklist/toggle formatting, code, emojis, and verified genuine @mentions.
+- A bounded PDF reader for supported text-based attachments. Image/file-upload adapters and several less-common API paths still have open acceptance work; see [Known limitations](#known-limitations).
+- Authenticated company-owner cleanup of an exact task, the owner's own comments, tags, links and dependencies, with explicit confirmation and scope validation. This is **not** unrestricted bulk deletion.
+- OAuth-bound Workspace or List scope, individual user tokens, encryption at rest for stored credentials, API rate-limit handling, strict request validation and no blind retry after uncertain writes.
+- Cloudflare Workers HTTPS hosting, GitHub Actions CI, CodeQL and manually invoked protected deployments.
 
-**There is no Serviteur activity journal, duplicate audit dashboard, rollback engine or additional per-tool approval settings.** The previously proposed journal/rollback design was rejected by the owner and removed from the current feature branch.
+### What has actually been verified
 
-## Implemented server tools
+In November 2026, a protected company deployment was checked against its exact GitHub build SHA. With an individually authorized ClickUp connection, we verified successful creation and assignment of a disposable task, native Markdown description storage, a rich comment with stored formatting segments, and exact task/comment readback. **API readback alone is not proof of visual fidelity for every editor-only block.** Not every endpoint or third-party MCP client has completed live acceptance.
 
-| Name | Effect | Purpose |
-|---|---|---|
-| `service_info` | Read | Show runtime configuration flags, not proof of connectivity |
-| `connect_clickup_account` | Account operation | Return individual ClickUp authorization URL; no tokens to AI clients |
-| `get_clickup_connection_status` | Read | Show only your own connection |
-| `disconnect_clickup_account` | Account operation | Remove your local encrypted connection (revoke upstream in ClickUp separately) |
-| `clickup_set_workspace_access` | Write-authorized account operation | Explicitly enable or revoke Workspace-wide tools for your own authorized ClickUp account |
-| `find_scoped_tasks` | Read | Get bounded tasks in configured home List |
-| `get_scoped_task` | Read | Read known task ID after verifying its home List |
-| `get_attention_report` | Read | Bounded overdue/upcoming/stale-task metadata; clearly flags incompleteness |
-| `get_scoped_list` | Read | View authorized List name and valid status labels |
-| `create_scoped_task` | Write | Create a task in the configured List under your own account |
-| `clickup_tool_catalog` | Read | Inspect proposed schemas for further ClickUp capabilities; **not** an operational API |
+[Formatting compatibility matrix](docs/clickup-formatting-compatibility.md) · [Release notes](CHANGELOG.md) · [Project limitations](docs/PUBLIC_RELEASE.md) · [Security](SECURITY.md)
 
-**Security checkpoint (25 October 2026):** All **48** catalogue operations remain registered. The default `CLICKUP_RESOURCE_SCOPE=list` blocks task-ID mutation endpoints that lack an atomic home-List precondition. The new `clickup_set_workspace_access` account tool does **not** bypass these protections: it lets the **currently authenticated person** explicitly opt in to Workspace authority only if (1) the owner separately allowlisted their numeric GitHub user ID, (2) their own ClickUp OAuth token was verified as authorized for exactly the configured Workspace, and (3) their MCP grant includes `mcp:write`. The change affects no other staff. In the ordinary List-default configuration, revocation takes immediate effect and reconnecting resets it; a forced staging Workspace configuration instead requires a config rollback to return to List mode.
+## Requirements
 
-**Staging activation after review, merge and manual deployment:**
-1. Staging defaults `CLICKUP_WORKSPACE_GITHUB_IDS` to public repository-owner GitHub ID `256972168`. This is a non-secret staging allowlist for the owner only; the GitHub Actions environment variable `STAGING_WORKSPACE_GITHUB_IDS` may override it. Wrangler's `keep_vars` preserves existing dashboard-defined configuration.
-2. Call `get_clickup_connection_status`. `workspace_scope_approved` and `workspace_exclusive` must both be `true`. If exclusivity is false, reconnect to ClickUp and authorize **only** the approved Workspace.
-3. For the owner's dummy Workspace `9012707978`, staging now sets `CLICKUP_RESOURCE_SCOPE=workspace` for the owner-allowlisted GitHub identity only. No separate opt-in tool call is needed. Verify `get_clickup_connection_status` reports `workspace_scope_enabled: true` and `get_scoped_list` reports `resource_scope: "workspace"` after deployment.
-4. Exercise updates, comments and dependencies **on disposable records only**. To revoke this staging default, restore `CLICKUP_RESOURCE_SCOPE=list` and redeploy (or remove the owner from the Workspace allowlist); the per-user `enabled: false` tool rejects forced scope rather than falsely reporting revocation. Separate AI-client confirmation remains necessary for risky writes and deletion. No existing tasks are automatically modified by changing access.
+- Node.js **22.20.0 or newer** and npm for development or GitHub Actions builds.
+- A Cloudflare account with Workers, a dedicated OAuth KV namespace and the required SQLite Durable Objects.
+- GitHub OAuth credentials to authenticate MCP users; ClickUp OAuth app credentials to authorize each person against their own ClickUp account.
+- A specific ClickUp Workspace/List and individually authorized users. Configure your own IDs and OAuth clients; sample values are never production grants.
+- An MCP client that can connect to an OAuth-protected remote server.
 
+## Run the checks
 
-Tools execute through the official `@modelcontextprotocol/server` v2 SDK and ClickUp REST API v2. Read operations require `mcp:read`; writes additionally require the explicitly consented `mcp:write` MCP OAuth scope. **This OAuth scope is not a duplicate client approval interface.** Users still control the AI client's own permission prompts.
+```bash
+git clone https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP.git
+cd ClickUp-Serviteur-MCP
+npm ci --ignore-scripts --no-audit --no-fund
+python3 scripts/check_repo_policy.py
+python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v
+npm run format:check
+npm run lint
+npm run typecheck
+npm test
+npm run build
+node scripts/staging-local-smoke.mjs
+npm audit --audit-level=high
+```
 
-The separate **48-capability model-facing schema catalogue** is descriptive, but all 48 names also have REST-backed runtime adapters. Synthetic integration tests exercise the runtime; actual ClickUp API compatibility, permission semantics and client connections are still unverified. Do not present this as validated first-party ClickUp MCP parity.
+The root package is intentionally `private: true`: this beta is **open-source on GitHub**, not a published npm package. Do not treat a green test suite as confirmation of configured cloud secrets or ClickUp authorization.
 
-## Deployment — cloud only
+## Deploy your own instance
 
-1. Review and merge the stacked draft PRs in dependency order, preserving all OAuth and strict CI changes: [#17](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/17) → [#18](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/18) → [#20](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/20) → [#21](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/21) → [#22](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/22) → [#23](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/23). Their earlier Phase 3 bases must also be reconciled into `main` first. Alternative schema PR #19 is **not** part of this stack. Never merge merely because a unit test passed.
-2. Follow [Phase 5 individual OAuth and cloud-only setup](docs/PHASE5_USER_OAUTH_AND_CLOUD_CI.md): configure independent GitHub OAuth and ClickUp OAuth apps, the exact HTTPS callback origin, a dedicated staging KV, the required SQLite Durable Objects and per-user account mapping. Secrets belong in GitHub's protected staging environment and Cloudflare Worker Secrets, **not** in the repository, laptop or chat.
-3. Run [Deploy ClickUp Serviteur MCP staging](.github/workflows/deploy-staging.yml) manually on reviewed `main` via GitHub Actions. This runs tests and uses a pinned Wrangler to deploy an isolated Cloudflare staging Worker. It does **not** require a local laptop service.
-4. Only enable `CLICKUP_OAUTH_ENABLED` and `CLICKUP_LIVE_ENABLED` after owner-approved staging setup, appropriate ClickUp List and individual user grants. Each employee completes their own ClickUp consent. Confirm real user attribution in ClickUp's native Activity and verify read/write restrictions on a disposable test List before operational rollout.
+The maintained deployment paths are [staging](.github/workflows/deploy-staging.yml) and [isolated company](.github/workflows/deploy-company.yml). They are invoked manually from reviewed `main`; they do **not** publish an unauthenticated ClickUp gateway.
 
-## Adversarial testing
+1. Fork the source or create a repository you control. Configure two separate OAuth clients (GitHub for the MCP connection, ClickUp for the upstream personal account) and register the exact HTTPS redirect origins. Use different credentials and stores for staging and company environments.
+2. Create Cloudflare OAuth KV and the Worker/Durable Object bindings. Store **GITHUB_CLIENT_SECRET, CLICKUP_CLIENT_SECRET, CLICKUP_STATE_KEY and CLICKUP_TOKEN_KEY** only as Cloudflare secrets or appropriate protected deployment secrets, never as Git-tracked files. Confirm the key encoding requirements in [OAuth setup](docs/PHASE5_USER_OAUTH_AND_CLOUD_CI.md).
+3. Configure repository **staging** environment variable `STAGING_OAUTH_KV_ID` and an explicit comma-separated allowlist `STAGING_WORKSPACE_GITHUB_IDS` containing only GitHub identities you authorize. The public beta no longer defaults to the original repository owner's GitHub ID.
+4. Choose your own Worker hostname and configure its OAuth callbacks, public origin, ClickUp Workspace/List bindings and staff mapping. See [Deployment and permissions](docs/PUBLIC_RELEASE.md) and [Workspace targeting](docs/TARGET_CONFIGURATION.md). The reference company generator validates `COMPANY_OAUTH_KV_ID`, `COMPANY_WORKSPACE_ID`, `COMPANY_LIST_ID`, `COMPANY_GITHUB_OWNER_ID`, `COMPANY_CLICKUP_USER_ID`, and `COMPANY_PUBLIC_ORIGIN`. It targets a dedicated owner-only Worker; adapt it if you need an entirely separate tenancy model.
+5. Trigger the matching **GitHub Actions manual deployment**, connect your MCP client to your *own* Worker HTTPS endpoint, complete both OAuth grants, and call `service_info` and `get_clickup_connection_status` to verify the deployed build and exclusive Workspace access.
+6. Exercise reads first, then write/readback against an approved disposable task. Plan cleanup before creating records. Never rely on a task title alone for authorization.
 
-Synthetic tests cover independently verified staff identity, forged bearer/header rejection, one-use OAuth state, wrong Workspace/account rejection before saving credentials, encrypted vault isolation, cross-List task substitution, foreign-Workspace List denial, unavailable task-ID mutation surfaces, write-scope OAuth step-up, 429 cooldown handling, invalid arguments, redirects, quota-denied operations, uncertain writes with **no automatic retry**, and a complete MCP SDK `tools/list` → `tools/call` write flow. The CI workflow requires format, lint, strict TypeScript, Vitest, Worker dry-run, real local workerd HTTPS security smoke, policy regression checks and dependency audit.
+**Migration warning:** This release renames the legacy staging Worker and the generic `wrangler.jsonc` project name. Existing staging URLs, OAuth callbacks, stored Worker state and custom client connectors do **not** automatically migrate. Reconfigure the new origin and Cloudflare resources before switching endpoints, and retire old infrastructure separately. The protected company Worker name is unchanged.
 
-Run via GitHub Actions; no local development environment is required. Source [release evidence and limitations](docs/PROJECT_STATE.md), [tool schema](docs/CLICKUP_TOOL_SCHEMA.md) and [MCP conformance acceptance](docs/MCP_COMPLIANCE.md).
+## Known limitations
 
-**Still unverified:** real ClickUp REST responses and native attribution, live Cloudflare deployment, end-to-end OAuth and token revocation, external Claude/ChatGPT subscription UI integration, official MCP conformance runner, and full first-party ClickUp MCP parity. Test fixtures cannot establish any of these. Never represent the service as operational without completing the relevant real acceptance steps.
+- ClickUp's public task-comment API does **not** document native table cells or a native horizontal-rule block; plain pipe tables and `---` can display literally. Use a genuine task-description Markdown table or a label/value comment fallback.
+- Docs Markdown can be lossy for editor-only tables, toggles, colors and other native components. Chat message and Docs cleanup coverage is not complete.
+- There is no general rollback engine. A delete is destructive; ownership, Workspace bounds and explicit consent still matter. Some upstream features depend on ClickUp plan settings and API availability.
+- Many older `docs/` records are **historical engineering evidence**, not current instructions. The README and [public release guide](docs/PUBLIC_RELEASE.md) supersede stale operational claims in archived notes.
+- Source is publicly readable; the connected private Worker, customer data, staff accounts and API keys are **not** public.
+
+## Project and community
+
+Bug reports and feature proposals: [GitHub Issues](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/issues). Contributions: [CONTRIBUTING.md](CONTRIBUTING.md). Report security issues **privately**, as described in [SECURITY.md](SECURITY.md). See [CHANGELOG.md](CHANGELOG.md) for release changes.
+
+**License:** MIT. ClickUp is a trademark of its respective owner; this project does not claim ClickUp endorsement.

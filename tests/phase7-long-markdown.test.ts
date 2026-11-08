@@ -141,5 +141,14 @@ describe("full-length Markdown authoring for v3 Docs and Chat", () => {
       ),
     ).rejects.toThrow("CLICKUP_INVALID_ARGUMENT");
     expect(api.calls.filter((item) => item.method !== "GET")).toHaveLength(writes);
+    await expect(
+      runCatalogOperation(
+        "clickup_create_document_page",
+        { document_id: "doc-1", name: "Invalid", doc_content: null },
+        grant,
+        api.fetcher as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_INVALID_ARGUMENT");
+    expect(api.calls.filter((item) => item.method !== "GET")).toHaveLength(writes);
   });
 });

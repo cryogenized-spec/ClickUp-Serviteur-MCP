@@ -223,7 +223,6 @@ describe("company read-only OAuth consent boundary", () => {
     expect(html).toContain("disabled by the server");
     expect(html).toContain("ClickUp Serviteur MCP");
     expect(html).not.toContain('value="mcp:write"');
-    expect(html).not.toContain("NEONSALES");
     expect(validatedReadOnlyScopes(["mcp:read"], true)).toEqual(["mcp:read"]);
     expect(() => validatedReadOnlyScopes(["mcp:read", "mcp:write"], true)).toThrow();
   });

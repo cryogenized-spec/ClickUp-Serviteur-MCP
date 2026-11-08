@@ -2,13 +2,13 @@
 
 > **Current evidence (3 November 2026):** [Latest custom MCP live audit](MCP_LIVE_AUDIT_2026-11-03.md). The 2 November table below is historical: today's dummy Workspace access is enabled, multiple read operations succeed, and Time-in-Status remains plan-dependent. Tool discovery is **still 58 vs expected 61** until the merged target selector is deployed and client tools refreshed. No production Workspace was used.
 
-> **Updated live evidence:** [2 November MCP smoke test: 3 new tasks, 11 catalogue tools passing in limited scenarios, 13 correctly guarded, 24 not yet tested](MCP_LIVE_SMOKE_2026-11-02.md). Tool discovery issue [#50](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/issues/50) remains a Workspace-enabled acceptance blocker.
+> **Updated live evidence:** [2 November MCP smoke test: 3 new tasks, 11 catalogue tools passing in limited scenarios, 13 correctly guarded, 24 not yet tested](MCP_LIVE_SMOKE_2026-11-02.md). Tool discovery issue [#50](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/issues/50) remains a Workspace-enabled acceptance blocker.
 
-**Live baseline:** 2026-11-02 (SAST, UTC+02:00). **Scope:** the owner's **dummy** ClickUp Workspace `9012707978` and approved List `901219425894` (Workshop Action Register), NOT a production NeonSales Workspace. **No live business task changes authorised by this document.**
+**Live baseline:** 2026-11-02 (SAST, UTC+02:00). **Scope:** the owner's **dummy** ClickUp Workspace `9012707978` and approved List `901219425894` (Workshop Action Register), NOT a production Serviteur Workspace. **No live business task changes authorised by this document.**
 
 ## Evidence checkpoint — what is actually known
 
-- The **staging deployment completed successfully**, deploying `main` commit `f0485c2c3fa327bfdccfe42cd858dd73087c84f3`: [GitHub Actions run 41485760603](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/actions/runs/41485760603). Same-SHA [Strict CI](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/actions/runs/41484404678) and [CodeQL](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/actions/runs/41484404731) succeeded.
+- The **staging deployment completed successfully**, deploying `main` commit `f0485c2c3fa327bfdccfe42cd858dd73087c84f3`: [GitHub Actions run 41485760603](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/actions/runs/41485760603). Same-SHA [Strict CI](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/actions/runs/41484404678) and [CodeQL](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/actions/runs/41484404731) succeeded.
 - A real ChatGPT MCP call to `get_clickup_connection_status` returned `connected: true`, `workspace_exclusive: true`, `workspace_scope_approved: true`, `workspace_scope_enabled: false`, `mcp_read_scope_granted: true`, `mcp_write_scope_granted: true`. The authenticated ClickUp user ID is `164542998`.
 - Live **successful read** cases: `get_scoped_list`, `find_scoped_tasks` (21 complete task summaries), `get_scoped_task` (bounded description/format/truncation/priority), `get_attention_report`, `clickup_get_list`, `clickup_get_task`, and `clickup_search_workspace` (one matching authorized task; zero Docs, Lists or Folders returned in List mode). Single-list access is real, not merely synthetic.
 - Live **expected denial** cases: `clickup_get_task_comments`, `clickup_get_task_time_entries`, `clickup_get_workspace_hierarchy` returned `CLICKUP_WORKSPACE_SCOPE_REQUIRED`. This proves those routes failed closed in the tested default configuration, **not** that they succeed when authorized.
@@ -76,6 +76,6 @@ Each group must test the documented *read* or *write* behaviour and separately t
 2. Re-run the previously passing List-mode read/denial smoke tests after reconnection, retaining dummy Workspace scope.
 3. Obtain separate owner approval to enable Workspace access on the dummy board, test explicit opt-in and opt-out; **leave it off after acceptance**.
 4. With owner approval, create a bounded disposable task suite and systematically work through the 48-group matrix, recording PASS/FAIL/GUARDED/UNTESTED and tool response accuracy.
-5. Run live negative-security and official MCP conformance checks. Only then consider real NeonSales staff pilot and production-readiness claims.
+5. Run live negative-security and official MCP conformance checks. Only then consider real Serviteur staff pilot and production-readiness claims.
 
 **Next milestone:** the ChatGPT tool-list mismatch is resolved and at least the List-mode read/scope tests have repeatable evidence. **Definition of done:** 48/48 tools individually accepted (or accurately marked unsupported), safe revocation, successful conformance, and explicit owner-authorized production release.

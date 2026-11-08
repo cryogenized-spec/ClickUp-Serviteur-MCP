@@ -27,7 +27,7 @@ Update `docs/PROJECT_STATE.md` with the current stage, the actual commit SHA(s),
 
 ## Handoff prompt for a brand-new ChatGPT / Claude agent
 
-> Continue the private GitHub repository `cryogenized-spec/NeonSales-ClickUp-MCP-`. Before doing anything, read `AGENTS.md`, `README.md`, `docs/PROJECT_STATE.md`, `docs/DECISIONS.md` and any referenced active spec/plan. Report the latest verified status, what has not been tested, and the exact next task. Do not invent missing work or secrets. Ask for review before making architectural choices or performing real ClickUp writes. Update the canonical state file after each completed unit of work.
+> Continue the private GitHub repository `cryogenized-spec/ClickUp-Serviteur-MCP`. Before doing anything, read `AGENTS.md`, `README.md`, `docs/PROJECT_STATE.md`, `docs/DECISIONS.md` and any referenced active spec/plan. Report the latest verified status, what has not been tested, and the exact next task. Do not invent missing work or secrets. Ask for review before making architectural choices or performing real ClickUp writes. Update the canonical state file after each completed unit of work.
 
 ## Superpowers usage guidance
 
