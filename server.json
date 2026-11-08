@@ -1,0 +1,26 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.cryogenized-spec/clickup-serviteur-mcp",
+  "title": "ClickUp Serviteur MCP",
+  "description": "Self-hosted OAuth-protected ClickUp MCP server for tasks, comments, Docs and workspace operations.",
+  "version": "0.3.0-beta.1",
+  "repository": {
+    "url": "https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP",
+    "source": "github",
+    "id": "1413091112"
+  },
+  "websiteUrl": "https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP#readme",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://{worker_hostname}/mcp",
+      "variables": {
+        "worker_hostname": {
+          "description": "HTTPS hostname of your own independently deployed ClickUp Serviteur Cloudflare Worker (hostname only; no protocol or path). Do not use the maintainer's private company instance.",
+          "isRequired": true,
+          "placeholder": "my-serviteur.myaccount.workers.dev"
+        }
+      }
+    }
+  ]
+}
