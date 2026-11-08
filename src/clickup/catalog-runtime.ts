@@ -418,6 +418,15 @@ function listDescriptionBody(a: Json): Json {
   return {};
 }
 
+/** Docs may be created without content; an explicit invalid/oversize payload is rejected before any write. */
+function validatedDocPageContent(a: Json): string {
+  const value = a["doc_content"];
+  if (value === undefined) return "";
+  if (typeof value !== "string" || value.length > 40_000)
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  return value;
+}
+
 /** ClickUp v3 Docs and Chat define these two exact content formats. */
 function validatedContentFormat(a: Json): "text/md" | "text/plain" {
   const value = a["content_format"] ?? "text/md";
@@ -1822,16 +1831,19 @@ export async function runCatalogOperation(
         await call("GET", v3("workspaces/" + W + "/chat/channels?limit=" + Math.min(N, 50))),
         N,
       );
-    case "clickup_send_chat_message":
+    case "clickup_send_chat_message": {
+      if (a["text"] !== undefined && a["content"] !== undefined)
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       return call(
         "POST",
         v3("workspaces/" + W + "/chat/channels/" + val(a, "channel_id") + "/messages"),
         {
           type: "message",
-          content: txt(a["text"], 40_000),
+          content: txt(a["content"] ?? a["text"], 40_000),
           content_format: validatedContentFormat(a),
         },
       );
+    }
     case "clickup_create_document": {
       const body: Json = { name: txt(a["name"], 180), create_page: true };
       if (a["folder_id"] !== undefined) {
@@ -1862,18 +1874,19 @@ export async function runCatalogOperation(
               val(a, "document_id") +
               "/pages/" +
               val(a, "page_id") +
-              "?content_format=text%2Fmd",
+              "?content_format=" +
+              encodeURIComponent(validatedContentFormat(a)),
           ),
         ),
       );
     case "clickup_create_document_page":
       return call("POST", v3("workspaces/" + W + "/docs/" + val(a, "document_id") + "/pages"), {
         name: txt(a["name"], 180),
-        content: typeof a["doc_content"] === "string" ? a["doc_content"] : "",
+        content: validatedDocPageContent(a),
         content_format: validatedContentFormat(a),
       });
     case "clickup_update_document_page": {
-      const content = txt(a["doc_content"], 12000);
+      const content = txt(a["doc_content"], 40_000);
       const format = validatedContentFormat(a);
       const pagePath = v3(
         "workspaces/" + W + "/docs/" + val(a, "document_id") + "/pages/" + val(a, "page_id"),
