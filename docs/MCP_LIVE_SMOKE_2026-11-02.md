@@ -1,16 +1,16 @@
-# Live NeonSales ClickUp MCP smoke-test evidence — 2 November 2026 (SAST)
+# Live ClickUp Serviteur MCP smoke-test evidence — 2 November 2026 (SAST)
 
-> **Do not confuse tool-registration and permission enforcement with full tool correctness.** This report records only real operations performed through the user's connected ChatGPT custom NeonSales MCP against their fictional/dummy offshore project. No production staff tasks were modified.
+> **Do not confuse tool-registration and permission enforcement with full tool correctness.** This report records only real operations performed through the user's connected ChatGPT custom ClickUp Serviteur MCP against their fictional/dummy offshore project. No production staff tasks were modified.
 
 
 > **Historical test record, not a current MCP capability or quota declaration (3 November 2026 update).** The snapshot below records the previous List-mode behavior as it was on 2 November; current staging runs in the owner's approved dummy Workspace mode, and newer deployment/review information supersedes it. The former MCP-imposed 30-per-user/80-shared request throttles were removed in subsequent source changes; do **not** treat the old quota paragraph below as a live limit. ClickUp's own upstream 429 limits still apply. The current main commit's per-user List-target selector has **not** yet been deployed; see the newest project checkpoint. No company Workspace is used here.
 
 ## Environment
 
-- Cloudflare staging Worker deployed from main `f0485c2c3fa327bfdccfe42cd858dd73087c84f3`; [successful deployment run](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/actions/runs/41485760603).
+- Cloudflare staging Worker deployed from main `f0485c2c3fa327bfdccfe42cd858dd73087c84f3`; [successful deployment run](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/actions/runs/41485760603).
 - OAuth connection reported active for ClickUp user `164542998`, dummy Workspace `9012707978`; authorised List `901219425894` named `Workshop Action Register`.
 - `workspace_exclusive:true`, `workspace_scope_approved:true`, `workspace_scope_enabled:false`, `mcp_read_scope_granted:true`, `mcp_write_scope_granted:true`. A write scope is not equivalent to enabled Workspace resource scope.
-- Model-visible inventory: **58 tools = 48 catalogue + 10 supporting**. Source registers 59 (the missing `clickup_set_workspace_access`). See [issue #50](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/issues/50). Visible `clickup_get_task` and `clickup_tool_catalog` descriptions contain stale "schema only" wording inconsistent with successful real operations.
+- Model-visible inventory: **58 tools = 48 catalogue + 10 supporting**. Source registers 59 (the missing `clickup_set_workspace_access`). See [issue #50](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/issues/50). Visible `clickup_get_task` and `clickup_tool_catalog` descriptions contain stale "schema only" wording inconsistent with successful real operations.
 
 ## Three deliberately created simulation tasks — real ClickUp acknowledgements
 
@@ -93,7 +93,7 @@ Task-list count increased **21 → 24**, `find_scoped_tasks` returned all 24 on 
 - A `get_scoped_task` read immediately after the first creation returned `CLICKUP_RATE_LIMITED`; later reattempt passed. The server's `src/clickup/quota-object.ts` enforces **30 reservations per minute per GitHub subject** and **80 per minute per ClickUp account overall**, before considering ClickUp's upstream rate limits. Tool invocation can require multiple underlying REST requests.
 - For a new dummy task, `clickup_update_task` using unchanged priority; `clickup_update_bulk_tasks` using unchanged status; and a plainly identified test comment, tag and dependency all returned `CLICKUP_WORKSPACE_SCOPE_REQUIRED`. **No unintended write was observed or should be inferred.**
 - No deletes, document modifications, new Workspace Lists, notifications to real Chat users, timer starts/stops or credential changes were attempted.
-- Known response contract concerns remain in [issue #49](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/issues/49): some valid ClickUp API responses may be misclassified as uncertain failures, and v3 Docs page listing may use an array response.
+- Known response contract concerns remain in [issue #49](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/issues/49): some valid ClickUp API responses may be misclassified as uncertain failures, and v3 Docs page listing may use an array response.
 
 ## Next steps — precise evidence gates
 

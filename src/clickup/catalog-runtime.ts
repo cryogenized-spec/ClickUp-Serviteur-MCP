@@ -1,4 +1,5 @@
 import { quotaCall } from "./client.js";
+import { compileClickUpRichSegments, compareRichCommentReadback } from "./comment-rich.js";
 import { verifySharedListWorkspace } from "./operations.js";
 import { COMPANY_LIST_TASK_OPERATIONS, ReadFailure, type ReadGrant } from "./policy.js";
 
@@ -51,17 +52,34 @@ const hasTimeInStatus = (value: unknown): boolean => {
     (obj(record["current_status"]) !== null || Array.isArray(record["status_history"]))
   );
 };
-const clip = (v: unknown): unknown => {
-  if (Array.isArray(v)) return v.slice(0, 50).map(clip);
+const clip = (v: unknown, field = ""): unknown => {
+  // Rich comment bodies can have up to 100 independently formatted segments.
+  // Preserve existing 50-item limits for unrelated nested metadata arrays.
+  if (Array.isArray(v)) return v.slice(0, field === "comment" ? 100 : 50).map((x) => clip(x));
   const item = obj(v);
   if (item)
     return Object.fromEntries(
       Object.entries(item)
         .filter(([k]) => !/token|secret|authorization|password/i.test(k))
-        .map(([k, x]) => [k, clip(x)]),
+        .map(([k, x]) => [k, clip(x, k)]),
     );
-  if (typeof v === "string") return v.slice(0, 12000);
+  if (typeof v === "string") return v.slice(0, 40_000);
   return v;
+};
+/** Signal when a bounded API response lost string content, including nested data. */
+const hasClippedText = (value: unknown): boolean => {
+  const pending: unknown[] = [value];
+  for (let i = 0; i < pending.length; i++) {
+    if (i >= 10_000) return true;
+    const item = pending[i];
+    if (typeof item === "string" && item.length > 40_000) return true;
+    if (Array.isArray(item)) pending.push(...item);
+    else {
+      const record = obj(item);
+      if (record) pending.push(...Object.values(record));
+    }
+  }
+  return false;
 };
 /**
  * ClickUp Docs can insert backslashes around standalone text brackets.
@@ -308,7 +326,12 @@ async function listInWorkspace(grant: ReadGrant, f: typeof fetch, listId: unknow
   return list;
 }
 async function taskInWorkspace(grant: ReadGrant, f: typeof fetch, taskId: unknown): Promise<Json> {
-  const task = await send(grant, f, "GET", v2("task/" + id(taskId)));
+  const task = await send(
+    grant,
+    f,
+    "GET",
+    v2("task/" + id(taskId) + "?include_markdown_description=true"),
+  );
   if (String(task["id"]) !== String(taskId))
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   await listInWorkspace(grant, f, obj(task["list"])?.["id"]);
@@ -329,6 +352,7 @@ const taskBody = (a: Json, update = false): Json => {
   const permitted = new Set([
     "name",
     "description",
+    "description_markdown",
     "status",
     "priority",
     "due_date_ms",
@@ -336,7 +360,9 @@ const taskBody = (a: Json, update = false): Json => {
   ]);
   if (Object.keys(a).some((key) => !permitted.has(key)))
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-  for (const key of ["name", "description", "status"] as const) {
+  if (a["description"] !== undefined && a["description_markdown"] !== undefined)
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  for (const key of ["name", "description", "description_markdown", "status"] as const) {
     if (a[key] !== undefined && typeof a[key] !== "string")
       throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   }
@@ -373,12 +399,32 @@ const taskBody = (a: Json, update = false): Json => {
   return {
     ...(a["name"] !== undefined ? { name: txt(a["name"], 180) } : {}),
     ...(a["description"] !== undefined ? { description: txt(a["description"]) } : {}),
+    ...(a["description_markdown"] !== undefined
+      ? { markdown_content: txt(a["description_markdown"], 40_000) }
+      : {}),
     ...(a["status"] !== undefined ? { status: txt(a["status"], 80) } : {}),
     ...(a["priority"] !== undefined ? { priority: a["priority"] } : {}),
     ...(a["due_date_ms"] !== undefined ? { due_date: a["due_date_ms"], due_date_time: true } : {}),
     ...(memberIds !== null ? { assignees: update ? { add: memberIds, rem: [] } : memberIds } : {}),
   };
 };
+/** ClickUp v2 List endpoints accept content OR markdown_content, not both. */
+function listDescriptionBody(a: Json): Json {
+  if (a["description"] !== undefined && a["description_markdown"] !== undefined)
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  if (a["description_markdown"] !== undefined)
+    return { markdown_content: txt(a["description_markdown"], 40_000) };
+  if (a["description"] !== undefined) return { content: txt(a["description"], 8000) };
+  return {};
+}
+
+/** ClickUp v3 Docs and Chat define these two exact content formats. */
+function validatedContentFormat(a: Json): "text/md" | "text/plain" {
+  const value = a["content_format"] ?? "text/md";
+  if (value !== "text/md" && value !== "text/plain")
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  return value;
+}
 async function members(grant: ReadGrant, f: typeof fetch): Promise<Json[]> {
   const d = await send(grant, f, "GET", v2("team"));
   const team = Array.isArray(d["teams"])
@@ -427,10 +473,22 @@ const short = (d: Json, limit = 50): Json => {
   // pages may exist even if no item was discarded by the display cap.
   const possibleMorePages = Array.isArray(d["comments"]) && d["comments"].length >= 25;
   const nestedPagesClipped = Array.isArray(d["pages"]) && hasClippedNestedArray(d["pages"]);
+  const richCommentsClipped =
+    Array.isArray(d["comments"]) &&
+    d["comments"].some((entry) => {
+      const spans = obj(entry)?.["comment"];
+      return Array.isArray(spans) && spans.length > 100;
+    });
   return clip({
     ...d,
     ...Object.fromEntries(arrays.map((k) => [k, (d[k] as unknown[]).slice(0, limit)])),
-    incomplete: truncated || nestedPagesClipped || possibleMorePages || d["incomplete"] === true,
+    incomplete:
+      truncated ||
+      nestedPagesClipped ||
+      possibleMorePages ||
+      hasClippedText(d) ||
+      richCommentsClipped ||
+      d["incomplete"] === true,
     first_page_only: true,
   }) as Json;
 };
@@ -604,6 +662,7 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_read_task_pdf",
   "clickup_get_threaded_replies",
   "clickup_create_task_comment",
+  "clickup_delete_task_comment",
   "clickup_edit_task_comment",
   "clickup_add_tag_to_task",
   "clickup_remove_tag_from_task",
@@ -671,6 +730,7 @@ const WORKSPACE_SCOPE_OPERATIONS = new Set([
   "clickup_read_task_pdf",
   "clickup_get_threaded_replies",
   "clickup_create_task_comment",
+  "clickup_delete_task_comment",
   "clickup_edit_task_comment",
   "clickup_add_tag_to_task",
   "clickup_remove_tag_from_task",
@@ -994,9 +1054,39 @@ export async function runCatalogOperation(
         ),
       );
     }
-    case "clickup_delete_task":
-      await task("task_id");
-      return call("DELETE", v2("task/" + val(a, "task_id")));
+    case "clickup_delete_task": {
+      const existing = await task("task_id");
+      if (g.companyCleanupAccess === true) {
+        const title = existing["name"];
+        if (
+          a["confirm_delete"] !== true ||
+          typeof title !== "string" ||
+          a["expected_task_name"] !== title
+        )
+          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+        // Verify immediately before deletion that the task still belongs to
+        // this exact authorized List and has no child tasks to delete.
+        const before = await call(
+          "GET",
+          v2("task/" + val(a, "task_id") + "?include_subtasks=true"),
+        );
+        if (
+          String(before["id"]) !== String(existing["id"]) ||
+          String(obj(before["list"])?.["id"]) !== String(obj(existing["list"])?.["id"]) ||
+          before["name"] !== title ||
+          !Array.isArray(before["subtasks"]) ||
+          before["subtasks"].length !== 0
+        )
+          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      }
+      await call("DELETE", v2("task/" + val(a, "task_id")));
+      return {
+        success: true,
+        source: "clickup-api-v2",
+        task_id: String(existing["id"]),
+        action: "sent_to_trash",
+      };
+    }
     case "clickup_create_bulk_tasks": {
       await list("list_id");
       const tasks = a["tasks"];
@@ -1132,8 +1222,9 @@ export async function runCatalogOperation(
     }
     case "clickup_create_task_comment": {
       await task("task_id");
-      const richRequested = a["mention_segments"] !== undefined;
+      const richRequested = a["mention_segments"] !== undefined || a["rich_segments"] !== undefined;
       if (
+        (a["rich_segments"] !== undefined && a["mention_segments"] !== undefined) ||
         (richRequested && (a["text"] !== undefined || a["parent_comment_id"] !== undefined)) ||
         (!richRequested && a["text"] === undefined)
       )
@@ -1147,46 +1238,60 @@ export async function runCatalogOperation(
           ? null
           : await verifiedCommentAssignee(a["assignee_id"], g, f);
       if (richRequested) {
-        const pieces = a["mention_segments"];
-        if (!Array.isArray(pieces) || pieces.length < 1 || pieces.length > 20)
-          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-        const eligible = new Set((await members(g, f)).map((user) => String(user["id"])));
-        const rich: Json[] = [];
-        const requestedIds: string[] = [];
-        let textChars = 0;
-        for (const raw of pieces) {
-          const part = obj(raw);
-          if (!part) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-          const keys = Object.keys(part);
-          if (keys.length !== 1) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-          if (typeof part["text"] === "string" && keys[0] === "text") {
-            // Whitespace-only segments are legitimate separators between
-            // tags; the legacy txt() validator forbids them as whole comments.
-            const content = part["text"];
-            if (content.length === 0 || content.length > 6000)
-              throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-            textChars += content.length;
-            if (textChars > 6000) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-            rich.push({ text: content });
-          } else if (keys[0] === "mention_user_id") {
-            const supplied = part["mention_user_id"];
-            if (
-              typeof supplied !== "string" ||
-              !/^[1-9][0-9]{0,15}$/.test(supplied) ||
-              !Number.isSafeInteger(Number(supplied)) ||
-              !eligible.has(supplied) ||
-              requestedIds.length >= 12
-            )
-              throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-            rich.push({ type: "tag", user: { id: Number(supplied) } });
-            requestedIds.push(supplied);
-          } else {
+        let rich: Json[];
+        let requestedIds: string[];
+        let dividerFallback = false;
+        if (a["rich_segments"] !== undefined) {
+          const input = a["rich_segments"];
+          const wantsMentions =
+            Array.isArray(input) &&
+            input.some((segment) => obj(segment)?.["mention_user_id"] !== undefined);
+          const eligible = new Set(
+            wantsMentions ? (await members(g, f)).map((user) => String(user["id"])) : [],
+          );
+          const compiled = compileClickUpRichSegments(input, eligible);
+          rich = compiled.segments;
+          requestedIds = compiled.mentions;
+          dividerFallback = compiled.dividerFallback;
+        } else {
+          const pieces = a["mention_segments"];
+          if (!Array.isArray(pieces) || pieces.length < 1 || pieces.length > 20)
             throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+          const eligible = new Set((await members(g, f)).map((user) => String(user["id"])));
+          rich = [];
+          requestedIds = [];
+          let textChars = 0;
+          for (const raw of pieces) {
+            const part = obj(raw);
+            if (!part) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+            const keys = Object.keys(part);
+            if (keys.length !== 1) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+            if (typeof part["text"] === "string" && keys[0] === "text") {
+              const content = part["text"];
+              if (content.length === 0 || content.length > 6000)
+                throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+              textChars += content.length;
+              if (textChars > 6000) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+              rich.push({ text: content });
+            } else if (keys[0] === "mention_user_id") {
+              const supplied = part["mention_user_id"];
+              if (
+                typeof supplied !== "string" ||
+                !/^[1-9][0-9]{0,15}$/.test(supplied) ||
+                !Number.isSafeInteger(Number(supplied)) ||
+                !eligible.has(supplied) ||
+                requestedIds.length >= 12
+              )
+                throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+              rich.push({ type: "tag", user: { id: Number(supplied) } });
+              requestedIds.push(supplied);
+            } else {
+              throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+            }
           }
+          // Legacy mention_segments still requires a real verified mention.
+          if (requestedIds.length === 0) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
         }
-        // No model-generated fake '@Name' tags: real mention IDs must be
-        // verified against the exact OAuth-approved Workspace's member list.
-        if (requestedIds.length === 0) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
         const taskId = val(a, "task_id");
         const posted = await call("POST", v2("task/" + taskId + "/comment"), {
           comment: rich,
@@ -1199,7 +1304,7 @@ export async function runCatalogOperation(
           !/^[0-9]{1,24}$/.test(String(commentId))
         )
           throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
-        let mentionIdsVerified = true;
+        let mentionIdsVerified: boolean;
         try {
           const after = await call("GET", v2("task/" + taskId + "/comment"));
           if (!Array.isArray(after["comments"])) throw Error("Missing comments");
@@ -1214,28 +1319,9 @@ export async function runCatalogOperation(
             actual.length !== rich.length
           )
             throw Error("Rich comment readback incomplete");
-          for (let i = 0; i < rich.length; i++) {
-            const requested = rich[i]!;
-            const stored = obj(actual[i]);
-            if (!stored) throw Error("Malformed readback segment");
-            if (requested["type"] === "tag") {
-              if (stored["type"] !== "tag" || stored["text"] !== undefined)
-                throw Error("Mention did not persist");
-              if ("user" in stored) {
-                // When ClickUp returns an identity, it must match exactly.
-                const storedUserId = obj(stored["user"])?.["id"];
-                const requestedUserId = obj(requested["user"])?.["id"];
-                if (storedUserId === undefined || String(storedUserId) !== String(requestedUserId))
-                  throw Error("Mention identity changed");
-              } else {
-                // ClickUp may normalize a genuine mention to { type: "tag" }.
-                // The tag shape persisted, but its target ID cannot be read back.
-                mentionIdsVerified = false;
-              }
-            } else if (stored["type"] === "tag" || stored["text"] !== requested["text"]) {
-              throw Error("Text changed in rich readback");
-            }
-          }
+          const comparison = compareRichCommentReadback(rich, actual);
+          if (!comparison.match) throw Error("Rich formatting changed on ClickUp readback");
+          mentionIdsVerified = comparison.mentionIdentityVerified;
           if (
             assignee !== null &&
             String(obj(created["assignee"])?.["id"] ?? created["assignee"]) !== String(assignee)
@@ -1250,7 +1336,9 @@ export async function runCatalogOperation(
           write_acknowledged: true,
           requested_mention_user_ids: requestedIds,
           ...(mentionIdsVerified ? { genuine_mentions: requestedIds } : {}),
-          verified_tag_structure_by_readback: true,
+          verified_tag_structure_by_readback: requestedIds.length > 0,
+          native_rich_structure_verified_by_readback: true,
+          ...(dividerFallback ? { divider_fallback: "unicode_text", native_divider: false } : {}),
           // A tag with no returned user.id proves structure, NOT its target.
           mention_identity_verified_by_readback: mentionIdsVerified,
           verified_by_readback: mentionIdsVerified,
@@ -1359,6 +1447,44 @@ export async function runCatalogOperation(
         // A missing readback cannot establish that a reply was committed.
       }
       throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    }
+    case "clickup_delete_task_comment": {
+      if (a["confirm_delete"] !== true) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      await task("task_id");
+      const taskId = val(a, "task_id");
+      const commentId = val(a, "comment_id");
+      const comments = await call("GET", v2("task/" + taskId + "/comment"));
+      if (!Array.isArray(comments["comments"]) || comments["comments"].length > 25)
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const matched = comments["comments"]
+        .map(obj)
+        .find((entry) => String(entry?.["id"]) === commentId);
+      // A comment without a verified zero reply count is not safe to delete.
+      // Missing, null, negative and malformed values must fail closed.
+      const rawReplies = matched?.["reply_count"];
+      const replies =
+        typeof rawReplies === "number"
+          ? rawReplies
+          : typeof rawReplies === "string" && /^[0-9]+$/.test(rawReplies)
+            ? Number(rawReplies)
+            : NaN;
+      if (
+        !matched ||
+        String(obj(matched["user"])?.["id"]) !== g.clickupUserId ||
+        !Number.isSafeInteger(replies) ||
+        replies !== 0
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      // A specific own comment on a verified task; never delete someone else's
+      // comment or a threaded conversation with replies.
+      await call("DELETE", v2("comment/" + commentId));
+      return {
+        success: true,
+        source: "clickup-api-v2",
+        task_id: taskId,
+        comment_id: commentId,
+        action: "deleted_own_comment",
+      };
     }
     case "clickup_edit_task_comment": {
       // A comment ID alone does not prove either task membership or authorship.
@@ -1589,21 +1715,25 @@ export async function runCatalogOperation(
       };
     }
     case "clickup_create_list": {
+      const listDescription = listDescriptionBody(a);
       if (a["folder_id"] !== undefined) {
         await folder("folder_id");
         return call("POST", v2("folder/" + val(a, "folder_id") + "/list"), {
           name: txt(a["name"], 180),
+          ...listDescription,
         });
       }
       await inWorkspace(g, f, a["space_id"]);
       return call("POST", v2("space/" + val(a, "space_id") + "/list"), {
         name: txt(a["name"], 180),
+        ...listDescription,
       });
     }
     case "clickup_create_list_in_folder":
       await folder("folder_id");
       return call("POST", v2("folder/" + val(a, "folder_id") + "/list"), {
         name: txt(a["name"], 180),
+        ...listDescriptionBody(a),
       });
     case "clickup_get_list": {
       const result = await list("list_id");
@@ -1634,7 +1764,7 @@ export async function runCatalogOperation(
       await list("list_id");
       return call("PUT", v2("list/" + val(a, "list_id")), {
         name: txt(a["name"], 180),
-        ...(a["description"] ? { content: txt(a["description"]) } : {}),
+        ...listDescriptionBody(a),
       });
     case "clickup_get_folder":
       return short(await folder("folder_id"));
@@ -1696,7 +1826,11 @@ export async function runCatalogOperation(
       return call(
         "POST",
         v3("workspaces/" + W + "/chat/channels/" + val(a, "channel_id") + "/messages"),
-        { type: "message", content: txt(a["text"], 6000) },
+        {
+          type: "message",
+          content: txt(a["text"], 40_000),
+          content_format: validatedContentFormat(a),
+        },
       );
     case "clickup_create_document": {
       const body: Json = { name: txt(a["name"], 180), create_page: true };
@@ -1736,10 +1870,11 @@ export async function runCatalogOperation(
       return call("POST", v3("workspaces/" + W + "/docs/" + val(a, "document_id") + "/pages"), {
         name: txt(a["name"], 180),
         content: typeof a["doc_content"] === "string" ? a["doc_content"] : "",
-        content_format: "text/md",
+        content_format: validatedContentFormat(a),
       });
     case "clickup_update_document_page": {
       const content = txt(a["doc_content"], 12000);
+      const format = validatedContentFormat(a);
       const pagePath = v3(
         "workspaces/" + W + "/docs/" + val(a, "document_id") + "/pages/" + val(a, "page_id"),
       );
@@ -1747,7 +1882,7 @@ export async function runCatalogOperation(
         return await call(
           "PUT",
           pagePath,
-          { content, content_edit_mode: "replace", content_format: "text/md" },
+          { content, content_edit_mode: "replace", content_format: format },
           "empty-write-ack",
         );
       } catch (error) {
@@ -1758,13 +1893,20 @@ export async function runCatalogOperation(
         // Never retry the write. Verify that the exact requested content
         // persisted with one independent read before reporting success.
         try {
-          const verified = await call("GET", pagePath + "?content_format=text%2Fmd");
+          const verified = await call(
+            "GET",
+            pagePath + "?content_format=" + encodeURIComponent(format),
+          );
           if (verified["content"] === content)
             return { success: true, source: "clickup-api", verified_by_readback: true };
           // Only exactly observed standalone plain-text bracket escaping
           // qualifies as confirmed provider normalization after readback.
           const stored = verified["content"];
-          if (typeof stored === "string" && plainBracketEscapesOnly(content, stored)) {
+          if (
+            format === "text/md" &&
+            typeof stored === "string" &&
+            plainBracketEscapesOnly(content, stored)
+          ) {
             return {
               success: true,
               source: "clickup-api",

@@ -52,6 +52,11 @@ if (workspace === "9012707978" || list === "901219425894")
 const buildSha = process.env.GITHUB_SHA;
 if (buildSha && !/^[a-f0-9]{40}$/.test(buildSha))
   throw new Error("Invalid GitHub deployment commit SHA");
+// The sole company operator approved cleanup. Only this isolated company Worker enables it by default;
+// an explicit GitHub environment variable of "false" immediately disables it on redeploy.
+const cleanupOptIn = process.env.COMPANY_CLEANUP_ENABLED || "true";
+if (cleanupOptIn !== "true" && cleanupOptIn !== "false")
+  throw new Error("COMPANY_CLEANUP_ENABLED must be true or false");
 const profile = {
   name: "clickup-serviteur-company",
   main: "src/index.ts",
@@ -71,6 +76,7 @@ const profile = {
     CLICKUP_RESOURCE_SCOPE: "workspace",
     CLICKUP_COMPANY_PROFILE: "true",
     CLICKUP_COMPANY_WRITE_MODE: "non_destructive",
+    CLICKUP_COMPANY_CLEANUP_ENABLED: cleanupOptIn,
     CLICKUP_OAUTH_ENABLED: "true",
     CLICKUP_LIVE_ENABLED: "true",
     ...(buildSha ? { MCP_BUILD_SHA: buildSha } : {}),

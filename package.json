@@ -1,7 +1,7 @@
 {
-  "name": "neonsales-clickup-mcp",
+  "name": "clickup-serviteur-mcp",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0-beta.1",
   "type": "module",
   "engines": {
     "node": ">=22.20.0"
@@ -31,10 +31,20 @@
     "typescript-eslint": "8.71.1",
     "vitest": "5.0.3",
     "wrangler": "4.157.0",
-    "@cloudflare/workers-types": "5.20261021.1"
+    "@cloudflare/workers-types": "5.20261104.1"
   },
   "overrides": {
     "zod": "$zod",
     "undici": "7.30.1"
+  },
+  "description": "Self-hosted OAuth-protected ClickUp MCP server for Cloudflare Workers",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP.git"
+  },
+  "homepage": "https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP#readme",
+  "bugs": {
+    "url": "https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/issues"
   }
 }

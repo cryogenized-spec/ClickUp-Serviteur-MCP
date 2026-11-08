@@ -35,7 +35,7 @@ The *same* URL, registered tool definitions and backend adapter must be usable f
 6. Save command outputs, tool trace (redacted), spec revision, SDK and conformance versions, SHA, and PASS/FAIL in `docs/DEMO_ACCEPTANCE.md`.
 7. Refuse deployment or 'fully compliant' claim if a required protocol, auth or conformance test fails. Never use `continue-on-error` or baseline known failures to conceal failures.
 
-**Implementation update, 2026-10-10:** Phase 2 uses the official `@modelcontextprotocol/server@2.3.1` factory and actual `@modelcontextprotocol/client` to verify tool listing, modern 2026-07-28 handshake, legacy path, invalid argument rejection and four concurrent protocol test clients. These passed on [CI run 38054050247](https://github.com/cryogenized-spec/NeonSales-ClickUp-MCP-/actions/runs/38054050247). The public Worker deliberately DENIES access (HTTP 503) pending Phase 3 OAuth. **The official conformance runner, MCP Inspector and two real subscription clients have not been tested. Do not claim conformance certification.**
+**Implementation update, 2026-10-10:** Phase 2 uses the official `@modelcontextprotocol/server@2.3.1` factory and actual `@modelcontextprotocol/client` to verify tool listing, modern 2026-07-28 handshake, legacy path, invalid argument rejection and four concurrent protocol test clients. These passed on [CI run 38054050247](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/actions/runs/38054050247). The public Worker deliberately DENIES access (HTTP 503) pending Phase 3 OAuth. **The official conformance runner, MCP Inspector and two real subscription clients have not been tested. Do not claim conformance certification.**
 
 ## Phase 3 OAuth verification status (2026-10-10 SAST)
 

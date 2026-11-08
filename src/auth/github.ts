@@ -80,7 +80,7 @@ export async function exchangeGithubIdentity(
       Authorization: "Bearer " + token.access_token,
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "NeonSales-MCP",
+      "User-Agent": "ClickUp-Serviteur-MCP",
     },
     signal: AbortSignal.timeout(10000),
   });

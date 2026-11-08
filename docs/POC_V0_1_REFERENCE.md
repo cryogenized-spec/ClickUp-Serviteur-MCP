@@ -1,8 +1,8 @@
 # Archived local POC v0.1 README — 2026-10-10
 
-> **Historical reference only.** The following summarizes the earlier locally generated starter, which **has NOT been imported** into this repository. File names and commands below refer to that separately generated local archive `neonsales-clickup-mcp-poc-v0.1.zip`. This archive and its source code are not present in this GitHub repository. See ../README.md and PROJECT_STATE.md for authoritative current status. Do not assume any deployment or real ClickUp access.
+> **Historical reference only.** The following summarizes the earlier locally generated starter, which **has NOT been imported** into this repository. File names and commands below refer to that separately generated local archive `clickup-serviteur-mcp-poc-v0.1.zip`. This archive and its source code are not present in this GitHub repository. See ../README.md and PROJECT_STATE.md for authoritative current status. Do not assume any deployment or real ClickUp access.
 
-# NeonSales ClickUp MCP — Proof of Concept v0.1
+# ClickUp Serviteur MCP — Proof of Concept v0.1
 
 **Status (2026-10-10, SAST):** local implementation, mocked ClickUp contract tests, and a local HTTP/MCP smoke test reported as completed. **NOT YET a live, deployed, ChatGPT/Claude-connected product.** No real ClickUp records have been accessed or modified by this POC. The test task names are synthetic. This is an engineering starter to support an honest internal demonstration.
 
@@ -28,8 +28,8 @@ The prototype exposed `POST /mcp` and pure JavaScript functions. No npm dependen
 On Linux Mint with Node 20+:
 
 ```bash
-unzip neonsales-clickup-mcp-poc-v0.1.zip
-cd neonsales-clickup-mcp-poc
+unzip clickup-serviteur-mcp-poc-v0.1.zip
+cd clickup-serviteur-mcp-poc
 cp .env.example .env
 # Set MCP_ACCESS_TOKEN to a new long random value (e.g. openssl rand -hex 32)
 npm test

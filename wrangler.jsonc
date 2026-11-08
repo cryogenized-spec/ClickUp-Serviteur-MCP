@@ -1,5 +1,5 @@
 {
-  "name": "neonsales-clickup-mcp",
+  "name": "clickup-serviteur-mcp",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-10",
   "compatibility_flags": ["global_fetch_strictly_public"],

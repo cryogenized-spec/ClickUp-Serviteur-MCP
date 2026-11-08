@@ -15,6 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 ERRORS: list[str] = []
 REQUIRED = [
     "README.md", "AGENTS.md", "CLAUDE.md",
+    "LICENSE", "SECURITY.md", "CONTRIBUTING.md", "CHANGELOG.md",
+    "docs/PUBLIC_RELEASE.md",
     "docs/PROJECT_STATE.md", "docs/DECISIONS.md",
     "docs/ARCHITECTURE_PROPOSAL.md", "docs/MCP_COMPLIANCE.md",
     "docs/MODULARITY.md", "docs/SKILLS.md", "docs/BRANCH_PROTECTION.md",
@@ -163,11 +165,32 @@ def verify_application() -> None:
         if "@ts-nocheck" in content or "@ts-ignore" in content:
             error("TypeScript checking suppressed in: " + str(file.relative_to(ROOT)))
 
+def verify_public_brand_neutrality() -> None:
+    """Reject former employer branding anywhere in the checked-in source tree.
+
+    The marker is encoded to avoid introducing it into this public source.
+    Ignore generated dependencies and local Git state, never tracked files.
+    """
+    marker = bytes.fromhex("6e656f6e73616c6573")
+    ignored = {".git", "node_modules", "dist", "build", "coverage", "__pycache__", ".venv", ".wrangler"}
+    for path in ROOT.rglob("*"):
+        if not path.is_file() or path.is_symlink():
+            continue
+        parts = path.relative_to(ROOT).parts
+        if any(part in ignored for part in parts):
+            continue
+        try:
+            if marker in path.read_bytes().lower():
+                error("Legacy organization branding remains in: " + path.relative_to(ROOT).as_posix())
+        except OSError as exc:
+            error("Cannot check source branding: " + str(exc))
+
 def main() -> int:
     for path in REQUIRED:
         require_file(path)
     verify_skills()
     verify_application()
+    verify_public_brand_neutrality()
     if ERRORS:
         print(f"FAILED: {len(ERRORS)} policy error(s)", file=sys.stderr)
         return 1
