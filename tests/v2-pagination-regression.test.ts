@@ -71,15 +71,15 @@ function fakeCommentsApi(pages: Array<Array<Record<string, unknown>>>) {
       const startId = url.searchParams.get("start_id");
       cursors.push([start, startId]);
       if (start !== null && startId === null) throw new Error("Unpaired cursor");
-      const page =
+      const history = pages.flat();
+      const index =
         startId === null
           ? 0
-          : pages.findIndex((items) => {
-              const last = items.at(-1);
-              return last?.["id"] === startId && String(last["date"]) === start;
-            }) + 1;
-      if (page < 0) throw new Error("Unrecognized comment cursor");
-      return reply({ comments: pages[page] ?? [] });
+          : history.findIndex(
+              (comment) => comment["id"] === startId && String(comment["date"]) === start,
+            ) + 1;
+      if (startId !== null && index === 0) throw new Error("Unrecognized comment cursor");
+      return reply({ comments: history.slice(index, index + 25) });
     }
     if (url.pathname === "/api/v2/comment/comment-29/reply")
       return reply({ comments: [{ id: "reply1", comment_text: "Acknowledged" }] });
@@ -217,8 +217,8 @@ describe("bounded ClickUp v2 pagination with one tool per function", () => {
       api.fetcher as typeof fetch,
     );
     expect(next["incomplete"]).toBe(false);
-    // The synthetic mock treats any date/id cursor as the same upstream older page;
-    // verify that the exact pair is transmitted (not independently guessed).
+    // Resume exactly after the tenth comment, without repeating earlier entries.
+    expect((next["comments"] as Array<{ id: string }>)[0]?.id).toBe("comment-10");
     expect(api.cursors[1]).toEqual([
       String(first["next_comment_start"]),
       String(first["next_comment_start_id"]),
