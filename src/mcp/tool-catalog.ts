@@ -24,7 +24,9 @@ export type ToolGroup =
   | "members"
   | "chat"
   | "docs"
-  | "reporting";
+  | "reporting"
+  | "checklists"
+  | "views";
 export type ToolEffect = "read" | "write" | "destructive";
 
 export interface ModelToolDefinition {
@@ -316,6 +318,11 @@ const F = {
     700_000,
   ),
   media_type: str("MIME content type, e.g. application/pdf or image/png.", 120),
+  checklist_id: str("Exact checklist UUID from an independently authorized task.", 80),
+  checklist_item_id: str("Exact checklist item UUID present on the verified checklist.", 80),
+  view_id: str("Exact saved ClickUp List View ID, not an arbitrary task or document.", 80),
+  view_page: integer("Zero-based ClickUp saved View task page.", 0, 100_000),
+  view_offset: integer("Zero-based task index within the saved View page.", 0, 99),
   current_user: flag("Must use the authenticated ClickUp user; never impersonate another."),
 } satisfies Record<string, Field>;
 
@@ -844,6 +851,67 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     ["content_format"],
   ),
 
+  // CLICKUP V2 CHECKLISTS — each tool performs exactly one named function.
+  tool(
+    "clickup_create_task_checklist",
+    "Create Task Checklist",
+    "checklists",
+    "write",
+    "Add one named checklist to an exact authorized task. Requires write consent; never retry an uncertain creation.",
+    "Create a quality-control checklist on this approved task.",
+    ["task_id", "name"],
+  ),
+  tool(
+    "clickup_create_checklist_item",
+    "Create Checklist Item",
+    "checklists",
+    "write",
+    "Add one item to a checklist whose parent task and checklist identity are independently verified.",
+    "Add 'Inspect incoming stock' to the existing authorized checklist.",
+    ["task_id", "checklist_id", "name"],
+  ),
+  tool(
+    "clickup_update_checklist_item",
+    "Update Checklist Item",
+    "checklists",
+    "write",
+    "Rename or resolve one verified checklist item on a verified authorized task; requires an explicit value.",
+    "Mark the approved inspection checklist item completed.",
+    ["task_id", "checklist_id", "checklist_item_id"],
+    ["name", "resolved"],
+  ),
+  // V2 SAVED VIEWS — discovery and reading are distinct read-only tools.
+  tool(
+    "clickup_get_list_views",
+    "Get List Saved Views",
+    "views",
+    "read",
+    "Read only the saved Views attached to a verified authorized List, with validated view ancestry.",
+    "Show the saved Views of my approved Workshop List.",
+    ["list_id"],
+    ["max_results"],
+  ),
+  tool(
+    "clickup_get_workspace_views",
+    "Get Workspace Saved Views",
+    "views",
+    "read",
+    "Read Everything-level Views only for the OAuth-authorized Workspace; requires Workspace scope.",
+    "List the saved Everything-level Views in my Workspace.",
+    [],
+    ["max_results"],
+  ),
+  tool(
+    "clickup_get_view_tasks",
+    "Get Saved List View Tasks",
+    "views",
+    "read",
+    "Read tasks from one verified List-level saved View, bounded to the authorized home List. Use view_page and view_offset to continue.",
+    "Show tasks in this saved List View.",
+    ["view_id", "list_id"],
+    ["max_results", "view_page", "view_offset"],
+  ),
+
   // TIME IN STATUS (2)
   tool(
     "clickup_get_task_time_in_status",
@@ -881,6 +949,8 @@ export const CLICKUP_TOOL_GROUPS: readonly ToolGroup[] = [
   "chat",
   "docs",
   "reporting",
+  "checklists",
+  "views",
 ];
 
 export function catalogPage(options: {

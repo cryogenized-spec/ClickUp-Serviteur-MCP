@@ -711,12 +711,34 @@ export async function uploadAttachmentBytes(
   }
 }
 
+/** Scope-bound checklist identity. No checklist ID alone grants a write. */
+function authorizedTaskChecklist(task: Json, checklistId: unknown): Json {
+  const items = task["checklists"];
+  if (!Array.isArray(items) || items.length > 250)
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  const found = items.map(obj).find((checklist) => checklist?.["id"] === checklistId);
+  if (!found || String(found["task_id"]) !== String(task["id"]))
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  return found;
+}
+function checklistId(value: unknown): string {
+  if (typeof value !== "string" || !/^[a-fA-F0-9-]{8,80}$/.test(value))
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  return id(value);
+}
+
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_search_workspace",
   "clickup_search_tasks_by_type",
   "clickup_search_tasks_by_tag",
   "clickup_create_task",
   "clickup_get_task",
+  "clickup_create_task_checklist",
+  "clickup_create_checklist_item",
+  "clickup_update_checklist_item",
+  "clickup_get_list_views",
+  "clickup_get_workspace_views",
+  "clickup_get_view_tasks",
   "clickup_update_task",
   "clickup_set_custom_field",
   "clickup_delete_task",
@@ -771,6 +793,7 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
 const WORKSPACE_SCOPE_OPERATIONS = new Set([
   // These tools have Workspace-wide effects or return data outside the home List.
   "clickup_get_workspace_hierarchy",
+  "clickup_get_workspace_views",
   "clickup_get_folder",
   "clickup_create_list",
   "clickup_create_list_in_folder",
@@ -792,6 +815,9 @@ const WORKSPACE_SCOPE_OPERATIONS = new Set([
   "clickup_attach_file_to_task",
   "clickup_update_bulk_tasks",
   "clickup_get_task_comments",
+  "clickup_create_task_checklist",
+  "clickup_create_checklist_item",
+  "clickup_update_checklist_item",
   "clickup_read_task_pdf",
   "clickup_get_threaded_replies",
   "clickup_create_task_comment",
@@ -1045,6 +1071,177 @@ export async function runCatalogOperation(
           notify_all: false,
         }),
       );
+    }
+    // Individual and List-scoped checklist mutations never accept arbitrary
+    // checklist IDs. The authoritative task response must demonstrate ancestry.
+    case "clickup_create_task_checklist": {
+      const verifiedTask = await task("task_id");
+      const created = await call("POST", v2("task/" + val(a, "task_id") + "/checklist"), {
+        name: txt(a["name"], 180),
+      });
+      const checklist = obj(created["checklist"]);
+      if (!checklist || String(checklist["task_id"]) !== String(verifiedTask["id"]))
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return short({ checklist: clip(checklist), source: "clickup-api-v2" });
+    }
+    case "clickup_create_checklist_item": {
+      const verifiedTask = await task("task_id");
+      const key = checklistId(a["checklist_id"]);
+      const checklist = authorizedTaskChecklist(verifiedTask, a["checklist_id"]);
+      if (!Array.isArray(checklist["items"]) || checklist["items"].length > 500)
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const result = await call("POST", v2("checklist/" + key + "/checklist_item"), {
+        name: txt(a["name"], 500),
+      });
+      const stored = obj(result["checklist"]);
+      if (!stored || String(stored["id"]) !== String(a["checklist_id"]))
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return short({ checklist: stored, source: "clickup-api-v2" });
+    }
+    case "clickup_update_checklist_item": {
+      const verifiedTask = await task("task_id");
+      const key = checklistId(a["checklist_id"]);
+      const itemId = checklistId(a["checklist_item_id"]);
+      const checklist = authorizedTaskChecklist(verifiedTask, a["checklist_id"]);
+      const rows = checklist["items"];
+      if (
+        !Array.isArray(rows) ||
+        rows.length > 500 ||
+        !rows.some((row) => obj(row)?.["id"] === a["checklist_item_id"])
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const hasName = a["name"] !== undefined;
+      const hasResolution = a["resolved"] !== undefined;
+      if ((!hasName && !hasResolution) || (hasResolution && typeof a["resolved"] !== "boolean"))
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const body = {
+        ...(hasName ? { name: txt(a["name"], 500) } : {}),
+        ...(hasResolution ? { resolved: a["resolved"] } : {}),
+      };
+      // No automatic retry: a timeout after PUT leaves the result uncertain.
+      await call(
+        "PUT",
+        v2("checklist/" + key + "/checklist_item/" + itemId),
+        body,
+        "empty-write-ack",
+      );
+      const after = await task("task_id");
+      const verifiedChecklist = authorizedTaskChecklist(after, a["checklist_id"]);
+      const updated = Array.isArray(verifiedChecklist["items"])
+        ? verifiedChecklist["items"]
+            .map(obj)
+            .find((item) => item?.["id"] === a["checklist_item_id"])
+        : null;
+      if (
+        !updated ||
+        (hasName && updated["name"] !== body.name) ||
+        (hasResolution && updated["resolved"] !== body.resolved)
+      )
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return {
+        success: true,
+        verified_by_readback: true,
+        task_id: a["task_id"],
+        checklist_id: a["checklist_id"],
+        checklist_item_id: a["checklist_item_id"],
+        source: "clickup-api-v2",
+      };
+    }
+    case "clickup_get_list_views": {
+      await list("list_id");
+      const data = await call("GET", v2("list/" + val(a, "list_id") + "/view"));
+      if (!Array.isArray(data["views"]) || data["views"].length > 500)
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      // Inherited views are not returned under this strict List-only contract.
+      const views = data["views"].map(obj);
+      if (
+        views.some((view) => {
+          const parent = obj(view?.["parent"]);
+          return (
+            !view ||
+            !parent ||
+            Number(parent["type"]) !== 6 ||
+            String(parent["id"]) !== String(a["list_id"])
+          );
+        })
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      return {
+        source: "clickup-api-v2",
+        views: clip(views.slice(0, N)),
+        incomplete: views.length > N,
+      };
+    }
+    case "clickup_get_workspace_views": {
+      const data = await call("GET", v2("team/" + W + "/view"));
+      if (!Array.isArray(data["views"]) || data["views"].length > 500)
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const views = data["views"].map(obj);
+      if (
+        views.some((view) => {
+          const parent = obj(view?.["parent"]);
+          return (
+            !view ||
+            !parent ||
+            Number(parent["type"]) !== 7 ||
+            String(parent["id"]) !== g.workspaceId
+          );
+        })
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      return {
+        source: "clickup-api-v2",
+        views: clip(views.slice(0, N)),
+        incomplete: views.length > N,
+      };
+    }
+    case "clickup_get_view_tasks": {
+      await list("list_id");
+      // Read the View itself and verify its List parent before looking at tasks.
+      const viewId = val(a, "view_id");
+      const data = await call("GET", v2("view/" + viewId));
+      const view = obj(data["view"]) ?? data;
+      const parent = obj(view["parent"]);
+      if (
+        String(view["id"]) !== String(a["view_id"]) ||
+        !parent ||
+        Number(parent["type"]) !== 6 ||
+        String(parent["id"]) !== String(a["list_id"])
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const page = a["view_page"] ?? 0;
+      const offset = a["view_offset"] ?? 0;
+      if (!Number.isSafeInteger(page) || Number(page) < 0 || Number(page) > 100_000)
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (!Number.isSafeInteger(offset) || Number(offset) < 0 || Number(offset) > 99)
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const found = await call("GET", v2("view/" + viewId + "/task?page=" + page));
+      if (!Array.isArray(found["tasks"]) || found["tasks"].length > 100)
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const tasks = found["tasks"];
+      // Strictly enforce home-List scope on every result, even if the saved
+      // View refers to additional Lists or a task was recently moved.
+      if (
+        tasks.some((entry) => {
+          const item = obj(entry);
+          return !item || String(obj(item["list"])?.["id"]) !== String(a["list_id"]);
+        })
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      if (Number(offset) > 0 && Number(offset) >= tasks.length)
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const selected = tasks.slice(Number(offset), Number(offset) + N);
+      const hasMoreHere = Number(offset) + selected.length < tasks.length;
+      const hasNextPage = tasks.length === 100 && found["last_page"] !== true;
+      return {
+        source: "clickup-api-v2",
+        view_id: a["view_id"],
+        list_id: a["list_id"],
+        tasks: clip(selected),
+        next_view_page: hasMoreHere ? page : hasNextPage ? Number(page) + 1 : null,
+        next_view_offset: hasMoreHere ? Number(offset) + selected.length : 0,
+        incomplete: hasMoreHere || hasNextPage,
+      };
     }
     case "clickup_get_task":
       return short(await task("task_id"));
