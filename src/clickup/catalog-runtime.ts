@@ -1312,13 +1312,22 @@ export async function runCatalogOperation(
         if (comments.length === N || batch.length < 25 || !next) break;
         cursor = next;
       }
+      // Pagination completeness and rich-content completeness are distinct:
+      // a short upstream page may still contain text or formatted spans that
+      // exceed the existing safe response bounds.
+      const richCommentsClipped = comments.some((entry) => {
+        const spans = obj(entry)?.["comment"];
+        return Array.isArray(spans) && spans.length > 100;
+      });
+      const payloadClipped = hasClippedText({ comments }) || richCommentsClipped;
       return {
         source: "clickup-api-v2",
         comments: clip(comments),
         pages_scanned: pagesScanned,
         next_comment_start: next?.start ?? null,
         next_comment_start_id: next?.startId ?? null,
-        incomplete,
+        incomplete: incomplete || payloadClipped,
+        content_truncated: payloadClipped,
         continuation_unavailable: continuationUnavailable,
         first_page_only: pagesScanned === 1,
       };
