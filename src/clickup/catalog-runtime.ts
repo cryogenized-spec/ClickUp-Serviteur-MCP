@@ -899,45 +899,85 @@ export async function runCatalogOperation(
     case "clickup_search_tasks_by_tag": {
       const target = a["list_id"] ?? g.listId;
       if (!workspaceScope || a["list_id"] !== undefined) await listInWorkspace(g, f, target);
-      const result = await call(
-        "GET",
+      // Keep one named tool per operation. Search every bounded page rather than
+      // silently dropping matches beyond the first 100 ClickUp tasks.
+      const startPage = a["task_page"] ?? 0;
+      const startOffset = a["task_offset"] ?? 0;
+      if (!Number.isSafeInteger(startPage) || Number(startPage) < 0 || Number(startPage) > 100_000)
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (!Number.isSafeInteger(startOffset) || Number(startOffset) < 0 || Number(startOffset) > 99)
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const targetPath =
         workspaceScope && a["list_id"] === undefined
-          ? v2("team/" + W + "/task?page=0&subtasks=true&include_closed=true")
-          : v2(
-              "list/" +
-                id(target) +
-                "/task?page=0&subtasks=true&include_closed=true" +
-                (workspaceScope ? "&include_timl=true" : ""),
-            ),
-      );
-      if (!Array.isArray(result["tasks"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      const tasks = result["tasks"];
-      for (const candidate of tasks) {
-        const t = obj(candidate);
-        const homeList = obj(t?.["list"])?.["id"];
-        if (
-          !t ||
-          (typeof homeList !== "number" && typeof homeList !== "string") ||
-          !/^[1-9]\d{0,17}$/.test(String(homeList)) ||
-          (!workspaceScope && String(homeList) !== g.listId)
-        )
-          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      }
-      const found = tasks.filter((x) => {
-        const t = obj(x);
-        if (!t) return false;
-        return name.endsWith("by_type")
-          ? String(t["custom_item_id"]) === String(a["task_type"])
-          : Array.isArray(t["tags"]) &&
-              t["tags"].some(
-                (tag: unknown) =>
-                  String(obj(tag)?.["name"]).toLowerCase() === String(a["tag"]).toLowerCase(),
-              );
+          ? "team/" + W + "/task"
+          : "list/" + id(target) + "/task";
+      const params = new URLSearchParams({
+        subtasks: "true",
+        include_closed: "true",
       });
+      if (workspaceScope && a["list_id"] !== undefined) params.set("include_timl", "true");
+      const found: Json[] = [];
+      let pagesScanned = 0;
+      let nextTaskPage: number | null = null;
+      let nextTaskOffset = 0;
+      const maxPagesPerCall = 10;
+      for (let scanned = 0; scanned < maxPagesPerCall; scanned++) {
+        const page = Number(startPage) + scanned;
+        if (page > 100_000) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        params.set("page", String(page));
+        const result = await call("GET", v2(targetPath + "?" + params.toString()));
+        if (!Array.isArray(result["tasks"]) || result["tasks"].length > 100)
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        const tasks = result["tasks"];
+        const offset = scanned === 0 ? Number(startOffset) : 0;
+        if (offset > 0 && offset >= tasks.length)
+          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        // Validate the entire upstream page before releasing even one result.
+        for (const candidate of tasks) {
+          const t = obj(candidate);
+          const homeList = obj(t?.["list"])?.["id"];
+          if (
+            !t ||
+            (typeof homeList !== "number" && typeof homeList !== "string") ||
+            !/^[1-9]\d{0,17}$/.test(String(homeList)) ||
+            (!workspaceScope && String(homeList) !== g.listId)
+          )
+            throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+        }
+        pagesScanned++;
+        for (let item = offset; item < tasks.length; item++) {
+          const t = obj(tasks[item])!;
+          const matches =
+            name === "clickup_search_tasks_by_type"
+              ? String(t["custom_item_id"] ?? 0) === String(a["task_type"])
+              : Array.isArray(t["tags"]) &&
+                t["tags"].some(
+                  (tag: unknown) =>
+                    String(obj(tag)?.["name"]).toLowerCase() === String(a["tag"]).toLowerCase(),
+                );
+          if (!matches) continue;
+          found.push(t);
+          if (found.length === N) {
+            const moreInPage = item + 1 < tasks.length;
+            const morePages = tasks.length === 100 && result["last_page"] !== true;
+            if (moreInPage || morePages) {
+              nextTaskPage = moreInPage ? page : page + 1;
+              nextTaskOffset = moreInPage ? item + 1 : 0;
+            }
+            break;
+          }
+        }
+        if (found.length === N) break;
+        if (tasks.length < 100 || result["last_page"] === true) break;
+        if (scanned === maxPagesPerCall - 1) nextTaskPage = page + 1;
+      }
       return {
         source: "clickup-api-v2",
-        tasks: clip(found.slice(0, N)),
-        incomplete: tasks.length >= 100 || found.length > N,
+        tasks: clip(found),
+        pages_scanned: pagesScanned,
+        next_task_page: nextTaskPage,
+        next_task_offset: nextTaskOffset,
+        incomplete: nextTaskPage !== null,
       };
     }
     case "clickup_create_task": {
