@@ -722,7 +722,7 @@ function authorizedTaskChecklist(task: Json, checklistId: unknown): Json {
   return found;
 }
 function checklistId(value: unknown): string {
-  if (typeof value !== "string" || !/^[a-fA-F0-9-]{32,40}$/.test(value))
+  if (typeof value !== "string" || !/^[a-fA-F0-9-]{8,80}$/.test(value))
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   return id(value);
 }
@@ -746,9 +746,6 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_create_bulk_tasks",
   "clickup_update_bulk_tasks",
   "clickup_get_task_comments",
-  "clickup_create_task_checklist",
-  "clickup_create_checklist_item",
-  "clickup_update_checklist_item",
   "clickup_read_task_pdf",
   "clickup_get_threaded_replies",
   "clickup_create_task_comment",
@@ -818,6 +815,9 @@ const WORKSPACE_SCOPE_OPERATIONS = new Set([
   "clickup_attach_file_to_task",
   "clickup_update_bulk_tasks",
   "clickup_get_task_comments",
+  "clickup_create_task_checklist",
+  "clickup_create_checklist_item",
+  "clickup_update_checklist_item",
   "clickup_read_task_pdf",
   "clickup_get_threaded_replies",
   "clickup_create_task_comment",
