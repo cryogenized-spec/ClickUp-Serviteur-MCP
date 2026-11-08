@@ -986,8 +986,7 @@ export async function runCatalogOperation(
           throw new ReadFailure("CLICKUP_BAD_RESPONSE");
         const tasks = result["tasks"];
         const offset = scanned === 0 ? Number(startOffset) : 0;
-        if (offset > 0 && offset >= tasks.length)
-          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        if (offset > 0 && offset >= tasks.length) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
         // Validate the entire upstream page before releasing even one result.
         for (const candidate of tasks) {
           const t = obj(candidate);
