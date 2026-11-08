@@ -19,7 +19,9 @@ const grant = (mode: "list" | "workspace" = "list", company = false): ReadGrant 
   },
 });
 
-function fakeApi(options: { taskList?: string; wrongView?: boolean; foreignViewTask?: boolean } = {}) {
+function fakeApi(
+  options: { taskList?: string; wrongView?: boolean; foreignViewTask?: boolean } = {},
+) {
   const calls: Array<{ method: string; path: string; query: string; body: unknown }> = [];
   let changed = false;
   const api = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) => {
@@ -29,10 +31,8 @@ function fakeApi(options: { taskList?: string; wrongView?: boolean; foreignViewT
     const body: unknown = init?.body ? JSON.parse(String(init.body)) : null;
     calls.push({ path, method, query: url.search, body });
     const reply = (payload: unknown) => Response.json(payload);
-    if (path === "/api/v2/list/12345")
-      return reply({ id: "12345", space: { id: "777" } });
-    if (path === "/api/v2/team/555/space")
-      return reply({ spaces: [{ id: "777" }] });
+    if (path === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
+    if (path === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
     if (path === "/api/v2/task/task1")
       return reply({
         id: "task1",
@@ -249,9 +249,7 @@ describe("ClickUp v2 dedicated checklists and saved Views", () => {
       grant("list"),
       api as typeof fetch,
     );
-    expect(output["views"]).toMatchObject([
-      { id: "vw1", parent: { type: 6, id: "12345" } },
-    ]);
+    expect(output["views"]).toMatchObject([{ id: "vw1", parent: { type: 6, id: "12345" } }]);
   });
 
   it("blocks Workspace view listing unless Workspace authorization exists", async () => {
@@ -266,9 +264,7 @@ describe("ClickUp v2 dedicated checklists and saved Views", () => {
       grant("workspace"),
       api as typeof fetch,
     );
-    expect(allowed["views"]).toMatchObject([
-      { id: "workview", parent: { type: 7, id: "555" } },
-    ]);
+    expect(allowed["views"]).toMatchObject([{ id: "workview", parent: { type: 7, id: "555" } }]);
   });
 
   it("paginates saved View tasks without skipping dense results", async () => {
@@ -292,8 +288,10 @@ describe("ClickUp v2 dedicated checklists and saved Views", () => {
     );
     expect(second).toMatchObject({ incomplete: false, next_view_page: null });
     expect(
-      [...(first["tasks"] as Array<{ id: string }>), ...(second["tasks"] as Array<{ id: string }>)]
-        .map((task) => task.id),
+      [
+        ...(first["tasks"] as Array<{ id: string }>),
+        ...(second["tasks"] as Array<{ id: string }>),
+      ].map((task) => task.id),
     ).toEqual(Array.from({ length: 15 }, (_, index) => "task-" + index));
   });
 
