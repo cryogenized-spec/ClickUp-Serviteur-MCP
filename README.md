@@ -8,6 +8,8 @@ ClickUp Serviteur is a remote [Model Context Protocol](https://modelcontextproto
 
 **Public source does not mean public access to a running Worker.** The reference company deployment is a privately authorized installation. Do not connect strangers to that endpoint, copy another operator's Workspace IDs, or reuse any shared credentials.
 
+**Official MCP Registry:** [Self-hosted registry installation and publication guide](docs/MCP_REGISTRY.md). Each user must supply the HTTPS hostname of their *own* configured Worker; the listing does not provide a shared public ClickUp service.
+
 ## Features
 
 - Real ClickUp REST-backed tools for scoped task search, task creation, assignment and editing; lists, folders, tags, dependencies, task links, comments, Custom Fields, time entries, Docs and Chat where supported by the upstream REST API.
