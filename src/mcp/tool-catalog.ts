@@ -320,7 +320,6 @@ const F = {
   media_type: str("MIME content type, e.g. application/pdf or image/png.", 120),
   checklist_id: str("Exact checklist UUID from an independently authorized task.", 80),
   checklist_item_id: str("Exact checklist item UUID present on the verified checklist.", 80),
-  resolved: flag("Set the verified checklist item completion state explicitly."),
   view_id: str("Exact saved ClickUp List View ID, not an arbitrary task or document.", 80),
   view_page: integer("Zero-based ClickUp saved View task page.", 0, 100_000),
   view_offset: integer("Zero-based task index within the saved View page.", 0, 99),
