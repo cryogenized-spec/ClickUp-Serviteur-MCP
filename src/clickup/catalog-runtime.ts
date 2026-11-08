@@ -1874,7 +1874,8 @@ export async function runCatalogOperation(
               val(a, "document_id") +
               "/pages/" +
               val(a, "page_id") +
-              "?content_format=" + encodeURIComponent(validatedContentFormat(a)),
+              "?content_format=" +
+              encodeURIComponent(validatedContentFormat(a)),
           ),
         ),
       );

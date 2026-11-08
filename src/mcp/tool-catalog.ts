@@ -193,7 +193,10 @@ const F = {
   resolved: flag("Set assigned-comment resolution state. Omit to preserve the existing state."),
   assignee_ids: arrayOf("Verified ClickUp member IDs.", memberId, 12),
   text: str("Exact message/comment text; posting is a write with external visibility.", 6_000),
-  content: str("Full Chat message body, up to the ClickUp v3 documented 40,000-character limit. Use instead of legacy text.", 40_000),
+  content: str(
+    "Full Chat message body, up to the ClickUp v3 documented 40,000-character limit. Use instead of legacy text.",
+    40_000,
+  ),
   rich_segments: arrayOf(
     "ClickUp native rich comment spans: text attributes, newline list or code-block attributes, verified user mentions, emoji, or an explicit visible divider fallback. Use INSTEAD of text or mention_segments.",
     obj(

@@ -42,10 +42,7 @@ describe("full-length Markdown authoring for v3 Docs and Chat", () => {
     const read = CLICKUP_MODEL_TOOL_CATALOG.find(
       (item) => item.name === "clickup_get_document_pages",
     );
-    expect(read?.inputSchema.properties["content_format"]?.enum).toEqual([
-      "text/md",
-      "text/plain",
-    ]);
+    expect(read?.inputSchema.properties["content_format"]?.enum).toEqual(["text/md", "text/plain"]);
   });
 
   it("posts a 25k Markdown Chat message with the native full content field", async () => {
@@ -77,9 +74,7 @@ describe("full-length Markdown authoring for v3 Docs and Chat", () => {
   it("reads a complete 30k Docs page and explicitly reports content above the response cap", async () => {
     for (const length of [30_000, 41_000]) {
       const text = "A".repeat(length);
-      const fetcher = vi.fn(async () =>
-        Response.json({ id: "page-1", content: text }),
-      );
+      const fetcher = vi.fn(async () => Response.json({ id: "page-1", content: text }));
       const response = await runCatalogOperation(
         "clickup_get_document_pages",
         { document_id: "doc-1", page_id: "page-1" },
