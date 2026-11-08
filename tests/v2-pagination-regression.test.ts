@@ -25,12 +25,9 @@ function fakeTaskApi(
   const pages: number[] = [];
   const fetcher = vi.fn(async (req: RequestInfo | URL) => {
     const url = new URL(String(req));
-    if (url.pathname === "/api/v2/list/12345")
-      return reply({ id: "12345", space: { id: "777" } });
-    if (url.pathname === "/api/v2/team/555/space")
-      return reply({ spaces: [{ id: "777" }] });
-    const taskPath =
-      resourceScope === "list" ? "/api/v2/list/12345/task" : "/api/v2/team/555/task";
+    if (url.pathname === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
+    if (url.pathname === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
+    const taskPath = resourceScope === "list" ? "/api/v2/list/12345/task" : "/api/v2/team/555/task";
     if (url.pathname === taskPath) {
       const page = Number(url.searchParams.get("page"));
       pages.push(page);
@@ -60,12 +57,9 @@ function fakeCommentsApi(pages: Array<Array<Record<string, unknown>>>) {
   const fetcher = vi.fn(async (req: RequestInfo | URL) => {
     const url = new URL(String(req));
     requests.push(url.pathname);
-    if (url.pathname === "/api/v2/task/task1")
-      return reply({ id: "task1", list: { id: "12345" } });
-    if (url.pathname === "/api/v2/list/12345")
-      return reply({ id: "12345", space: { id: "777" } });
-    if (url.pathname === "/api/v2/team/555/space")
-      return reply({ spaces: [{ id: "777" }] });
+    if (url.pathname === "/api/v2/task/task1") return reply({ id: "task1", list: { id: "12345" } });
+    if (url.pathname === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
+    if (url.pathname === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
     if (url.pathname === "/api/v2/task/task1/comment") {
       const start = url.searchParams.get("start");
       const startId = url.searchParams.get("start_id");
@@ -147,8 +141,10 @@ describe("bounded ClickUp v2 pagination with one tool per function", () => {
       api.fetcher as typeof fetch,
     );
     expect(second).toMatchObject({ next_task_page: null, incomplete: false });
-    const ids = [...(first["tasks"] as Array<{ id: string }>), ...(second["tasks"] as Array<{ id: string }>)]
-      .map((t) => t.id);
+    const ids = [
+      ...(first["tasks"] as Array<{ id: string }>),
+      ...(second["tasks"] as Array<{ id: string }>),
+    ].map((t) => t.id);
     expect(ids).toEqual(Array.from({ length: 18 }, (_, i) => "match-" + i));
   });
 
