@@ -343,9 +343,10 @@ export async function getMyAttentionItems(
       coverage.more_assigned_task_pages || coverage.more_activity_task_pages ||
       coverage.additional_comment_pages_possible ||
       tasksToInspect.length < uniqueCandidates.size,
-    no_matches_statement: visible.length === 0
+    no_matches_statement: entries.length === 0
       ? "No matching attention items found in the inspected tasks and comment pages."
       : null,
+    requested_page_empty: entries.length > 0 && visible.length === 0,
     coverage,
   };
 }
