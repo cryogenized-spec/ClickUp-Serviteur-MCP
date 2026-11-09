@@ -365,6 +365,7 @@ const F = {
   ),
   template_id: str("Exact Task Template ID from get_task_templates. Must be verified on the supplied Workspace template page.", 80),
   template_page: integer("Zero-based page returned by task-template listing.", 0, 100),
+  template_offset: integer("Zero-based template index on template_page; follow the returned continuation.", 0, 99),
   current_user: flag("Must use the authenticated ClickUp user; never impersonate another."),
 } satisfies Record<string, Field>;
 
@@ -446,7 +447,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Read an explicit page of available Workspace task templates; requires a Workspace grant.",
     "Show our standard repair intake task templates.",
     [],
-    ["template_page", "max_results"],
+    ["template_page", "template_offset", "max_results"],
   ),
   tool(
     "clickup_create_task_from_template",
