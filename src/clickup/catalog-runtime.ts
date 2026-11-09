@@ -782,7 +782,9 @@ async function verifiedChatChannel(
 ): Promise<Json> {
   const key = id(channelId);
   const response = await send(
-    grant, fetcher, "GET",
+    grant,
+    fetcher,
+    "GET",
     v3("workspaces/" + id(grant.workspaceId) + "/chat/channels/" + key),
   );
   const channel = obj(response["channel"]) ?? response;
@@ -793,7 +795,8 @@ async function verifiedChatChannel(
       String(channel["workspace_id"]) !== grant.workspaceId) ||
     (obj(channel["workspace"])?.["id"] !== undefined &&
       String(obj(channel["workspace"])?.["id"]) !== grant.workspaceId)
-  ) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  )
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   return channel;
 }
 
@@ -2590,8 +2593,7 @@ export async function runCatalogOperation(
         limit: String(N),
         content_format: validatedContentFormat(a),
       });
-      if (a["chat_cursor"] !== undefined)
-        params.set("cursor", boundedV3Cursor(a["chat_cursor"]));
+      if (a["chat_cursor"] !== undefined) params.set("cursor", boundedV3Cursor(a["chat_cursor"]));
       const prefix = "workspaces/" + W + "/chat/";
       if (name === "clickup_get_chat_message_replies") {
         const parent = new URLSearchParams({
@@ -2608,15 +2610,17 @@ export async function runCatalogOperation(
           !Array.isArray(page["messages"]) ||
           page["messages"].length > 50 ||
           page["messages"].some((entry) => !obj(entry))
-        ) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-        const claimed = page["messages"].map(obj).find(
-          (msg) => String(msg?.["id"]) === String(a["message_id"]),
-        );
+        )
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        const claimed = page["messages"]
+          .map(obj)
+          .find((msg) => String(msg?.["id"]) === String(a["message_id"]));
         if (
           !claimed ||
           (claimed["channel_id"] !== undefined &&
             String(claimed["channel_id"]) !== String(a["channel_id"]))
-        ) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+        )
+          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
         // Only after the parent is proven to belong to this authorized
         // channel may an API path addressing a message ID be called.
         const result = await call(
@@ -2627,7 +2631,8 @@ export async function runCatalogOperation(
           !Array.isArray(result["messages"]) ||
           result["messages"].length > N ||
           result["messages"].some((entry) => !obj(entry))
-        ) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        )
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
         const cursor = nextV3Cursor(result);
         return {
           source: "clickup-api-v3",
@@ -2635,7 +2640,9 @@ export async function runCatalogOperation(
           parent_message_id: a["message_id"],
           messages: clip(result["messages"]),
           next_cursor: cursor,
-          incomplete: cursor !== null || result["messages"].length === N ||
+          incomplete:
+            cursor !== null ||
+            result["messages"].length === N ||
             hasClippedNestedArray(result["messages"]),
           continuation_unavailable: cursor === null && result["messages"].length === N,
         };
@@ -2647,17 +2654,23 @@ export async function runCatalogOperation(
       if (
         !Array.isArray(result["messages"]) ||
         result["messages"].length > N ||
-        result["messages"].some((entry) => !obj(entry) ||
-          (obj(entry)?.["channel_id"] !== undefined &&
-            String(obj(entry)?.["channel_id"]) !== String(a["channel_id"])))
-      ) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        result["messages"].some(
+          (entry) =>
+            !obj(entry) ||
+            (obj(entry)?.["channel_id"] !== undefined &&
+              String(obj(entry)?.["channel_id"]) !== String(a["channel_id"])),
+        )
+      )
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       const cursor = nextV3Cursor(result);
       return {
         source: "clickup-api-v3",
         channel_id: a["channel_id"],
         messages: clip(result["messages"]),
         next_cursor: cursor,
-        incomplete: cursor !== null || result["messages"].length === N ||
+        incomplete:
+          cursor !== null ||
+          result["messages"].length === N ||
           hasClippedNestedArray(result["messages"]),
         continuation_unavailable: cursor === null && result["messages"].length === N,
       };
@@ -2670,7 +2683,11 @@ export async function runCatalogOperation(
       const parentId = a["docs_parent_id"];
       if ((parentType === undefined) !== (parentId === undefined))
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-      const params = new URLSearchParams({ limit: String(limit), archived: "false", deleted: "false" });
+      const params = new URLSearchParams({
+        limit: String(limit),
+        archived: "false",
+        deleted: "false",
+      });
       if (parentType !== undefined) {
         if (!["SPACE", "FOLDER", "LIST", "EVERYTHING", "WORKSPACE"].includes(String(parentType)))
           throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
@@ -2683,20 +2700,22 @@ export async function runCatalogOperation(
         params.set("parent_type", String(parentType));
         params.set("parent_id", parentKey);
       }
-      if (a["docs_cursor"] !== undefined)
-        params.set("cursor", boundedV3Cursor(a["docs_cursor"]));
+      if (a["docs_cursor"] !== undefined) params.set("cursor", boundedV3Cursor(a["docs_cursor"]));
       const result = await call("GET", v3("workspaces/" + W + "/docs?" + params.toString()));
       if (
         !Array.isArray(result["docs"]) ||
         result["docs"].length > Number(limit) ||
         result["docs"].some((entry) => !obj(entry))
-      ) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      )
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       const cursor = nextV3Cursor(result);
       return {
         source: "clickup-api-v3",
         docs: clip(result["docs"]),
         next_cursor: cursor,
-        incomplete: cursor !== null || result["docs"].length === Number(limit) ||
+        incomplete:
+          cursor !== null ||
+          result["docs"].length === Number(limit) ||
           hasClippedNestedArray(result["docs"]),
         continuation_unavailable: cursor === null && result["docs"].length === Number(limit),
       };
