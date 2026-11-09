@@ -976,7 +976,9 @@ export async function runCatalogOperation(
         a,
         g,
         (path) => call("GET", v2(path)),
-        async (listId) => { await listInWorkspace(g, f, listId); },
+        async (listId) => {
+          await listInWorkspace(g, f, listId);
+        },
       );
     case "clickup_filter_tasks":
     case "clickup_get_my_tasks": {
