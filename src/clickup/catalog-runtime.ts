@@ -1,4 +1,5 @@
 import { quotaCall } from "./client.js";
+import { getMyAttentionItems } from "./attention-items.js";
 import { compileClickUpRichSegments, compareRichCommentReadback } from "./comment-rich.js";
 import { verifySharedListWorkspace } from "./operations.js";
 import { COMPANY_LIST_TASK_OPERATIONS, ReadFailure, type ReadGrant } from "./policy.js";
@@ -801,6 +802,7 @@ async function verifiedChatChannel(
 }
 
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
+  "clickup_get_my_attention_items",
   "clickup_filter_tasks",
   "clickup_get_my_tasks",
   "clickup_get_custom_task_types",
@@ -969,6 +971,13 @@ export async function runCatalogOperation(
   if (a["workspace_id"] !== undefined && String(a["workspace_id"]) !== g.workspaceId)
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   switch (name) {
+    case "clickup_get_my_attention_items":
+      return getMyAttentionItems(
+        a,
+        g,
+        (path) => call("GET", v2(path)),
+        async (listId) => { await listInWorkspace(g, f, listId); },
+      );
     case "clickup_filter_tasks":
     case "clickup_get_my_tasks": {
       const isMine = name === "clickup_get_my_tasks" || a["assigned_to_me"] === true;
