@@ -419,7 +419,7 @@ const taskBody = (a: Json, update = false, currentTask?: Json): Json => {
   if (memberIds !== null && new Set(memberIds).size !== memberIds.length)
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   // Update Task accepts { add, rem }, not a replacement array. Compute both
-  // against the scoped, freshly fetched task instead of silently adding only.
+  // against the scoped, freshly fetched task; never silently add only.
   const existing = memberIds !== null && update ? taskAssigneeIds(currentTask ?? {}) : [];
   const assigneeChange =
     memberIds === null
