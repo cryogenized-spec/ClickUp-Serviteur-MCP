@@ -1,0 +1,37 @@
+name: One-shot format PR 119
+on:
+  push:
+    branches:
+      - fix/119-assignee-replacement
+    paths:
+      - .github/workflows/pr119-format.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.ref == 'refs/heads/fix/119-assignee-replacement'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: true
+      - name: Install Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Format changed files and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          ./node_modules/.bin/prettier --write src/clickup/catalog-runtime.ts src/mcp/tool-catalog.ts tests/phase4-mcp.test.ts tests/phase7-catalog.test.ts
+          rm .github/workflows/pr119-format.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/clickup/catalog-runtime.ts src/mcp/tool-catalog.ts tests/phase4-mcp.test.ts tests/phase7-catalog.test.ts .github/workflows/pr119-format.yml
+          git commit -m "style: format issue 119 fix and remove one-shot formatter"
+          git push origin HEAD:fix/119-assignee-replacement
