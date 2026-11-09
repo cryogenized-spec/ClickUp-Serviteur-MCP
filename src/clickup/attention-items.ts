@@ -15,7 +15,8 @@ const identifier = (value: unknown, max = 80): string => {
     (typeof value !== "string" && typeof value !== "number") ||
     !/^[a-zA-Z0-9_-]{1,80}$/.test(String(value)) ||
     String(value).length > max
-  ) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  )
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   return String(value);
 };
 const milliseconds = (value: unknown): number | null => {
@@ -24,7 +25,8 @@ const milliseconds = (value: unknown): number | null => {
     (typeof value !== "string" && typeof value !== "number") ||
     !/^\d{1,13}$/.test(String(value)) ||
     !Number.isSafeInteger(Number(value))
-  ) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+  )
+    throw new ReadFailure("CLICKUP_BAD_RESPONSE");
   return Number(value);
 };
 const userId = (value: unknown): string | null => {
@@ -35,10 +37,13 @@ const userId = (value: unknown): string | null => {
 };
 const isMentioned = (comment: Json, me: string): boolean => {
   const spans = comment["comment"];
-  return Array.isArray(spans) && spans.some((value) => {
-    const span = record(value);
-    return span?.["type"] === "tag" && userId(span["user"]) === me;
-  });
+  return (
+    Array.isArray(spans) &&
+    spans.some((value) => {
+      const span = record(value);
+      return span?.["type"] === "tag" && userId(span["user"]) === me;
+    })
+  );
 };
 const preview = (comment: Json): string => {
   const plain = comment["comment_text"];
@@ -49,7 +54,11 @@ const preview = (comment: Json): string => {
     .slice(0, 100)
     .map((part) => {
       const node = record(part);
-      return node?.["type"] === "tag" ? "@mention" : typeof node?.["text"] === "string" ? node["text"] : "";
+      return node?.["type"] === "tag"
+        ? "@mention"
+        : typeof node?.["text"] === "string"
+          ? node["text"]
+          : "";
     })
     .join("")
     .slice(0, 240);
@@ -58,8 +67,11 @@ const taskUrl = (value: unknown): string | null => {
   if (typeof value !== "string" || value.length > 2048) return null;
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && url.hostname === "app.clickup.com" &&
-      url.username === "" && url.password === "" && url.pathname.startsWith("/t/")
+    return url.protocol === "https:" &&
+      url.hostname === "app.clickup.com" &&
+      url.username === "" &&
+      url.password === "" &&
+      url.pathname.startsWith("/t/")
       ? url.href
       : null;
   } catch {
@@ -86,11 +98,7 @@ function dueCategory(task: Json, now: number): "overdue_task" | "due_soon_task" 
   if (timed ? due <= now + 48 * 3_600_000 : days <= 2) return "due_soon_task";
   return "assigned_task";
 }
-function validatedTask(
-  value: unknown,
-  grant: ReadGrant,
-  selectedList: string | undefined,
-): Json {
+function validatedTask(value: unknown, grant: ReadGrant, selectedList: string | undefined): Json {
   const task = record(value);
   const list = record(task?.["list"]);
   const home = list?.["id"];
@@ -104,7 +112,8 @@ function validatedTask(
     !/^[1-9]\d{0,17}$/.test(String(home)) ||
     (selectedList !== undefined && String(home) !== selectedList) ||
     (grant.resourceScope !== "workspace" && String(home) !== grant.listId)
-  ) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  )
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   if (task["assignees"] !== undefined && !Array.isArray(task["assignees"]))
     throw new ReadFailure("CLICKUP_BAD_RESPONSE");
   if (task["workspace_id"] !== undefined && String(task["workspace_id"]) !== grant.workspaceId)
@@ -112,18 +121,26 @@ function validatedTask(
   return task;
 }
 function assignedToMe(task: Json, me: string): boolean {
-  return Array.isArray(task["assignees"]) && task["assignees"].some((entry) => userId(entry) === me);
+  return (
+    Array.isArray(task["assignees"]) && task["assignees"].some((entry) => userId(entry) === me)
+  );
 }
-const attentionItem = (task: Json, kind: string, reasons: string[], activity: number | null): Json => ({
+const attentionItem = (
+  task: Json,
+  kind: string,
+  reasons: string[],
+  activity: number | null,
+): Json => ({
   item_id: "task:" + task["id"],
   kind,
   reasons,
   task_id: task["id"],
   list_id: String(record(task["list"])?.["id"]),
   title: String(task["name"]).slice(0, 180),
-  status: typeof record(task["status"])?.["status"] === "string"
-    ? String(record(task["status"])?.["status"]).slice(0, 80)
-    : null,
+  status:
+    typeof record(task["status"])?.["status"] === "string"
+      ? String(record(task["status"])?.["status"]).slice(0, 80)
+      : null,
   priority: /^[1-4]$/.test(String(record(task["priority"])?.["id"] ?? ""))
     ? Number(record(task["priority"])?.["id"])
     : null,
@@ -164,17 +181,20 @@ export async function getMyAttentionItems(
   const commentTaskCount = integerArg(args, "attention_comment_tasks", 8, 0, 30);
   const resultOffset = integerArg(args, "attention_result_offset", 0, 0, 10_000);
   const mentionLookback = integerArg(args, "lookback_days", 7, 1, 90);
-  const selectedList = args["list_id"] === undefined
-    ? grant.resourceScope === "workspace" ? undefined : identifier(grant.listId)
-    : identifier(args["list_id"]);
+  const selectedList =
+    args["list_id"] === undefined
+      ? grant.resourceScope === "workspace"
+        ? undefined
+        : identifier(grant.listId)
+      : identifier(args["list_id"]);
   if (selectedList !== undefined) {
-    if (!/^[1-9]\d{0,17}$/.test(selectedList))
-      throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+    if (!/^[1-9]\d{0,17}$/.test(selectedList)) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
     await verifyList(selectedList);
   }
-  const root = selectedList !== undefined
-    ? "list/" + selectedList + "/task"
-    : "team/" + identifier(grant.workspaceId) + "/task";
+  const root =
+    selectedList !== undefined
+      ? "list/" + selectedList + "/task"
+      : "team/" + identifier(grant.workspaceId) + "/task";
   const now = Date.now();
   const recentCutoff = now - mentionLookback * 86_400_000;
   const found = new Map<string, Entry>();
@@ -253,9 +273,13 @@ export async function getMyAttentionItems(
     const due = milliseconds(task["due_date"]);
     const activity = milliseconds(task["date_updated"]) ?? 0;
     const entry = attentionItem(
-      task, kind, kind === "overdue_task"
+      task,
+      kind,
+      kind === "overdue_task"
         ? ["assigned_to_me", "overdue"]
-        : kind === "due_soon_task" ? ["assigned_to_me", "due_soon"] : ["assigned_to_me"],
+        : kind === "due_soon_task"
+          ? ["assigned_to_me", "due_soon"]
+          : ["assigned_to_me"],
       activity || null,
     );
     found.set(String(entry["item_id"]), {
@@ -286,9 +310,13 @@ export async function getMyAttentionItems(
     const taskId = identifier(task["id"]);
     const response = await tryRead(() => read("task/" + taskId + "/comment"));
     if (response === null) break;
-    if (!Array.isArray(response["comments"]) || response["comments"].length > 25 ||
-      response["comments"].some((entry) => !record(entry) ||
-        typeof record(entry)?.["id"] !== "string"))
+    if (
+      !Array.isArray(response["comments"]) ||
+      response["comments"].length > 25 ||
+      response["comments"].some(
+        (entry) => !record(entry) || typeof record(entry)?.["id"] !== "string",
+      )
+    )
       throw new ReadFailure("CLICKUP_BAD_RESPONSE");
     coverage.comment_tasks_inspected++;
     coverage.comment_pages_inspected++;
@@ -316,11 +344,14 @@ export async function getMyAttentionItems(
       found.set(key, { rank: assigned ? 0 : 2, due: null, activity: at ?? 0, item });
     }
   }
-  const entries = [...found.values()].sort((a, b) =>
-    a.rank - b.rank ||
-    (a.rank === 1 || a.rank === 3 ? (a.due ?? Infinity) - (b.due ?? Infinity) : b.activity - a.activity) ||
-    (Number(a.item["priority"] ?? 9) - Number(b.item["priority"] ?? 9)) ||
-    String(a.item["item_id"]).localeCompare(String(b.item["item_id"])),
+  const entries = [...found.values()].sort(
+    (a, b) =>
+      a.rank - b.rank ||
+      (a.rank === 1 || a.rank === 3
+        ? (a.due ?? Infinity) - (b.due ?? Infinity)
+        : b.activity - a.activity) ||
+      Number(a.item["priority"] ?? 9) - Number(b.item["priority"] ?? 9) ||
+      String(a.item["item_id"]).localeCompare(String(b.item["item_id"])),
   );
   const visible = entries.slice(resultOffset, resultOffset + N);
   const moreResults = resultOffset + visible.length < entries.length;
@@ -335,17 +366,23 @@ export async function getMyAttentionItems(
     items: visible.map((entry) => entry.item),
     total_items_in_inspected_sources: entries.length,
     next_result_offset: moreResults ? resultOffset + visible.length : null,
-    next_assigned_page: assignedFetched && coverage.more_assigned_task_pages ? assignedPage + 1 : null,
-    next_activity_page: activityFetched && coverage.more_activity_task_pages ? activityPage + 1 : null,
+    next_assigned_page:
+      assignedFetched && coverage.more_assigned_task_pages ? assignedPage + 1 : null,
+    next_activity_page:
+      activityFetched && coverage.more_activity_task_pages ? activityPage + 1 : null,
     partial: interrupted !== null,
     ...(interrupted ? { interrupted_reason: interrupted } : {}),
-    incomplete: interrupted !== null || moreResults ||
-      coverage.more_assigned_task_pages || coverage.more_activity_task_pages ||
+    incomplete:
+      interrupted !== null ||
+      moreResults ||
+      coverage.more_assigned_task_pages ||
+      coverage.more_activity_task_pages ||
       coverage.additional_comment_pages_possible ||
       tasksToInspect.length < uniqueCandidates.size,
-    no_matches_statement: entries.length === 0
-      ? "No matching attention items found in the inspected tasks and comment pages."
-      : null,
+    no_matches_statement:
+      entries.length === 0
+        ? "No matching attention items found in the inspected tasks and comment pages."
+        : null,
     requested_page_empty: entries.length > 0 && visible.length === 0,
     coverage,
   };
