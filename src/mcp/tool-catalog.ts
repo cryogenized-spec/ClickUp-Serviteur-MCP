@@ -401,8 +401,14 @@ const F = {
     0,
     99,
   ),
-  chat_cursor: str("Opaque ClickUp v3 Chat pagination cursor returned by the previous message page.", 500),
-  parent_chat_cursor: str("Optional cursor to the channel message page containing the parent message. Used only to prove its channel ownership.", 500),
+  chat_cursor: str(
+    "Opaque ClickUp v3 Chat pagination cursor returned by the previous message page.",
+    500,
+  ),
+  parent_chat_cursor: str(
+    "Optional cursor to the channel message page containing the parent message. Used only to prove its channel ownership.",
+    500,
+  ),
   docs_cursor: str("Opaque ClickUp v3 Docs cursor returned by the previous Doc page.", 500),
   docs_limit: integer("ClickUp v3 Docs page size, minimum 10, maximum 50.", 10, 50),
   docs_parent_type: {
@@ -411,7 +417,10 @@ const F = {
     enum: ["SPACE", "FOLDER", "LIST", "EVERYTHING", "WORKSPACE"],
   },
   docs_parent_id: str("Exact ClickUp Docs parent ID; must be paired with parent type.", 80),
-  message_id: str("Exact ClickUp Chat message identifier, verified in its authorized channel.", 100),
+  message_id: str(
+    "Exact ClickUp Chat message identifier, verified in its authorized channel.",
+    100,
+  ),
   current_user: flag("Must use the authenticated ClickUp user; never impersonate another."),
 } satisfies Record<string, Field>;
 
