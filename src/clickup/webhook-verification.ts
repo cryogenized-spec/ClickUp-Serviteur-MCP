@@ -20,12 +20,14 @@ export interface VerifiedClickUpWebhookEnvelope {
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 }
 
 function boundedIdentity(value: unknown, max: number): string | null {
-  return typeof value === "string" && value.length > 0 && value.length <= max &&
+  return typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= max &&
     /^[a-zA-Z0-9_-]+$/.test(value)
     ? value
     : null;
@@ -49,7 +51,8 @@ export async function verifyClickUpWebhookSignature(
     typeof secret !== "string" ||
     secret.length === 0 ||
     secret.length > 1024
-  ) return false;
+  )
+    return false;
 
   const key = await crypto.subtle.importKey(
     "raw",
