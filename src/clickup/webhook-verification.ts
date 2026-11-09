@@ -91,7 +91,7 @@ export async function validateClickUpWebhookMessage(
 
   let json: unknown;
   try {
-    json = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(rawBody));
+    // Workers\u2019 TypeScript declarations omit the WHATWG fatal option;\n    // runtime support is regression-tested with malformed UTF-8 input.\n    const decoder = new TextDecoder(\n      "utf-8",\n      { fatal: true } as unknown as ConstructorParameters<typeof TextDecoder>[1],\n    );\n    json = JSON.parse(decoder.decode(rawBody));
   } catch {
     return null;
   }
