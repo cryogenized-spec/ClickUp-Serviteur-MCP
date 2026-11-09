@@ -15,13 +15,15 @@ const grant = (scope: "list" | "workspace" = "workspace"): ReadGrant => ({
     get: () => ({ fetch: async () => Response.json({ allowed: true }) }),
   },
 });
-function fakeApi(options: {
-  wrongChannel?: boolean;
-  foreignMessage?: boolean;
-  missingParent?: boolean;
-  fullDocsWithoutCursor?: boolean;
-  maliciousDoc?: boolean;
-} = {}) {
+function fakeApi(
+  options: {
+    wrongChannel?: boolean;
+    foreignMessage?: boolean;
+    missingParent?: boolean;
+    fullDocsWithoutCursor?: boolean;
+    maliciousDoc?: boolean;
+  } = {},
+) {
   const calls: Array<{ path: string; params: URLSearchParams; method: string }> = [];
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
@@ -29,25 +31,32 @@ function fakeApi(options: {
     calls.push({ path, params: new URLSearchParams(url.search), method: init?.method ?? "GET" });
     const reply = (body: unknown) => Response.json(body);
     if (path === "/api/v3/workspaces/555/chat/channels/chan1")
-      return reply({ channel: { id: options.wrongChannel ? "chan2" : "chan1", workspace_id: 555 } });
+      return reply({
+        channel: { id: options.wrongChannel ? "chan2" : "chan1", workspace_id: 555 },
+      });
     if (path === "/api/v3/workspaces/555/chat/channels/chan1/messages") {
       const requested = url.searchParams.get("cursor");
-      const page = requested === "parent-page"
-        ? [{ id: "oldmsg", channel_id: "chan1", content: "Old message" }]
-        : [
-            { id: "msg1", channel_id: options.foreignMessage ? "chan2" : "chan1", content: "Message 1" },
-            ...(!options.missingParent ? [{ id: "msg2", channel_id: "chan1", content: "Message 2" }] : []),
-          ];
+      const page =
+        requested === "parent-page"
+          ? [{ id: "oldmsg", channel_id: "chan1", content: "Old message" }]
+          : [
+              {
+                id: "msg1",
+                channel_id: options.foreignMessage ? "chan2" : "chan1",
+                content: "Message 1",
+              },
+              ...(!options.missingParent
+                ? [{ id: "msg2", channel_id: "chan1", content: "Message 2" }]
+                : []),
+            ];
       return reply({ messages: page, next_cursor: requested ? null : "parent-page" });
     }
     if (path === "/api/v3/workspaces/555/chat/messages/msg1/replies")
       return reply({ messages: [{ id: "r1", content: "Acknowledged" }], next_cursor: null });
     if (path === "/api/v3/workspaces/555/chat/messages/oldmsg/replies")
       return reply({ messages: [{ id: "r-old", content: "Archived" }], next_cursor: null });
-    if (path === "/api/v2/list/12345")
-      return reply({ id: "12345", space: { id: "777" } });
-    if (path === "/api/v2/team/555/space")
-      return reply({ spaces: [{ id: "777" }] });
+    if (path === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
+    if (path === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
     if (path === "/api/v3/workspaces/555/docs")
       return reply({
         docs: options.fullDocsWithoutCursor
@@ -223,7 +232,12 @@ describe("ClickUp v3 scoped Chat history and Docs discovery", () => {
     ]) {
       const api = fakeApi();
       await expect(
-        runCatalogOperation("clickup_search_documents", input, grant(), api.fetcher as typeof fetch),
+        runCatalogOperation(
+          "clickup_search_documents",
+          input,
+          grant(),
+          api.fetcher as typeof fetch,
+        ),
       ).rejects.toThrow(/CLICKUP_(SCOPE_OR_SCHEMA_REJECTED|INVALID_ARGUMENT)/);
       expect(api.calls.filter((c) => c.path.endsWith("/docs"))).toHaveLength(0);
     }
@@ -232,7 +246,10 @@ describe("ClickUp v3 scoped Chat history and Docs discovery", () => {
   it("discloses incomplete Docs pages without inventing a continuation cursor", async () => {
     const api = fakeApi({ fullDocsWithoutCursor: true });
     const result = await runCatalogOperation(
-      "clickup_search_documents", {}, grant(), api.fetcher as typeof fetch,
+      "clickup_search_documents",
+      {},
+      grant(),
+      api.fetcher as typeof fetch,
     );
     expect(result).toMatchObject({
       incomplete: true,
