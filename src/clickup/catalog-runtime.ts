@@ -761,6 +761,45 @@ function checklistId(value: unknown): string {
   return id(value);
 }
 
+/** Opaque v3 cursor input; never use cursor content as a route or a token. */
+function boundedV3Cursor(value: unknown): string {
+  if (typeof value !== "string" || !/^[a-zA-Z0-9_~+/=:.%-]{1,500}$/.test(value))
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  return value;
+}
+function nextV3Cursor(response: Json): string | null {
+  const candidate = response["next_cursor"] ?? obj(response["pagination"])?.["next_cursor"];
+  if (candidate === null || candidate === undefined) return null;
+  if (typeof candidate !== "string" || !/^[a-zA-Z0-9_~+/=:.%-]{1,500}$/.test(candidate))
+    throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+  return candidate;
+}
+/** A Chat channel must be resolved through the OAuth-bound Workspace path. */
+async function verifiedChatChannel(
+  grant: ReadGrant,
+  fetcher: typeof fetch,
+  channelId: unknown,
+): Promise<Json> {
+  const key = id(channelId);
+  const response = await send(
+    grant,
+    fetcher,
+    "GET",
+    v3("workspaces/" + id(grant.workspaceId) + "/chat/channels/" + key),
+  );
+  const channel = obj(response["channel"]) ?? response;
+  if (String(channel["id"]) !== String(channelId))
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  if (
+    (channel["workspace_id"] !== undefined &&
+      String(channel["workspace_id"]) !== grant.workspaceId) ||
+    (obj(channel["workspace"])?.["id"] !== undefined &&
+      String(obj(channel["workspace"])?.["id"]) !== grant.workspaceId)
+  )
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  return channel;
+}
+
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_filter_tasks",
   "clickup_get_my_tasks",
@@ -816,6 +855,9 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_find_member_by_name",
   "clickup_resolve_assignees",
   "clickup_get_chat_channels",
+  "clickup_get_chat_channel_messages",
+  "clickup_get_chat_message_replies",
+  "clickup_search_documents",
   "clickup_send_chat_message",
   "clickup_create_document",
   "clickup_list_document_pages",
@@ -842,6 +884,9 @@ const WORKSPACE_SCOPE_OPERATIONS = new Set([
   "clickup_create_folder",
   "clickup_update_folder",
   "clickup_get_chat_channels",
+  "clickup_get_chat_channel_messages",
+  "clickup_get_chat_message_replies",
+  "clickup_search_documents",
   "clickup_send_chat_message",
   "clickup_create_document",
   "clickup_list_document_pages",
@@ -2538,6 +2583,141 @@ export async function runCatalogOperation(
           );
           return { query: x, matches: clip(hits), ambiguous: hits.length !== 1 };
         }),
+      };
+    }
+    case "clickup_get_chat_channel_messages":
+    case "clickup_get_chat_message_replies": {
+      const channelId = val(a, "channel_id");
+      await verifiedChatChannel(g, f, a["channel_id"]);
+      const params = new URLSearchParams({
+        limit: String(N),
+        content_format: validatedContentFormat(a),
+      });
+      if (a["chat_cursor"] !== undefined) params.set("cursor", boundedV3Cursor(a["chat_cursor"]));
+      const prefix = "workspaces/" + W + "/chat/";
+      if (name === "clickup_get_chat_message_replies") {
+        const parent = new URLSearchParams({
+          limit: "50",
+          content_format: "text/plain",
+        });
+        if (a["parent_chat_cursor"] !== undefined)
+          parent.set("cursor", boundedV3Cursor(a["parent_chat_cursor"]));
+        const page = await call(
+          "GET",
+          v3(prefix + "channels/" + channelId + "/messages?" + parent.toString()),
+        );
+        if (
+          !Array.isArray(page["messages"]) ||
+          page["messages"].length > 50 ||
+          page["messages"].some((entry) => !obj(entry))
+        )
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        const claimed = page["messages"]
+          .map(obj)
+          .find((msg) => String(msg?.["id"]) === String(a["message_id"]));
+        if (
+          !claimed ||
+          (claimed["channel_id"] !== undefined &&
+            String(claimed["channel_id"]) !== String(a["channel_id"]))
+        )
+          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+        // Only after the parent is proven to belong to this authorized
+        // channel may an API path addressing a message ID be called.
+        const result = await call(
+          "GET",
+          v3(prefix + "messages/" + val(a, "message_id") + "/replies?" + params.toString()),
+        );
+        if (
+          !Array.isArray(result["messages"]) ||
+          result["messages"].length > N ||
+          result["messages"].some((entry) => !obj(entry))
+        )
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        const cursor = nextV3Cursor(result);
+        return {
+          source: "clickup-api-v3",
+          channel_id: a["channel_id"],
+          parent_message_id: a["message_id"],
+          messages: clip(result["messages"]),
+          next_cursor: cursor,
+          incomplete:
+            cursor !== null ||
+            result["messages"].length === N ||
+            hasClippedNestedArray(result["messages"]),
+          continuation_unavailable: cursor === null && result["messages"].length === N,
+        };
+      }
+      const result = await call(
+        "GET",
+        v3(prefix + "channels/" + channelId + "/messages?" + params.toString()),
+      );
+      if (
+        !Array.isArray(result["messages"]) ||
+        result["messages"].length > N ||
+        result["messages"].some(
+          (entry) =>
+            !obj(entry) ||
+            (obj(entry)?.["channel_id"] !== undefined &&
+              String(obj(entry)?.["channel_id"]) !== String(a["channel_id"])),
+        )
+      )
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const cursor = nextV3Cursor(result);
+      return {
+        source: "clickup-api-v3",
+        channel_id: a["channel_id"],
+        messages: clip(result["messages"]),
+        next_cursor: cursor,
+        incomplete:
+          cursor !== null ||
+          result["messages"].length === N ||
+          hasClippedNestedArray(result["messages"]),
+        continuation_unavailable: cursor === null && result["messages"].length === N,
+      };
+    }
+    case "clickup_search_documents": {
+      const limit = a["docs_limit"] ?? 20;
+      if (!Number.isSafeInteger(limit) || Number(limit) < 10 || Number(limit) > 50)
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const parentType = a["docs_parent_type"];
+      const parentId = a["docs_parent_id"];
+      if ((parentType === undefined) !== (parentId === undefined))
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const params = new URLSearchParams({
+        limit: String(limit),
+        archived: "false",
+        deleted: "false",
+      });
+      if (parentType !== undefined) {
+        if (!["SPACE", "FOLDER", "LIST", "EVERYTHING", "WORKSPACE"].includes(String(parentType)))
+          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        const parentKey = id(parentId);
+        if (parentType === "LIST") await listInWorkspace(g, f, parentId);
+        else if (parentType === "FOLDER") await folder("docs_parent_id");
+        else if (parentType === "SPACE") await inWorkspace(g, f, parentId);
+        else if (String(parentId) !== g.workspaceId)
+          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+        params.set("parent_type", String(parentType));
+        params.set("parent_id", parentKey);
+      }
+      if (a["docs_cursor"] !== undefined) params.set("cursor", boundedV3Cursor(a["docs_cursor"]));
+      const result = await call("GET", v3("workspaces/" + W + "/docs?" + params.toString()));
+      if (
+        !Array.isArray(result["docs"]) ||
+        result["docs"].length > Number(limit) ||
+        result["docs"].some((entry) => !obj(entry))
+      )
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const cursor = nextV3Cursor(result);
+      return {
+        source: "clickup-api-v3",
+        docs: clip(result["docs"]),
+        next_cursor: cursor,
+        incomplete:
+          cursor !== null ||
+          result["docs"].length === Number(limit) ||
+          hasClippedNestedArray(result["docs"]),
+        continuation_unavailable: cursor === null && result["docs"].length === Number(limit),
       };
     }
     case "clickup_get_chat_channels":
