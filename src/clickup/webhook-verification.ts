@@ -91,13 +91,11 @@ export async function validateClickUpWebhookMessage(
 
   let json: unknown;
   try {
-    // Workers' TypeScript declarations omit the WHATWG fatal option;
-    // runtime support is regression-tested with malformed UTF-8 input.
-    const decoder = new TextDecoder(
-      "utf-8",
-      { fatal: true } as unknown as ConstructorParameters<typeof TextDecoder>[1],
-    );
-    json = JSON.parse(decoder.decode(rawBody));
+    // Reject every UTF-8 replacement character. This also rejects valid
+    // literal U+FFFD content deliberately, rather than accepting malformed bytes.
+    const decoded = new TextDecoder().decode(rawBody);
+    if (decoded.includes("\uFFFD")) return null;
+    json = JSON.parse(decoded);
   } catch {
     return null;
   }
