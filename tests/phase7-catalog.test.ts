@@ -216,7 +216,8 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       });
       if (path === "/api/v2/task/abc123" && method === "GET")
         return reply({
-          id: "abc123", list: { id: "12345" },
+          id: "abc123",
+          list: { id: "12345" },
           name: applied ? "Updated task" : "Old title",
           assignees: [{ id: applied ? 707 : 808 }],
         });
@@ -516,7 +517,8 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       const path = new URL(String(req)).pathname;
       if (path === "/api/v2/task/abc123" && init?.method === "GET")
         return reply({
-          id: "abc123", list: { id: "12345" },
+          id: "abc123",
+          list: { id: "12345" },
           assignees: applied ? [{ id: 707 }] : [],
         });
       if (path === "/api/v2/task/abc123" && init?.method === "PUT") {
@@ -551,7 +553,8 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       const path = new URL(String(req)).pathname;
       if (path === "/api/v2/task/abc123" && init?.method === "GET")
         return reply({
-          id: "abc123", list: { id: "12345" },
+          id: "abc123",
+          list: { id: "12345" },
           assignees: current.map((user) => ({ id: user })),
         });
       if (path === "/api/v2/task/abc123" && init?.method === "PUT") {
@@ -580,7 +583,8 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       const path = new URL(String(req)).pathname;
       if (path === "/api/v2/task/abc123" && init?.method === "GET")
         return reply({
-          id: "abc123", list: { id: "12345" },
+          id: "abc123",
+          list: { id: "12345" },
           assignees: [{ id: 707 }, { id: 808 }],
         });
       if (path === "/api/v2/task/abc123" && init?.method === "PUT") {
@@ -606,7 +610,8 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       const path = new URL(String(req)).pathname;
       if (path === "/api/v2/task/abc123" && init?.method === "GET")
         return reply({
-          id: "abc123", list: { id: "12345" },
+          id: "abc123",
+          list: { id: "12345" },
           assignees: current.map((user) => ({ id: user })),
         });
       if (path === "/api/v2/task/abc123" && init?.method === "PUT") {

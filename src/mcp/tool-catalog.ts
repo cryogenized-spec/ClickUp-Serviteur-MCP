@@ -112,7 +112,11 @@ const taskPatch = obj(
     status: str("Target status; must be valid for the task's home List.", 80),
     priority: integer("ClickUp priority: 1 urgent, 2 high, 3 normal, 4 low.", 1, 4),
     due_date_ms: integer("Due date as Unix epoch milliseconds, not seconds.", 0, 9_000_000_000_000),
-    assignee_ids: arrayOf("Complete desired assignee set (replacement). Use [] to remove all; omitted leaves assignments unchanged. Resolve member IDs first. The MCP computes ClickUp add/rem deltas and verifies readback.", memberId, 12),
+    assignee_ids: arrayOf(
+      "Complete desired assignee set (replacement). Use [] to remove all; omitted leaves assignments unchanged. Resolve member IDs first. The MCP computes ClickUp add/rem deltas and verifies readback.",
+      memberId,
+      12,
+    ),
   },
 );
 const taskDraft = obj(

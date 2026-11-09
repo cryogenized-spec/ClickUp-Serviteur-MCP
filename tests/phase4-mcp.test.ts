@@ -224,7 +224,8 @@ describe("Phase 4 official SDK integration", () => {
       const path = new URL(String(input)).pathname;
       if (path === "/api/v2/task/task42" && init?.method === "GET")
         return Response.json({
-          id: "task42", list: { id: "12345" },
+          id: "task42",
+          list: { id: "12345" },
           assignees: [{ id: applied ? 707 : 808 }],
         });
       if (path === "/api/v2/list/12345")

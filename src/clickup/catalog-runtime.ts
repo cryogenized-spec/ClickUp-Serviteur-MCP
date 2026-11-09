@@ -361,7 +361,8 @@ const taskAssigneeIds = (task: Json): number[] => {
       !/^[0-9]{1,24}$/.test(String(raw)) ||
       !Number.isSafeInteger(Number(raw)) ||
       Number(raw) <= 0
-    ) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+    )
+      throw new ReadFailure("CLICKUP_BAD_RESPONSE");
     return Number(raw);
   });
   if (new Set(ids).size !== ids.length) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
@@ -419,17 +420,16 @@ const taskBody = (a: Json, update = false, currentTask?: Json): Json => {
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   // Update Task accepts { add, rem }, not a replacement array. Compute both
   // against the scoped, freshly fetched task instead of silently adding only.
-  const existing = memberIds !== null && update
-    ? taskAssigneeIds(currentTask ?? {})
-    : [];
-  const assigneeChange = memberIds === null
-    ? null
-    : update
-      ? {
-          add: memberIds.filter((user) => !existing.includes(user)),
-          rem: existing.filter((user) => !memberIds.includes(user)),
-        }
-      : memberIds;
+  const existing = memberIds !== null && update ? taskAssigneeIds(currentTask ?? {}) : [];
+  const assigneeChange =
+    memberIds === null
+      ? null
+      : update
+        ? {
+            add: memberIds.filter((user) => !existing.includes(user)),
+            rem: existing.filter((user) => !memberIds.includes(user)),
+          }
+        : memberIds;
   return {
     ...(a["name"] !== undefined ? { name: txt(a["name"], 180) } : {}),
     ...(a["description"] !== undefined ? { description: txt(a["description"]) } : {}),
@@ -902,13 +902,12 @@ export async function runCatalogOperation(
     if (
       String(after["id"]) !== String(before["id"]) ||
       String(obj(after["list"])?.["id"]) !== String(obj(before["list"])?.["id"])
-    ) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    )
+      throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     const actual = taskAssigneeIds(after);
     const wanted = (patch["assignee_ids"] as Array<string | number>).map(Number);
-    if (
-      actual.length !== wanted.length ||
-      wanted.some((user) => !actual.includes(user))
-    ) throw new ReadFailure("CLICKUP_ASSIGNEES_NOT_APPLIED");
+    if (actual.length !== wanted.length || wanted.some((user) => !actual.includes(user)))
+      throw new ReadFailure("CLICKUP_ASSIGNEES_NOT_APPLIED");
     return after;
   };
   const list = async (k: string) => listInWorkspace(g, f, a[k]);
