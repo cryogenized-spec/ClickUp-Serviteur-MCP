@@ -219,10 +219,14 @@ describe("Phase 4 official SDK integration", () => {
   });
 
   it("updates an existing company task through the actual MCP protocol with an OAuth write grant", async () => {
+    let applied = false;
     const outbound = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
       if (path === "/api/v2/task/task42" && init?.method === "GET")
-        return Response.json({ id: "task42", list: { id: "12345" } });
+        return Response.json({
+          id: "task42", list: { id: "12345" },
+          assignees: [{ id: applied ? 707 : 808 }],
+        });
       if (path === "/api/v2/list/12345")
         return Response.json({ id: "12345", space: { id: "765" } });
       if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "765" }] });
@@ -231,8 +235,9 @@ describe("Phase 4 official SDK integration", () => {
         expect(JSON.parse(String(init.body))).toMatchObject({
           status: "in progress",
           priority: 2,
-          assignees: { add: [707], rem: [] },
+          assignees: { add: [707], rem: [808] },
         });
+        applied = true;
         return Response.json({ id: "task42", status: { status: "in progress" } });
       }
       throw Error("Unexpected ClickUp operation: " + (init?.method ?? "GET") + " " + path);
@@ -274,8 +279,10 @@ describe("Phase 4 official SDK integration", () => {
         "/api/v2/list/12345",
         "/api/v2/team/555/space",
         "/api/v2/task/task42",
+        "/api/v2/task/task42",
       ]);
-      expect(outbound.mock.calls.at(-1)?.[1]?.method).toBe("PUT");
+      expect(outbound.mock.calls.at(-2)?.[1]?.method).toBe("PUT");
+      expect(outbound.mock.calls.at(-1)?.[1]?.method).toBe("GET");
     } finally {
       await client.close();
       await handler.close();
