@@ -348,7 +348,27 @@ async function folderInWorkspace(
   await inWorkspace(grant, f, obj(folder["space"])?.["id"]);
   return folder;
 }
-const taskBody = (a: Json, update = false): Json => {
+/** Only use authoritative task GET assignee objects to compute removals. */
+const taskAssigneeIds = (task: Json): number[] => {
+  const assignees = task["assignees"];
+  if (!Array.isArray(assignees) || assignees.length > 100)
+    throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+  const ids = assignees.map((entry) => {
+    const user = obj(entry);
+    const raw = user?.["id"];
+    if (
+      (typeof raw !== "string" && typeof raw !== "number") ||
+      !/^[0-9]{1,24}$/.test(String(raw)) ||
+      !Number.isSafeInteger(Number(raw)) ||
+      Number(raw) <= 0
+    )
+      throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+    return Number(raw);
+  });
+  if (new Set(ids).size !== ids.length) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+  return ids;
+};
+const taskBody = (a: Json, update = false, currentTask?: Json): Json => {
   const permitted = new Set([
     "name",
     "description",
@@ -396,6 +416,20 @@ const taskBody = (a: Json, update = false): Json => {
   )
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   const memberIds = Array.isArray(assignees) ? assignees.map((user) => Number(user)) : null;
+  if (memberIds !== null && new Set(memberIds).size !== memberIds.length)
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  // Update Task accepts { add, rem }, not a replacement array. Compute both
+  // against the scoped, freshly fetched task; never silently add only.
+  const existing = memberIds !== null && update ? taskAssigneeIds(currentTask ?? {}) : [];
+  const assigneeChange =
+    memberIds === null
+      ? null
+      : update
+        ? {
+            add: memberIds.filter((user) => !existing.includes(user)),
+            rem: existing.filter((user) => !memberIds.includes(user)),
+          }
+        : memberIds;
   return {
     ...(a["name"] !== undefined ? { name: txt(a["name"], 180) } : {}),
     ...(a["description"] !== undefined ? { description: txt(a["description"]) } : {}),
@@ -405,7 +439,7 @@ const taskBody = (a: Json, update = false): Json => {
     ...(a["status"] !== undefined ? { status: txt(a["status"], 80) } : {}),
     ...(a["priority"] !== undefined ? { priority: a["priority"] } : {}),
     ...(a["due_date_ms"] !== undefined ? { due_date: a["due_date_ms"], due_date_time: true } : {}),
-    ...(memberIds !== null ? { assignees: update ? { add: memberIds, rem: [] } : memberIds } : {}),
+    ...(assigneeChange !== null ? { assignees: assigneeChange } : {}),
   };
 };
 /** ClickUp v2 List endpoints accept content OR markdown_content, not both. */
@@ -858,6 +892,24 @@ export async function runCatalogOperation(
   const call = (method: Method, path: string, body?: Json, responseMode: ResponseMode = "strict") =>
     send(g, f, method, path, body, responseMode);
   const task = async (k: string) => taskInWorkspace(g, f, a[k]);
+  const updateVerifiedTask = async (taskId: unknown, before: Json, patch: Json): Promise<Json> => {
+    const path = v2("task/" + id(taskId));
+    const response = await call("PUT", path, taskBody(patch, true, before));
+    if (patch["assignee_ids"] === undefined) return response;
+    // One authoritative readback, never a blind retry of a write. A 200 PUT
+    // response alone does not establish that assignees changed as requested.
+    const after = await call("GET", path);
+    if (
+      String(after["id"]) !== String(before["id"]) ||
+      String(obj(after["list"])?.["id"]) !== String(obj(before["list"])?.["id"])
+    )
+      throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    const actual = taskAssigneeIds(after);
+    const wanted = (patch["assignee_ids"] as Array<string | number>).map(Number);
+    if (actual.length !== wanted.length || wanted.some((user) => !actual.includes(user)))
+      throw new ReadFailure("CLICKUP_ASSIGNEES_NOT_APPLIED");
+    return after;
+  };
   const list = async (k: string) => listInWorkspace(g, f, a[k]);
   const folder = async (k: string) => folderInWorkspace(g, f, a[k]);
   // Only input-declared Workspace IDs can be supplied; they must match OAuth-bound Workspace.
@@ -1259,11 +1311,10 @@ export async function runCatalogOperation(
       const { extractVerifiedTaskPdf } = await import("./pdf-reader.js");
       return extractVerifiedTaskPdf(selected, f, g.workspaceId);
     }
-    case "clickup_update_task":
-      await task("task_id");
-      return short(
-        await call("PUT", v2("task/" + val(a, "task_id")), taskBody(buildArgs(a, "changes"), true)),
-      );
+    case "clickup_update_task": {
+      const before = await task("task_id");
+      return short(await updateVerifiedTask(a["task_id"], before, buildArgs(a, "changes")));
+    }
     case "clickup_set_custom_field": {
       const target = await task("task_id");
       const homeListId = obj(target["list"])?.["id"];
@@ -1438,17 +1489,20 @@ export async function runCatalogOperation(
         const changes = obj(x["changes"]);
         if (!changes || Object.keys(changes).length === 0)
           throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-        return { taskId: x["task_id"], changes: taskBody(changes, true) };
+        // Validate every patch before the first write; assignee deltas require
+        // the authoritative per-task GET and are computed in the execution loop.
+        taskBody(changes);
+        return { taskId: x["task_id"], changes };
       });
       const outcome: unknown[] = [];
       for (let i = 0; i < validated.length; i++) {
         const x = validated[i]!;
         try {
-          await taskInWorkspace(g, f, x.taskId);
+          const before = await taskInWorkspace(g, f, x.taskId);
           outcome.push({
             index: i,
             success: true,
-            response: clip(await call("PUT", v2("task/" + id(x.taskId)), x.changes)),
+            response: clip(await updateVerifiedTask(x.taskId, before, x.changes)),
           });
         } catch (e) {
           outcome.push({

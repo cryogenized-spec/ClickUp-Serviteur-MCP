@@ -204,6 +204,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
   });
 
   it("edits a directly shared company List task, including status, assignees, priority and due time", async () => {
+    let applied = false;
     const requests: Array<{ path: string; method: string; body: unknown }> = [];
     const f = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
@@ -214,13 +215,20 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
         body: init?.body ? JSON.parse(String(init.body)) : null,
       });
       if (path === "/api/v2/task/abc123" && method === "GET")
-        return reply({ id: "abc123", list: { id: "12345" }, name: "Old title" });
+        return reply({
+          id: "abc123",
+          list: { id: "12345" },
+          name: applied ? "Updated task" : "Old title",
+          assignees: [{ id: applied ? 707 : 808 }],
+        });
       if (path === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
       if (path === "/api/v2/team/555/space") return reply({ spaces: [] });
       if (path === "/api/v2/team/555/shared")
         return reply({ shared: { lists: [{ id: "12345" }], tasks: [] } });
-      if (path === "/api/v2/task/abc123" && method === "PUT")
+      if (path === "/api/v2/task/abc123" && method === "PUT") {
+        applied = true;
         return reply({ id: "abc123", name: "Updated task", status: { status: "in progress" } });
+      }
       throw Error("Unexpected request: " + method + " " + path);
     });
     const due = Date.parse("2026-11-06T13:45:00.000Z");
@@ -246,8 +254,9 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       "/api/v2/team/555/space",
       "/api/v2/team/555/shared",
       "/api/v2/task/abc123",
+      "/api/v2/task/abc123",
     ]);
-    expect(requests.at(-1)).toMatchObject({
+    expect(requests.at(-2)).toMatchObject({
       method: "PUT",
       body: {
         name: "Updated task",
@@ -255,9 +264,10 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
         priority: 2,
         due_date: due,
         due_date_time: true,
-        assignees: { add: [707], rem: [] },
+        assignees: { add: [707], rem: [808] },
       },
     });
+    expect(requests.at(-1)?.method).toBe("GET");
     expect(
       f.mock.calls.every(
         ([, init]) => (init?.headers as Record<string, string>)["Authorization"] === "person-707",
@@ -502,7 +512,21 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
   });
 
   it("sends numeric ClickUp member IDs after validating decimal-string IDs for task updates and bulk tasks", async () => {
-    const api = fakeApi();
+    let applied = false;
+    const api = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(req)).pathname;
+      if (path === "/api/v2/task/abc123" && init?.method === "GET")
+        return reply({
+          id: "abc123",
+          list: { id: "12345" },
+          assignees: applied ? [{ id: 707 }] : [],
+        });
+      if (path === "/api/v2/task/abc123" && init?.method === "PUT") {
+        applied = true;
+        return reply({ id: "abc123" });
+      }
+      return reply(fixture(path));
+    });
     await runCatalogOperation(
       "clickup_update_task",
       { task_id: "abc123", changes: { assignee_ids: ["707"] } },
@@ -520,6 +544,106 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       .map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
     expect(writes).toContainEqual(expect.objectContaining({ assignees: { add: [707], rem: [] } }));
     expect(writes).toContainEqual(expect.objectContaining({ assignees: [707] }));
+  });
+
+  it("removes only the unwanted assignee and verifies the resulting set", async () => {
+    let current = [707, 808];
+    let writes = 0;
+    const api = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(req)).pathname;
+      if (path === "/api/v2/task/abc123" && init?.method === "GET")
+        return reply({
+          id: "abc123",
+          list: { id: "12345" },
+          assignees: current.map((user) => ({ id: user })),
+        });
+      if (path === "/api/v2/task/abc123" && init?.method === "PUT") {
+        writes++;
+        expect(JSON.parse(String(init.body))).toMatchObject({
+          assignees: { add: [], rem: [707] },
+        });
+        current = [808];
+        return reply({ id: "abc123" });
+      }
+      return reply(fixture(path));
+    });
+    const result = await runCatalogOperation(
+      "clickup_update_task",
+      { task_id: "abc123", changes: { assignee_ids: ["808"] } },
+      makeGrant(),
+      api as typeof fetch,
+    );
+    expect(result["assignees"]).toEqual([{ id: 808 }]);
+    expect(writes).toBe(1);
+  });
+
+  it("fails explicitly when a successful upstream PUT does not remove an assignee", async () => {
+    let writes = 0;
+    const api = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(req)).pathname;
+      if (path === "/api/v2/task/abc123" && init?.method === "GET")
+        return reply({
+          id: "abc123",
+          list: { id: "12345" },
+          assignees: [{ id: 707 }, { id: 808 }],
+        });
+      if (path === "/api/v2/task/abc123" && init?.method === "PUT") {
+        writes++;
+        return reply({ id: "abc123" });
+      }
+      return reply(fixture(path));
+    });
+    await expect(
+      runCatalogOperation(
+        "clickup_update_task",
+        { task_id: "abc123", changes: { assignee_ids: ["808"] } },
+        makeGrant(),
+        api as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_ASSIGNEES_NOT_APPLIED");
+    expect(writes).toBe(1); // No blind retries of the potentially successful mutation.
+  });
+
+  it("applies assignee removal consistently in bulk updates", async () => {
+    let current = [707, 808];
+    const api = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(req)).pathname;
+      if (path === "/api/v2/task/abc123" && init?.method === "GET")
+        return reply({
+          id: "abc123",
+          list: { id: "12345" },
+          assignees: current.map((user) => ({ id: user })),
+        });
+      if (path === "/api/v2/task/abc123" && init?.method === "PUT") {
+        expect(JSON.parse(String(init.body))).toMatchObject({
+          assignees: { add: [], rem: [707] },
+        });
+        current = [808];
+        return reply({ id: "abc123" });
+      }
+      return reply(fixture(path));
+    });
+    const result = await runCatalogOperation(
+      "clickup_update_bulk_tasks",
+      { task_updates: [{ task_id: "abc123", changes: { assignee_ids: ["808"] } }] },
+      makeGrant(),
+      api as typeof fetch,
+    );
+    expect(result["partial"]).toBe(false);
+    expect(result["results"]).toEqual([expect.objectContaining({ success: true })]);
+  });
+
+  it("rejects a missing assignee snapshot instead of silently issuing add-only changes", async () => {
+    const api = fakeApi(); // Its task GET intentionally has no assignees array.
+    await expect(
+      runCatalogOperation(
+        "clickup_update_task",
+        { task_id: "abc123", changes: { assignee_ids: ["707"] } },
+        makeGrant(),
+        api as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_BAD_RESPONSE");
+    expect(api.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
   });
 
   it("discovers Custom Field metadata with legacy list_id-only clients, with explicit opt-out", async () => {
