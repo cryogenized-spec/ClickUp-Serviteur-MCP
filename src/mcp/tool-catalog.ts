@@ -266,7 +266,31 @@ const F = {
     "Older task comments: exact ID from next_comment_start_id; both cursor fields are required.",
     100,
   ),
-  lookback_days: integer("Limit historical search window in days.", 1, 90),
+  lookback_days: integer(
+    "Consider individual @mentions from this many days back (1–90). Unresolved assigned comments are still included when inspected.",
+    1,
+    90,
+  ),
+  attention_assigned_page: integer(
+    "Zero-based ClickUp page for tasks assigned to the connected user.",
+    0,
+    100_000,
+  ),
+  attention_activity_page: integer(
+    "Zero-based recently-updated task page examined for comments and mentions.",
+    0,
+    100_000,
+  ),
+  attention_comment_tasks: integer(
+    "Number of recently-updated or assigned tasks whose latest comment page to inspect; default 8, up to 30. Not an API-rate quota.",
+    0,
+    30,
+  ),
+  attention_result_offset: integer(
+    "Position within ranked results from these same search pages; follow next_result_offset.",
+    0,
+    10_000,
+  ),
   page: integer("Zero-based bounded pagination offset.", 0, 2),
   status: str("Exact ClickUp status label; first check available List statuses.", 80),
   field_id: str("Custom Field UUID from server-verified List configuration.", 100),
@@ -456,6 +480,26 @@ function tool(
  * Entries are model-facing contracts; execution still needs independently gated adapters.
  */
 export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
+  // USER ATTENTION — an approximate activity summary, NOT native Inbox state.
+  tool(
+    "clickup_get_my_attention_items",
+    "Get My Attention Items",
+    "search",
+    "read",
+    "Summarize assigned, overdue and due-soon tasks plus unresolved comments assigned to this OAuth user and verifiable individual @mentions on inspected tasks. NOT the native ClickUp Inbox. Read/unread, snoozes, watched-task notifications and threaded replies are unavailable; always disclose scan coverage and pagination.",
+    "Show what needs my attention in ClickUp, including assigned comments and @mentions.",
+    [],
+    [
+      "list_id",
+      "max_results",
+      "attention_assigned_page",
+      "attention_activity_page",
+      "attention_comment_tasks",
+      "attention_result_offset",
+      "lookback_days",
+    ],
+  ),
+
   // ADVANCED SEARCH — one tool per explicit query function.
   tool(
     "clickup_filter_tasks",
