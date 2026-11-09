@@ -938,19 +938,43 @@ export async function runCatalogOperation(
         params.set("include_closed", String(includeClosed));
       }
       if (name === "clickup_filter_tasks") {
-        const arrayFilter = (key: string, param: string, maximum: number, test: (v: unknown) => boolean) => {
+        const arrayFilter = (
+          key: string,
+          param: string,
+          maximum: number,
+          test: (v: unknown) => boolean,
+        ) => {
           const values = a[key];
           if (values === undefined) return;
           if (!Array.isArray(values) || values.length > maximum || values.some((v) => !test(v)))
             throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
           for (const value of values) params.append(param + "[]", String(value));
         };
-        arrayFilter("filter_assignee_ids", "assignees", 12, (v) => typeof v === "string" && /^[1-9]\d{0,15}$/.test(v));
-        arrayFilter("filter_statuses", "statuses", 12, (v) => typeof v === "string" && v.length > 0 && v.length <= 80);
-        arrayFilter("filter_tag_names", "tags", 12, (v) => typeof v === "string" && v.length > 0 && v.length <= 100);
-        arrayFilter("filter_task_types", "custom_items", 12, (v) => Number.isSafeInteger(v) && Number(v) >= 0 && Number(v) <= 100_000_000);
-        if (isMine && params.has("assignees[]"))
-          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        arrayFilter(
+          "filter_assignee_ids",
+          "assignees",
+          12,
+          (v) => typeof v === "string" && /^[1-9]\d{0,15}$/.test(v),
+        );
+        arrayFilter(
+          "filter_statuses",
+          "statuses",
+          12,
+          (v) => typeof v === "string" && v.length > 0 && v.length <= 80,
+        );
+        arrayFilter(
+          "filter_tag_names",
+          "tags",
+          12,
+          (v) => typeof v === "string" && v.length > 0 && v.length <= 100,
+        );
+        arrayFilter(
+          "filter_task_types",
+          "custom_items",
+          12,
+          (v) => Number.isSafeInteger(v) && Number(v) >= 0 && Number(v) <= 100_000_000,
+        );
+        if (isMine && params.has("assignees[]")) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
         if (a["filter_subtasks"] !== undefined) {
           if (typeof a["filter_subtasks"] !== "boolean")
             throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
@@ -973,14 +997,20 @@ export async function runCatalogOperation(
         ]) {
           const value = a[arg];
           if (value === undefined) continue;
-          if (!Number.isSafeInteger(value) || Number(value) < 0 || Number(value) > 9_000_000_000_000)
+          if (
+            !Number.isSafeInteger(value) ||
+            Number(value) < 0 ||
+            Number(value) > 9_000_000_000_000
+          )
             throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
           params.set(param, String(value));
         }
         if (
-          params.has("due_date_gt") && params.has("due_date_lt") &&
+          params.has("due_date_gt") &&
+          params.has("due_date_lt") &&
           Number(params.get("due_date_gt")) >= Number(params.get("due_date_lt"))
-        ) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        )
+          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
         const filters = a["filter_custom_fields"];
         if (filters !== undefined) {
           if (!Array.isArray(filters) || filters.length > 5)
@@ -989,18 +1019,27 @@ export async function runCatalogOperation(
             const f = obj(filter);
             const op = f?.["operator"];
             const key = f?.["field_id"];
-            if (!f || typeof key !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(key) ||
-              !["=", "==", "!=", "<", "<=", ">", ">=", "IS NULL", "IS NOT NULL"].includes(String(op)))
+            if (
+              !f ||
+              typeof key !== "string" ||
+              !/^[a-zA-Z0-9_-]{1,100}$/.test(key) ||
+              !["=", "==", "!=", "<", "<=", ">", ">=", "IS NULL", "IS NOT NULL"].includes(
+                String(op),
+              )
+            )
               throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-            const text = f["value_text"], number = f["value_number"];
+            const text = f["value_text"],
+              number = f["value_number"];
             const nullCheck = op === "IS NULL" || op === "IS NOT NULL";
             if (
               (text !== undefined && number !== undefined) ||
               (nullCheck && (text !== undefined || number !== undefined)) ||
               (!nullCheck && text === undefined && number === undefined) ||
-              (text !== undefined && (typeof text !== "string" || text.length < 1 || text.length > 160)) ||
+              (text !== undefined &&
+                (typeof text !== "string" || text.length < 1 || text.length > 160)) ||
               (number !== undefined && (typeof number !== "number" || !Number.isFinite(number)))
-            ) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+            )
+              throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
             return nullCheck
               ? { field_id: key, operator: op }
               : { field_id: key, operator: op, value: text ?? number };
@@ -1014,13 +1053,22 @@ export async function runCatalogOperation(
         params.append("assignees[]", g.clickupUserId);
       }
       const priority = a["filter_priority"];
-      if (priority !== undefined && name === "clickup_filter_tasks" &&
-        (!Number.isSafeInteger(priority) || Number(priority) < 1 || Number(priority) > 4))
+      if (
+        priority !== undefined &&
+        name === "clickup_filter_tasks" &&
+        (!Number.isSafeInteger(priority) || Number(priority) < 1 || Number(priority) > 4)
+      )
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       const firstPage = a["task_page"] ?? 0;
       const firstOffset = a["task_offset"] ?? 0;
-      if (!Number.isSafeInteger(firstPage) || Number(firstPage) < 0 || Number(firstPage) > 100_000 ||
-          !Number.isSafeInteger(firstOffset) || Number(firstOffset) < 0 || Number(firstOffset) > 99)
+      if (
+        !Number.isSafeInteger(firstPage) ||
+        Number(firstPage) < 0 ||
+        Number(firstPage) > 100_000 ||
+        !Number.isSafeInteger(firstOffset) ||
+        Number(firstOffset) < 0 ||
+        Number(firstOffset) > 99
+      )
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       const route = target === undefined ? "team/" + W + "/task" : "list/" + id(target) + "/task";
       const matches: Json[] = [];
@@ -1038,14 +1086,16 @@ export async function runCatalogOperation(
         for (const candidate of batch) {
           const item = obj(candidate);
           const home = obj(item?.["list"])?.["id"];
-          if (!item || (typeof home !== "number" && typeof home !== "string") ||
-              !/^[1-9]\d{0,17}$/.test(String(home)) ||
-              (target !== undefined && String(home) !== String(target)))
+          if (
+            !item ||
+            (typeof home !== "number" && typeof home !== "string") ||
+            !/^[1-9]\d{0,17}$/.test(String(home)) ||
+            (target !== undefined && String(home) !== String(target))
+          )
             throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
         }
         const offset = index === 0 ? Number(firstOffset) : 0;
-        if (offset > 0 && offset >= batch.length)
-          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        if (offset > 0 && offset >= batch.length) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
         pagesScanned++;
         for (let j = offset; j < batch.length; j++) {
           const item = obj(batch[j])!;
@@ -1095,21 +1145,32 @@ export async function runCatalogOperation(
       // single-List grant; a template ID alone is not authorization to create.
       const page = a["template_page"] ?? 0;
       const offset = a["template_offset"] ?? 0;
-      if (!Number.isSafeInteger(page) || Number(page) < 0 || Number(page) > 100 ||
-          !Number.isSafeInteger(offset) || Number(offset) < 0 || Number(offset) > 99)
+      if (
+        !Number.isSafeInteger(page) ||
+        Number(page) < 0 ||
+        Number(page) > 100 ||
+        !Number.isSafeInteger(offset) ||
+        Number(offset) < 0 ||
+        Number(offset) > 99
+      )
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       if (name === "clickup_create_task_from_template") await list("list_id");
       const result = await call("GET", v2("team/" + W + "/taskTemplate?page=" + page));
       const templates = result["templates"];
-      if (!Array.isArray(templates) || templates.length > 100 ||
-          templates.some((entry) => !obj(entry) || obj(entry)?.["id"] === undefined))
+      if (
+        !Array.isArray(templates) ||
+        templates.length > 100 ||
+        templates.some((entry) => !obj(entry) || obj(entry)?.["id"] === undefined)
+      )
         throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       if (name === "clickup_get_task_templates") {
         if (Number(offset) > 0 && Number(offset) >= templates.length)
           throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
         const visible = templates.slice(Number(offset), Number(offset) + N);
         const samePage = Number(offset) + visible.length < templates.length;
-        const morePages = result["has_more"] === true || result["last_page"] === false ||
+        const morePages =
+          result["has_more"] === true ||
+          result["last_page"] === false ||
           (templates.length === 100 && result["last_page"] !== true);
         return {
           source: "clickup-api-v2",
@@ -1121,8 +1182,10 @@ export async function runCatalogOperation(
         };
       }
       const wanted = txt(a["template_id"], 80);
-      if (!/^[a-zA-Z0-9_-]{1,80}$/.test(wanted) ||
-        !templates.some((entry) => String(obj(entry)?.["id"]) === wanted))
+      if (
+        !/^[a-zA-Z0-9_-]{1,80}$/.test(wanted) ||
+        !templates.some((entry) => String(obj(entry)?.["id"]) === wanted)
+      )
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       const targetList = String(a["list_id"]);
       const nameText = txt(a["task_name"], 180);
@@ -1136,8 +1199,10 @@ export async function runCatalogOperation(
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
       try {
         const confirmed = await call("GET", v2("task/" + id(newId)));
-        if (String(confirmed["id"]) !== newId ||
-          String(obj(confirmed["list"])?.["id"]) !== targetList)
+        if (
+          String(confirmed["id"]) !== newId ||
+          String(obj(confirmed["list"])?.["id"]) !== targetList
+        )
           throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
         return {
           success: true,
