@@ -240,7 +240,11 @@ export async function getMyAttentionItems(
       coverage.more_activity_task_pages = activity.length === 100;
       for (const task of activity) {
         updatedTasks.set(String(task["id"]), task);
-        if (assignedToMe(task, me)) allTasks.set(String(task["id"]), task);
+        // The activity scan is a discovery source, not a replacement for the
+        // independently verified assigned-task snapshot. Preserve its due date
+        // and priority when the two API pages disagree.
+        if (assignedToMe(task, me) && !allTasks.has(String(task["id"])))
+          allTasks.set(String(task["id"]), task);
       }
     }
   }
