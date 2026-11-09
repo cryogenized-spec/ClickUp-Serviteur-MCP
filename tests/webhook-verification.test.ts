@@ -48,14 +48,18 @@ describe("ClickUp webhook signature foundation (NOT mounted as an endpoint)", ()
     const originalSignature = await sign(raw);
     const changed = encode({ ...body, event: "taskDeleted" });
     expect(await verifyClickUpWebhookSignature(changed, originalSignature, secret)).toBe(false);
-    expect(await validateClickUpWebhookMessage(changed, originalSignature, secret, webhookId)).toBeNull();
+    expect(
+      await validateClickUpWebhookMessage(changed, originalSignature, secret, webhookId),
+    ).toBeNull();
   });
 
   it("rejects wrong secrets, duplicate combined signatures and wrong webhook IDs", async () => {
     const raw = encode(body);
     const signature = await sign(raw);
     expect(await verifyClickUpWebhookSignature(raw, signature, "different-secret")).toBe(false);
-    expect(await verifyClickUpWebhookSignature(raw, signature + "," + signature, secret)).toBe(false);
+    expect(await verifyClickUpWebhookSignature(raw, signature + "," + signature, secret)).toBe(
+      false,
+    );
     expect(
       await validateClickUpWebhookMessage(
         raw,
@@ -78,12 +82,16 @@ describe("ClickUp webhook signature foundation (NOT mounted as an endpoint)", ()
   it("checks byte budgets before cryptographic work", async () => {
     const tooLarge = new Uint8Array(MAX_CLICKUP_WEBHOOK_BYTES + 1);
     expect(await verifyClickUpWebhookSignature(tooLarge, "0".repeat(64), secret)).toBe(false);
-    expect(await verifyClickUpWebhookSignature(new Uint8Array(), "0".repeat(64), secret)).toBe(false);
+    expect(await verifyClickUpWebhookSignature(new Uint8Array(), "0".repeat(64), secret)).toBe(
+      false,
+    );
   });
 
   it("rejects malformed JSON and invalid UTF-8 even with a correct HMAC", async () => {
     for (const raw of [new TextEncoder().encode("{"), new Uint8Array([0xff, 0xfe])]) {
-      expect(await validateClickUpWebhookMessage(raw, await sign(raw), secret, webhookId)).toBeNull();
+      expect(
+        await validateClickUpWebhookMessage(raw, await sign(raw), secret, webhookId),
+      ).toBeNull();
     }
   });
 
