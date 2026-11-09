@@ -376,6 +376,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
   if (dependencies.schemaPreview !== true) {
     const additiveWrites = new Set([
       "clickup_create_task",
+      "clickup_create_task_from_template",
       "clickup_create_task_checklist",
       "clickup_create_checklist_item",
       "clickup_attach_file_to_task",

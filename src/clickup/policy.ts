@@ -141,6 +141,7 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
 export const COMPANY_SAFE_WRITE_OPERATIONS: ReadonlySet<string> = new Set([
   "create_scoped_task",
   "clickup_create_task",
+  "clickup_create_task_from_template",
   "clickup_create_bulk_tasks",
   "clickup_update_task",
   "clickup_set_custom_field",

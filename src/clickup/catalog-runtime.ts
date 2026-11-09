@@ -762,6 +762,11 @@ function checklistId(value: unknown): string {
 }
 
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
+  "clickup_filter_tasks",
+  "clickup_get_my_tasks",
+  "clickup_get_custom_task_types",
+  "clickup_get_task_templates",
+  "clickup_create_task_from_template",
   "clickup_search_workspace",
   "clickup_search_tasks_by_type",
   "clickup_search_tasks_by_tag",
@@ -827,6 +832,9 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
 const WORKSPACE_SCOPE_OPERATIONS = new Set([
   // These tools have Workspace-wide effects or return data outside the home List.
   "clickup_get_workspace_hierarchy",
+  "clickup_get_custom_task_types",
+  "clickup_get_task_templates",
+  "clickup_create_task_from_template",
   "clickup_get_workspace_views",
   "clickup_get_folder",
   "clickup_create_list",
@@ -916,6 +924,300 @@ export async function runCatalogOperation(
   if (a["workspace_id"] !== undefined && String(a["workspace_id"]) !== g.workspaceId)
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   switch (name) {
+    case "clickup_filter_tasks":
+    case "clickup_get_my_tasks": {
+      const isMine = name === "clickup_get_my_tasks" || a["assigned_to_me"] === true;
+      const target = a["list_id"] ?? (workspaceScope ? undefined : g.listId);
+      if (target !== undefined) await listInWorkspace(g, f, target);
+      if (!workspaceScope && String(target) !== g.listId)
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const params = new URLSearchParams({ include_closed: "false", subtasks: "true" });
+      const includeClosed = a["filter_include_closed"];
+      if (includeClosed !== undefined) {
+        if (typeof includeClosed !== "boolean") throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        params.set("include_closed", String(includeClosed));
+      }
+      if (name === "clickup_filter_tasks") {
+        const arrayFilter = (
+          key: string,
+          param: string,
+          maximum: number,
+          test: (v: unknown) => boolean,
+        ) => {
+          const values = a[key];
+          if (values === undefined) return;
+          if (!Array.isArray(values) || values.length > maximum || values.some((v) => !test(v)))
+            throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+          for (const value of values) params.append(param + "[]", String(value));
+        };
+        arrayFilter(
+          "filter_assignee_ids",
+          "assignees",
+          12,
+          (v) => typeof v === "string" && /^[1-9]\d{0,15}$/.test(v),
+        );
+        arrayFilter(
+          "filter_statuses",
+          "statuses",
+          12,
+          (v) => typeof v === "string" && v.length > 0 && v.length <= 80,
+        );
+        arrayFilter(
+          "filter_tag_names",
+          "tags",
+          12,
+          (v) => typeof v === "string" && v.length > 0 && v.length <= 100,
+        );
+        arrayFilter(
+          "filter_task_types",
+          "custom_items",
+          12,
+          (v) => Number.isSafeInteger(v) && Number(v) >= 0 && Number(v) <= 100_000_000,
+        );
+        if (isMine && params.has("assignees[]")) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        if (a["filter_subtasks"] !== undefined) {
+          if (typeof a["filter_subtasks"] !== "boolean")
+            throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+          params.set("subtasks", String(a["filter_subtasks"]));
+        }
+        if (a["filter_order_by"] !== undefined) {
+          if (!["id", "created", "updated", "due_date"].includes(String(a["filter_order_by"])))
+            throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+          params.set("order_by", String(a["filter_order_by"]));
+        }
+        if (a["filter_reverse"] !== undefined) {
+          if (typeof a["filter_reverse"] !== "boolean")
+            throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+          params.set("reverse", String(a["filter_reverse"]));
+        }
+        for (const [arg, param] of [
+          ["filter_due_before_ms", "due_date_lt"],
+          ["filter_due_after_ms", "due_date_gt"],
+          ["filter_updated_after_ms", "date_updated_gt"],
+        ] as const) {
+          const value = a[arg];
+          if (value === undefined) continue;
+          if (
+            !Number.isSafeInteger(value) ||
+            Number(value) < 0 ||
+            Number(value) > 9_000_000_000_000
+          )
+            throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+          params.set(param, String(value));
+        }
+        if (
+          params.has("due_date_gt") &&
+          params.has("due_date_lt") &&
+          Number(params.get("due_date_gt")) >= Number(params.get("due_date_lt"))
+        )
+          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        const filters = a["filter_custom_fields"];
+        if (filters !== undefined) {
+          if (!Array.isArray(filters) || filters.length > 5)
+            throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+          const prepared = filters.map((filter: unknown) => {
+            const f = obj(filter);
+            const op = f?.["operator"];
+            const key = f?.["field_id"];
+            if (
+              !f ||
+              typeof key !== "string" ||
+              !/^[a-zA-Z0-9_-]{1,100}$/.test(key) ||
+              !["=", "==", "!=", "<", "<=", ">", ">=", "IS NULL", "IS NOT NULL"].includes(
+                String(op),
+              )
+            )
+              throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+            const text = f["value_text"],
+              number = f["value_number"];
+            const nullCheck = op === "IS NULL" || op === "IS NOT NULL";
+            if (
+              (text !== undefined && number !== undefined) ||
+              (nullCheck && (text !== undefined || number !== undefined)) ||
+              (!nullCheck && text === undefined && number === undefined) ||
+              (text !== undefined &&
+                (typeof text !== "string" || text.length < 1 || text.length > 160)) ||
+              (number !== undefined && (typeof number !== "number" || !Number.isFinite(number)))
+            )
+              throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+            return nullCheck
+              ? { field_id: key, operator: op }
+              : { field_id: key, operator: op, value: text ?? number };
+          });
+          params.set("custom_fields", JSON.stringify(prepared));
+        }
+      }
+      if (isMine) {
+        if (!/^[1-9]\d{0,15}$/.test(g.clickupUserId))
+          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+        params.append("assignees[]", g.clickupUserId);
+      }
+      const priority = a["filter_priority"];
+      if (
+        priority !== undefined &&
+        name === "clickup_filter_tasks" &&
+        (!Number.isSafeInteger(priority) || Number(priority) < 1 || Number(priority) > 4)
+      )
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const firstPage = a["task_page"] ?? 0;
+      const firstOffset = a["task_offset"] ?? 0;
+      if (
+        !Number.isSafeInteger(firstPage) ||
+        Number(firstPage) < 0 ||
+        Number(firstPage) > 100_000 ||
+        !Number.isSafeInteger(firstOffset) ||
+        Number(firstOffset) < 0 ||
+        Number(firstOffset) > 99
+      )
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const route = target === undefined ? "team/" + W + "/task" : "list/" + id(target) + "/task";
+      const matches: Json[] = [];
+      let pagesScanned = 0;
+      let nextPage: number | null = null;
+      let nextOffset = 0;
+      for (let index = 0; index < 5; index++) {
+        const page = Number(firstPage) + index;
+        if (page > 100_000) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        params.set("page", String(page));
+        const result = await call("GET", v2(route + "?" + params.toString()));
+        const batch = result["tasks"];
+        if (!Array.isArray(batch) || batch.length > 100)
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        for (const candidate of batch) {
+          const item = obj(candidate);
+          const home = obj(item?.["list"])?.["id"];
+          if (
+            !item ||
+            (typeof home !== "number" && typeof home !== "string") ||
+            !/^[1-9]\d{0,17}$/.test(String(home)) ||
+            (target !== undefined && String(home) !== String(target))
+          )
+            throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+        }
+        const offset = index === 0 ? Number(firstOffset) : 0;
+        if (offset > 0 && offset >= batch.length) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        pagesScanned++;
+        for (let j = offset; j < batch.length; j++) {
+          const item = obj(batch[j])!;
+          if (priority !== undefined) {
+            const value = obj(item["priority"])?.["id"] ?? item["priority"];
+            if (Number(value) !== Number(priority)) continue;
+          }
+          matches.push(item);
+          if (matches.length === N) {
+            const restOfPage = j + 1 < batch.length;
+            const nextUpstreamPage = batch.length === 100 && result["last_page"] !== true;
+            if (restOfPage || nextUpstreamPage) {
+              nextPage = restOfPage ? page : page + 1;
+              nextOffset = restOfPage ? j + 1 : 0;
+            }
+            break;
+          }
+        }
+        if (matches.length === N || batch.length < 100 || result["last_page"] === true) break;
+        if (index === 4) nextPage = page + 1;
+      }
+      return {
+        source: "clickup-api-v2",
+        scope: target === undefined ? "workspace" : "list",
+        tasks: clip(matches),
+        pages_scanned: pagesScanned,
+        next_task_page: nextPage,
+        next_task_offset: nextOffset,
+        incomplete: nextPage !== null || hasClippedNestedArray(matches),
+        ...(priority === undefined ? {} : { priority_filter: "client_side" }),
+      };
+    }
+    case "clickup_get_custom_task_types": {
+      const result = await call("GET", v2("team/" + W + "/custom_item"));
+      const types = result["custom_items"];
+      if (!Array.isArray(types) || types.length > 500 || types.some((entry) => !obj(entry)))
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      return {
+        source: "clickup-api-v2",
+        custom_items: clip(types.slice(0, N)),
+        incomplete: types.length > N || hasClippedNestedArray(types.slice(0, N)),
+      };
+    }
+    case "clickup_get_task_templates":
+    case "clickup_create_task_from_template": {
+      // Template discovery is Workspace metadata. Never allow it to broaden a
+      // single-List grant; a template ID alone is not authorization to create.
+      const page = a["template_page"] ?? 0;
+      const offset = a["template_offset"] ?? 0;
+      if (
+        !Number.isSafeInteger(page) ||
+        Number(page) < 0 ||
+        Number(page) > 100 ||
+        !Number.isSafeInteger(offset) ||
+        Number(offset) < 0 ||
+        Number(offset) > 99
+      )
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (name === "clickup_create_task_from_template") await list("list_id");
+      const result = await call("GET", v2("team/" + W + "/taskTemplate?page=" + page));
+      const templates = result["templates"];
+      if (
+        !Array.isArray(templates) ||
+        templates.length > 100 ||
+        templates.some((entry) => !obj(entry) || obj(entry)?.["id"] === undefined)
+      )
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      if (name === "clickup_get_task_templates") {
+        if (Number(offset) > 0 && Number(offset) >= templates.length)
+          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        const visible = templates.slice(Number(offset), Number(offset) + N);
+        const samePage = Number(offset) + visible.length < templates.length;
+        const morePages =
+          result["has_more"] === true ||
+          result["last_page"] === false ||
+          (templates.length === 100 && result["last_page"] !== true);
+        return {
+          source: "clickup-api-v2",
+          templates: clip(visible),
+          template_page: page,
+          next_template_page: samePage ? page : morePages ? Number(page) + 1 : null,
+          next_template_offset: samePage ? Number(offset) + visible.length : 0,
+          incomplete: samePage || morePages || hasClippedNestedArray(visible),
+        };
+      }
+      const wanted = txt(a["template_id"], 80);
+      if (
+        !/^[a-zA-Z0-9_-]{1,80}$/.test(wanted) ||
+        !templates.some((entry) => String(obj(entry)?.["id"]) === wanted)
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const targetList = String(a["list_id"]);
+      const nameText = txt(a["task_name"], 180);
+      const created = await call(
+        "POST",
+        v2("list/" + val(a, "list_id") + "/taskTemplate/" + id(wanted)),
+        { name: nameText },
+      );
+      const newId = created["id"];
+      if (typeof newId !== "string" || !/^[a-zA-Z0-9_-]{1,80}$/.test(newId))
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      try {
+        const confirmed = await call("GET", v2("task/" + id(newId)));
+        if (
+          String(confirmed["id"]) !== newId ||
+          String(obj(confirmed["list"])?.["id"]) !== targetList
+        )
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+        return {
+          success: true,
+          task_id: newId,
+          list_id: targetList,
+          template_id: wanted,
+          verified_by_readback: true,
+          source: "clickup-api-v2",
+        };
+      } catch {
+        // A successfully created task must never be POSTed again after an
+        // uncertain readback. The caller must verify by task ID manually.
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
+    }
     case "clickup_search_workspace": {
       const q = txt(a["query"], 240).toLowerCase();
       // Both List and Workspace modes paginate within their exact authorised
