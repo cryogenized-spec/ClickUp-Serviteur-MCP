@@ -994,7 +994,7 @@ export async function runCatalogOperation(
           ["filter_due_before_ms", "due_date_lt"],
           ["filter_due_after_ms", "due_date_gt"],
           ["filter_updated_after_ms", "date_updated_gt"],
-        ]) {
+        ] as const) {
           const value = a[arg];
           if (value === undefined) continue;
           if (
