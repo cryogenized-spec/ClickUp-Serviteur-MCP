@@ -112,7 +112,7 @@ const taskPatch = obj(
     status: str("Target status; must be valid for the task's home List.", 80),
     priority: integer("ClickUp priority: 1 urgent, 2 high, 3 normal, 4 low.", 1, 4),
     due_date_ms: integer("Due date as Unix epoch milliseconds, not seconds.", 0, 9_000_000_000_000),
-    assignee_ids: arrayOf("ClickUp user IDs; resolve names first.", memberId, 12),
+    assignee_ids: arrayOf("Complete desired assignee set (replacement). Use [] to remove all; omitted leaves assignments unchanged. Resolve member IDs first. The MCP computes ClickUp add/rem deltas and verifies readback.", memberId, 12),
   },
 );
 const taskDraft = obj(
@@ -414,7 +414,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Update Task",
     "tasks",
     "write",
-    "Change explicit fields on an existing task; absent properties stay unchanged. Never execute without server-side write grant and independent approval.",
+    "Change explicit fields on an existing task. assignee_ids replaces the full assignee set (including removals); omitted leaves assignments unchanged. Verified readback reports unsuccessful assignment changes. Requires scoped write permission and approval.",
     "Change status to In Progress on a named task.",
     ["task_id", "changes"],
   ),
@@ -453,7 +453,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Update Bulk Tasks",
     "bulk",
     "write",
-    "Update a bounded set of existing tasks after individually verifying identity and List scope. May partly fail; no implicit all-or-nothing guarantee.",
+    "Update a bounded set of existing tasks after verifying identity and List scope. assignee_ids replaces each task\u0027s full assignee set with verified add/rem deltas; failed readback is reported. May partly fail; no all-or-nothing guarantee.",
     "Set four reviewed test tasks to In Progress.",
     ["task_updates"],
   ),
