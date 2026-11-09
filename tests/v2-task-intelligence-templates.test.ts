@@ -21,13 +21,15 @@ const task = (index: number, home = "12345", priority = 2) => ({
   list: { id: home },
   priority: { id: String(priority) },
 });
-function fakeApi(options: {
-  fullFirst?: boolean;
-  foreign?: boolean;
-  templateMissing?: boolean;
-  wrongCreatedList?: boolean;
-  templates?: number;
-} = {}) {
+function fakeApi(
+  options: {
+    fullFirst?: boolean;
+    foreign?: boolean;
+    templateMissing?: boolean;
+    wrongCreatedList?: boolean;
+    templates?: number;
+  } = {},
+) {
   const calls: Array<{ path: string; method: string; query: URLSearchParams; body: unknown }> = [];
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
@@ -39,12 +41,9 @@ function fakeApi(options: {
       body: init?.body ? JSON.parse(String(init.body)) : null,
     });
     const reply = (value: unknown) => Response.json(value);
-    if (url.pathname === "/api/v2/team/555/space")
-      return reply({ spaces: [{ id: "777" }] });
-    if (url.pathname === "/api/v2/list/12345")
-      return reply({ id: "12345", space: { id: "777" } });
-    if (url.pathname === "/api/v2/list/99999")
-      return reply({ id: "99999", space: { id: "888" } });
+    if (url.pathname === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
+    if (url.pathname === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
+    if (url.pathname === "/api/v2/list/99999") return reply({ id: "99999", space: { id: "888" } });
     if (url.pathname === "/api/v2/list/12345/task" || url.pathname === "/api/v2/team/555/task") {
       const page = Number(url.searchParams.get("page"));
       if (options.fullFirst) {
@@ -60,7 +59,12 @@ function fakeApi(options: {
       });
     }
     if (url.pathname === "/api/v2/team/555/custom_item")
-      return reply({ custom_items: [{ id: 0, name: "Task" }, { id: 1300, name: "Repair" }] });
+      return reply({
+        custom_items: [
+          { id: 0, name: "Task" },
+          { id: 1300, name: "Repair" },
+        ],
+      });
     if (url.pathname === "/api/v2/team/555/taskTemplate") {
       const count = options.templates ?? 2;
       return reply({
@@ -126,7 +130,12 @@ describe("ClickUp v2 filtered tasks, custom types and templates", () => {
 
   it("uses the authenticated ClickUp user for own-task queries, never a supplied identity", async () => {
     const api = fakeApi();
-    await runCatalogOperation("clickup_get_my_tasks", {}, grant("workspace"), api.fetcher as typeof fetch);
+    await runCatalogOperation(
+      "clickup_get_my_tasks",
+      {},
+      grant("workspace"),
+      api.fetcher as typeof fetch,
+    );
     const query = api.calls.find((call) => call.path === "/api/v2/team/555/task")?.query;
     expect(query?.getAll("assignees[]")).toEqual(["707"]);
     expect(api.calls.every((call) => call.method === "GET")).toBe(true);
@@ -155,7 +164,9 @@ describe("ClickUp v2 filtered tasks, custom types and templates", () => {
     );
     expect(result).toMatchObject({ priority_filter: "client_side" });
     expect((result["tasks"] as Array<{ id: string }>).map((x) => x.id)).toEqual(["task-0"]);
-    expect(api.calls.find((call) => call.path.endsWith("/task"))?.query.has("priority")).toBe(false);
+    expect(api.calls.find((call) => call.path.endsWith("/task"))?.query.has("priority")).toBe(
+      false,
+    );
   });
 
   it("returns bounded continuation and finds matching tasks after the first 100 results", async () => {
@@ -202,7 +213,11 @@ describe("ClickUp v2 filtered tasks, custom types and templates", () => {
       { filter_due_before_ms: -1 },
       { filter_order_by: "random" },
       { filter_custom_fields: [{ field_id: "field", operator: "!", value_text: "x" }] },
-      { filter_custom_fields: [{ field_id: "field", operator: "=", value_text: "x", value_number: 2 }] },
+      {
+        filter_custom_fields: [
+          { field_id: "field", operator: "=", value_text: "x", value_number: 2 },
+        ],
+      },
     ]) {
       const api = fakeApi();
       await expect(
@@ -215,10 +230,18 @@ describe("ClickUp v2 filtered tasks, custom types and templates", () => {
   it("guards Workspace custom task-type metadata against List-only grants", async () => {
     const api = fakeApi();
     await expect(
-      runCatalogOperation("clickup_get_custom_task_types", {}, grant(), api.fetcher as typeof fetch),
+      runCatalogOperation(
+        "clickup_get_custom_task_types",
+        {},
+        grant(),
+        api.fetcher as typeof fetch,
+      ),
     ).rejects.toThrow("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
     const types = await runCatalogOperation(
-      "clickup_get_custom_task_types", {}, grant("workspace"), api.fetcher as typeof fetch,
+      "clickup_get_custom_task_types",
+      {},
+      grant("workspace"),
+      api.fetcher as typeof fetch,
     );
     expect(types["custom_items"]).toMatchObject([{ id: 0 }, { id: 1300 }]);
   });
@@ -231,7 +254,11 @@ describe("ClickUp v2 filtered tasks, custom types and templates", () => {
       grant("workspace"),
       api.fetcher as typeof fetch,
     );
-    expect(first).toMatchObject({ next_template_page: 0, next_template_offset: 10, incomplete: true });
+    expect(first).toMatchObject({
+      next_template_page: 0,
+      next_template_offset: 10,
+      incomplete: true,
+    });
     const second = await runCatalogOperation(
       "clickup_get_task_templates",
       { template_page: 0, template_offset: 10 },
