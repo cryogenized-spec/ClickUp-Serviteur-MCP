@@ -221,6 +221,9 @@ export async function getMyAttentionItems(
     }
   };
   const assigned = await tryRead(() => fetchTasks(assignedPage, true));
+  // A 429 before any successful source read must remain an explicit error,
+  // not an empty result that might be mistaken for an empty attention queue.
+  if (assigned === null) throw new ReadFailure("CLICKUP_RATE_LIMITED");
   if (assigned !== null) {
     assignedFetched = true;
     coverage.assigned_tasks_examined = assigned.length;
