@@ -26,7 +26,8 @@ export type ToolGroup =
   | "docs"
   | "reporting"
   | "checklists"
-  | "views";
+  | "views"
+  | "templates";
 export type ToolEffect = "read" | "write" | "destructive";
 
 export interface ModelToolDefinition {
@@ -327,6 +328,43 @@ const F = {
   view_id: str("Exact saved ClickUp List View ID, not an arbitrary task or document.", 80),
   view_page: integer("Zero-based ClickUp saved View task page.", 0, 100_000),
   view_offset: integer("Zero-based task index within the saved View page.", 0, 99),
+  assigned_to_me: flag("When true, filter only tasks assigned to the authenticated ClickUp user."),
+  filter_assignee_ids: arrayOf(
+    "Exact ClickUp Workspace member IDs. Omit for all assignees; combine with assigned_to_me only if no other assignees provided.",
+    memberId,
+    12,
+  ),
+  filter_statuses: arrayOf("Exact status labels from the approved List.", str("Status label.", 80), 12),
+  filter_tag_names: arrayOf("Exact existing ClickUp tags.", str("Tag label.", 100), 12),
+  filter_task_types: arrayOf("ClickUp custom task type numeric IDs.", integer("Task type ID.", 0, 100000000), 12),
+  filter_priority: integer(
+    "ClickUp priority: 1 urgent, 2 high, 3 normal, 4 low. Client-side filter because v2 does not document a priority query parameter.",
+    1,
+    4,
+  ),
+  filter_include_closed: flag("Include completed and closed tasks in results."),
+  filter_subtasks: flag("Include subtasks in the upstream search."),
+  filter_order_by: {
+    type: "string",
+    description: "Supported ClickUp v2 task sort key.",
+    enum: ["id", "created", "updated", "due_date"],
+  },
+  filter_reverse: flag("Reverse upstream sort order."),
+  filter_due_before_ms: integer("Due date earlier than this Unix millisecond value.", 0, 9_000_000_000_000),
+  filter_due_after_ms: integer("Due date later than this Unix millisecond value.", 0, 9_000_000_000_000),
+  filter_updated_after_ms: integer("Changed after this Unix millisecond value.", 0, 9_000_000_000_000),
+  filter_custom_fields: arrayOf(
+    "Typed exact Custom Field filters; use only validated field IDs and supported operators.",
+    obj("One Custom Field comparison (value is omitted only for IS NULL or IS NOT NULL).", {
+      field_id: str("Custom Field ID.", 100),
+      operator: { type: "string", description: "ClickUp filter operator.", enum: ["=", "==", "!=", "<", "<=", ">", ">=", "IS NULL", "IS NOT NULL"] },
+      value_text: str("Text comparison value, mutually exclusive with value_number.", 160),
+      value_number: decimal("Numeric comparison value, mutually exclusive with value_text."),
+    }, ["field_id", "operator"]),
+    5,
+  ),
+  template_id: str("Exact Task Template ID from get_task_templates. Must be verified on the supplied Workspace template page.", 80),
+  template_page: integer("Zero-based page returned by task-template listing.", 0, 100),
   current_user: flag("Must use the authenticated ClickUp user; never impersonate another."),
 } satisfies Record<string, Field>;
 
@@ -362,6 +400,65 @@ function tool(
  * Entries are model-facing contracts; execution still needs independently gated adapters.
  */
 export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
+  // ADVANCED SEARCH — one tool per explicit query function.
+  tool(
+    "clickup_filter_tasks",
+    "Filter Tasks",
+    "search",
+    "read",
+    "Find tasks using documented ClickUp v2 filters, with bounded pagination and strict home-List or Workspace ACL checks. Priority is a client-side filter. Continue using next_task_page and next_task_offset.",
+    "Show high-priority, overdue assigned tasks on my approved List.",
+    [],
+    [
+      "list_id", "assigned_to_me", "filter_assignee_ids", "filter_statuses",
+      "filter_tag_names", "filter_task_types", "filter_priority", "filter_include_closed",
+      "filter_subtasks", "filter_order_by", "filter_reverse", "filter_due_before_ms",
+      "filter_due_after_ms", "filter_updated_after_ms", "filter_custom_fields",
+      "task_page", "task_offset", "max_results",
+    ],
+  ),
+  tool(
+    "clickup_get_my_tasks",
+    "Get My Assigned Tasks",
+    "search",
+    "read",
+    "Find tasks assigned to this connected ClickUp user; never accept a model-supplied identity. Bounded and scoped to a verified List or approved Workspace.",
+    "Show my outstanding tasks across my approved Workspace.",
+    [],
+    ["list_id", "filter_include_closed", "task_page", "task_offset", "max_results"],
+  ),
+  tool(
+    "clickup_get_custom_task_types",
+    "Get Custom Task Types",
+    "search",
+    "read",
+    "List defined ClickUp custom task types in the OAuth-authorized Workspace; requires a Workspace grant.",
+    "List the custom issue and repair task types available in my Workspace.",
+    [],
+  ),
+
+  // WORKSPACE TASK TEMPLATES (2)
+  tool(
+    "clickup_get_task_templates",
+    "Get Task Templates",
+    "templates",
+    "read",
+    "Read an explicit page of available Workspace task templates; requires a Workspace grant.",
+    "Show our standard repair intake task templates.",
+    [],
+    ["template_page", "max_results"],
+  ),
+  tool(
+    "clickup_create_task_from_template",
+    "Create Task From Template",
+    "templates",
+    "write",
+    "Create one new task in a verified authorized List from an exact Workspace template ID. Requires a named template, approved target List, explicit user approval and post-write verification. Never retry after uncertainty.",
+    "Create an approved supplier follow-up task using the existing template.",
+    ["list_id", "template_id", "task_name"],
+    ["template_page"],
+  ),
+
   // SEARCH (3)
   tool(
     "clickup_search_workspace",
@@ -955,6 +1052,7 @@ export const CLICKUP_TOOL_GROUPS: readonly ToolGroup[] = [
   "reporting",
   "checklists",
   "views",
+  "templates",
 ];
 
 export function catalogPage(options: {
