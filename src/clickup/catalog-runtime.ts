@@ -2931,11 +2931,11 @@ export async function runCatalogOperation(
       // A supplied channel ID is never sufficient authority to post.
       // Reuse the same OAuth-bound Workspace/channel verification as Chat reads.
       await verifiedChatChannel(g, f, a["channel_id"]);
-      return call(
-        "POST",
-        v3("workspaces/" + W + "/chat/channels/" + channelId + "/messages"),
-        { type: "message", content, content_format: contentFormat },
-      );
+      return call("POST", v3("workspaces/" + W + "/chat/channels/" + channelId + "/messages"), {
+        type: "message",
+        content,
+        content_format: contentFormat,
+      });
     }
     case "clickup_create_document": {
       const body: Json = { name: txt(a["name"], 180), create_page: true };
