@@ -297,6 +297,9 @@ const F = {
   include_custom_fields: flag(
     "Include verified List Custom Field definitions/options without writing values.",
   ),
+  include_applied_objects: flag(
+    "Include ClickUp applied_objects task-type scoping on returned List Custom Fields; defaults true.",
+  ),
   field_value: obj("Typed Custom Field draft; infer legal options from field metadata.", {
     text: str("For text/URL fields.", 4_000),
     number: decimal(
@@ -604,6 +607,18 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     ["list_id", "max_results", "task_page", "task_offset"],
   ),
 
+  // CUSTOM FIELD METADATA
+  tool(
+    "clickup_get_list_custom_fields",
+    "Get List Custom Fields",
+    "tasks",
+    "read",
+    "Discover the names, types, options, IDs and task-type applicability of Custom Fields on one authorized List before filtering or setting values.",
+    "Which Custom Field IDs and dropdown values are available for our repair List?",
+    ["list_id"],
+    ["max_results", "include_applied_objects"],
+  ),
+
   // TASKS (5)
   tool(
     "clickup_create_task",
@@ -694,6 +709,18 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     ["task_id", "attachment_id"],
   ),
 
+  // LIST-LEVEL COMMENT HISTORY
+  tool(
+    "clickup_get_list_comments",
+    "Get List Comments",
+    "comments",
+    "read",
+    "Read List-level comments (not task comments) on a verified authorized List. Newest-first, with paired ClickUp date/ID pagination and explicit incomplete coverage.",
+    "Check the stocktake notes left on the Sales List itself.",
+    ["list_id"],
+    ["max_results", "comment_start", "comment_start_id"],
+  ),
+
   // COMMENTS (4)
   tool(
     "clickup_get_task_comments",
@@ -745,6 +772,18 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Assign my existing supplier enquiry comment without editing the parent task.",
     ["task_id", "comment_id"],
     ["text", "assignee_id", "resolved"],
+  ),
+
+  // EXISTING SPACE TAG DISCOVERY
+  tool(
+    "clickup_get_space_tags",
+    "Get Space Tags",
+    "tags",
+    "read",
+    "Read existing tags in an authorized Workspace Space, for selecting exact tag names before applying them to tasks. Requires a Workspace-scoped grant.",
+    "List the exact available repair tags for our approved Space.",
+    ["space_id"],
+    ["max_results"],
   ),
 
   // TAGS (2)
@@ -960,6 +999,28 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Rename an approved Folder; does not move or delete the Folder.",
     "Rename a temporary test Folder.",
     ["folder_id", "name"],
+  ),
+
+  // ASSIGNMENT / VISIBILITY UTILITIES — documented v2 read endpoints.
+  tool(
+    "clickup_get_list_members",
+    "Get List Members",
+    "members",
+    "read",
+    "Read members with explicit access to one authorized List. Inherited access from its Folder, Space or team is not included; this is not a complete access-control audit.",
+    "Who has explicit access to the Repairs List?",
+    ["list_id"],
+    ["max_results"],
+  ),
+  tool(
+    "clickup_get_task_members",
+    "Get Task Members",
+    "members",
+    "read",
+    "Read members with explicit access to an independently verified task. Inherited access from its List, Folder, Space or team is not included.",
+    "Who has explicit access to this customer repair task?",
+    ["task_id"],
+    ["max_results"],
   ),
 
   // MEMBERS (3)
