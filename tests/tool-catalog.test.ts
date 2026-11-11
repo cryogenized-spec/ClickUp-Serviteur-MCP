@@ -32,8 +32,8 @@ async function clientHarness(schemaPreview: boolean, fetcher: typeof fetch) {
 
 describe("Official ClickUp MCP capability catalogue (model-facing only)", () => {
   it("contains the hosted capabilities and custom Serviteur tools", () => {
-    expect(CLICKUP_MODEL_TOOL_CATALOG).toHaveLength(66);
-    expect(new Set(CLICKUP_MODEL_TOOL_CATALOG.map((tool) => tool.name)).size).toBe(66);
+    expect(CLICKUP_MODEL_TOOL_CATALOG).toHaveLength(71);
+    expect(new Set(CLICKUP_MODEL_TOOL_CATALOG.map((tool) => tool.name)).size).toBe(71);
     expect(new Set(CLICKUP_MODEL_TOOL_CATALOG.map((tool) => tool.group))).toEqual(
       new Set(CLICKUP_TOOL_GROUPS),
     );
@@ -59,16 +59,16 @@ describe("Official ClickUp MCP capability catalogue (model-facing only)", () => 
 
   it("returns bounded catalogue pages and complete JSON schemas by category", () => {
     const first = catalogPage({ group: "tasks", maxResults: 2, includeSchema: true });
-    expect(first.count).toBe(5);
+    expect(first.count).toBe(6);
     expect(first.entries).toHaveLength(2);
     expect(first.has_more).toBe(true);
     expect(first.entries[0]).toMatchObject({
-      name: "clickup_create_task",
-      effect: "write",
+      name: "clickup_get_list_custom_fields",
+      effect: "read",
       status: "schema_only",
       inputSchema: { type: "object", additionalProperties: false },
     });
-    expect(catalogPage({ group: "tasks", page: 2, maxResults: 2 }).entries).toHaveLength(1);
+    expect(catalogPage({ group: "tasks", page: 2, maxResults: 2 }).entries).toHaveLength(2);
     expect(() => catalogPage({ maxResults: 99 })).toThrow();
     expect(() => catalogPage({ page: -1 })).toThrow();
   });
@@ -127,7 +127,7 @@ describe("Official ClickUp MCP capability catalogue (model-facing only)", () => 
           tool.name !== "clickup_preview_target" &&
           tool.name !== "clickup_select_target",
       );
-      expect(preview).toHaveLength(66);
+      expect(preview).toHaveLength(71);
       for (const spec of CLICKUP_MODEL_TOOL_CATALOG) {
         const tool = preview.find((value) => value.name === spec.name);
         expect(tool).toBeDefined();
