@@ -64,7 +64,7 @@ describe("Official ClickUp MCP capability catalogue (model-facing only)", () => 
     expect(first.has_more).toBe(true);
     expect(first.entries[0]).toMatchObject({
       name: "clickup_get_list_custom_fields",
-      effect: "write",
+      effect: "read",
       status: "schema_only",
       inputSchema: { type: "object", additionalProperties: false },
     });
