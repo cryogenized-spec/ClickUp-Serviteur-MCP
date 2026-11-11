@@ -27,6 +27,8 @@ const send = (fetcher: typeof fetch) =>
 describe("private Chat v3 delivery error classification (issue #120)", () => {
   it("keeps the documented POST body and accepts a 201 acknowledgement", async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, options?: RequestInit) => {
+      if (options?.method === "GET")
+        return Response.json({ channel: { id: "test-channel", workspace_id: "555" } });
       expect(options?.method).toBe("POST");
       expect(JSON.parse(String(options?.body))).toEqual({
         type: "message",
@@ -38,8 +40,12 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
     await expect(send(fetcher as typeof fetch)).resolves.toMatchObject({
       id: "synthetic-msg-id",
     });
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
     expect(String(fetcher.mock.calls[0]?.[0])).toBe(
+      "https://api.clickup.com/api/v3/workspaces/555/chat/channels/test-channel",
+    );
+    expect(fetcher.mock.calls[0]?.[1]?.method).toBe("GET");
+    expect(String(fetcher.mock.calls[1]?.[0])).toBe(
       "https://api.clickup.com/api/v3/workspaces/555/chat/channels/test-channel/messages",
     );
   });
@@ -57,15 +63,17 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
   ] as const)(
     "maps HTTP %i to %s and exposes only sanitized diagnostics",
     async (status, code, outcome) => {
-      const fetcher = vi.fn(async () =>
-        Response.json(
-          {
-            error: "private channel test-user@example.com",
-            request: { authorization: "private-synthetic-test-token" },
-            content: "Benign synthetic test",
-          },
-          { status },
-        ),
+      const fetcher = vi.fn(async (_input: RequestInfo | URL, options?: RequestInit) =>
+        options?.method === "GET"
+          ? Response.json({ id: "test-channel", workspace_id: "555" })
+          : Response.json(
+              {
+                error: "private channel test-user@example.com",
+                request: { authorization: "private-synthetic-test-token" },
+                content: "Benign synthetic test",
+              },
+              { status },
+            ),
       );
       let failure: ReadFailure | undefined;
       try {
@@ -81,14 +89,17 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
         http_status: status,
         write_outcome: outcome,
       });
-      expect(fetcher).toHaveBeenCalledTimes(1); // never replay a potentially delivered write
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
       expect(JSON.stringify(failure)).not.toContain("test-user@example.com");
       expect(JSON.stringify(failure)).not.toContain("private-synthetic-test-token");
     },
   );
 
   it("treats a lost response after POST as unknown, without a blind second send", async () => {
-    const fetcher = vi.fn(async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, options?: RequestInit) => {
+      if (options?.method === "GET")
+        return Response.json({ id: "test-channel", workspace_id: "555" });
       throw new Error("The upstream may have delivered private contents");
     });
     let failure: ReadFailure | undefined;
@@ -103,8 +114,48 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
       endpoint_category: "chat_message_send",
       write_outcome: "unknown",
     });
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
     expect(JSON.stringify(failure)).not.toContain("private contents");
+  });
+
+  it.each([
+    [{ id: "unrelated-channel", workspace_id: "555" }, "wrong channel"],
+    [{ id: "test-channel", workspace_id: "999" }, "foreign Workspace"],
+    [{ channel: { id: "test-channel", workspace: { id: "999" } } }, "nested foreign Workspace"],
+  ])("rejects %s channel preflight without a POST (%s)", async (payload, _description) => {
+    const fetcher = vi.fn(async () => Response.json(payload));
+    await expect(send(fetcher as typeof fetch)).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to post when the claimed channel cannot be read", async () => {
+    const fetcher = vi.fn(async () => Response.json({ error: "no such channel" }, { status: 404 }));
+    await expect(send(fetcher as typeof fetch)).rejects.toThrow("CLICKUP_UPSTREAM_UNAVAILABLE");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("validates message inputs before any upstream channel lookup", async () => {
+    const fetcher = vi.fn(async () => {
+      throw Error("unexpected upstream operation");
+    });
+    await expect(
+      runCatalogOperation(
+        "clickup_send_chat_message",
+        { channel_id: "test-channel", text: "one", content: "two" },
+        grant,
+        fetcher as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_INVALID_ARGUMENT");
+    await expect(
+      runCatalogOperation(
+        "clickup_send_chat_message",
+        { channel_id: "test-channel", content: "" },
+        grant,
+        fetcher as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_INVALID_ARGUMENT");
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("serializes only allowlisted fields at the MCP error boundary", () => {

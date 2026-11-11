@@ -37,6 +37,12 @@ function mockClickUp(taskMarkdown = "# Existing formatted content") {
         list: { id: "12345" },
         markdown_description: taskMarkdown,
       });
+    if (
+      method === "GET" &&
+      path.startsWith("/api/v3/workspaces/555/chat/channels/") &&
+      path.split("/").length === 8
+    )
+      return Response.json({ id: path.split("/").at(-1), workspace_id: "555" });
     return Response.json({ id: "new123", name: "Synthetic" });
   });
   return { fetcher, requests };

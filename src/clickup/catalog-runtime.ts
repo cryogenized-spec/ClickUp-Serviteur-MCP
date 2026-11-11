@@ -2924,15 +2924,18 @@ export async function runCatalogOperation(
     case "clickup_send_chat_message": {
       if (a["text"] !== undefined && a["content"] !== undefined)
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-      return call(
-        "POST",
-        v3("workspaces/" + W + "/chat/channels/" + val(a, "channel_id") + "/messages"),
-        {
-          type: "message",
-          content: txt(a["content"] ?? a["text"], 40_000),
-          content_format: validatedContentFormat(a),
-        },
-      );
+      // Reject malformed content before spending a read or risking a write.
+      const channelId = val(a, "channel_id");
+      const content = txt(a["content"] ?? a["text"], 40_000);
+      const contentFormat = validatedContentFormat(a);
+      // A supplied channel ID is never sufficient authority to post.
+      // Reuse the same OAuth-bound Workspace/channel verification as Chat reads.
+      await verifiedChatChannel(g, f, a["channel_id"]);
+      return call("POST", v3("workspaces/" + W + "/chat/channels/" + channelId + "/messages"), {
+        type: "message",
+        content,
+        content_format: contentFormat,
+      });
     }
     case "clickup_create_document": {
       const body: Json = { name: txt(a["name"], 180), create_page: true };
