@@ -1,10 +1,6 @@
 import { quotaCall } from "./client.js";
 import { getMyAttentionItems } from "./attention-items.js";
-import {
-  readGoalDetails,
-  readSprintTaskSnapshot,
-  readWorkspaceGoals,
-} from "./reporting-reads.js";
+import { readGoalDetails, readSprintTaskSnapshot, readWorkspaceGoals } from "./reporting-reads.js";
 import { compileClickUpRichSegments, compareRichCommentReadback } from "./comment-rich.js";
 import { verifySharedListWorkspace } from "./operations.js";
 import { COMPANY_LIST_TASK_OPERATIONS, ReadFailure, type ReadGrant } from "./policy.js";
@@ -1035,16 +1031,13 @@ export async function runCatalogOperation(
         Number(offset) > 10_000
       )
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-      const result = await readWorkspaceGoals(
-        W,
-        completed,
-        Number(offset),
-        N,
-        (path) => call("GET", path),
+      const result = await readWorkspaceGoals(W, completed, Number(offset), N, (path) =>
+        call("GET", path),
       );
       return {
         ...(clip(result) as Json),
-        incomplete: result["incomplete"] === true || hasClippedNestedArray(result) || hasClippedText(result),
+        incomplete:
+          result["incomplete"] === true || hasClippedNestedArray(result) || hasClippedText(result),
       };
     }
     case "clickup_get_goal_details": {
@@ -1052,7 +1045,8 @@ export async function runCatalogOperation(
       const result = await readGoalDetails(W, goalId, N, (path) => call("GET", path));
       return {
         ...(clip(result) as Json),
-        incomplete: result["incomplete"] === true || hasClippedNestedArray(result) || hasClippedText(result),
+        incomplete:
+          result["incomplete"] === true || hasClippedNestedArray(result) || hasClippedText(result),
       };
     }
     case "clickup_get_sprint_task_snapshot": {
@@ -1078,7 +1072,8 @@ export async function runCatalogOperation(
       );
       return {
         ...(clip(result) as Json),
-        incomplete: result["incomplete"] === true || hasClippedNestedArray(result) || hasClippedText(result),
+        incomplete:
+          result["incomplete"] === true || hasClippedNestedArray(result) || hasClippedText(result),
       };
     }
     case "clickup_get_list_custom_fields": {
