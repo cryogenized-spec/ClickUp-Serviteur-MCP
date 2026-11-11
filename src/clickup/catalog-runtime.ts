@@ -203,6 +203,21 @@ async function send(
   responseMode: ResponseMode = "strict",
 ): Promise<Json> {
   const target = pathEncoded(path);
+  // This exact v3 Chat write has different error semantics from a simple GET.
+  // Keep diagnostics strictly status-based: never parse/echo private Chat errors.
+  const chatSend =
+    method === "POST" &&
+    path.startsWith("api/v3/workspaces/") &&
+    path.includes("/chat/channels/") &&
+    path.endsWith("/messages");
+  const chatDiagnostic = (outcome: "rejected" | "unknown", status?: number) =>
+    chatSend
+      ? {
+          endpoint_category: "chat_message_send" as const,
+          ...(status === undefined ? {} : { http_status: status }),
+          write_outcome: outcome,
+        }
+      : undefined;
   await quotaCall(grant, "reserve");
   const abort = new AbortController();
   const timeout = setTimeout(() => abort.abort(), 7000);
@@ -225,15 +240,37 @@ async function send(
         if (unix > Date.now() / 1000 && unix < Date.now() / 1000 + 3600)
           await quotaCall(grant, "cooldown", unix * 1000);
       }
-      throw new ReadFailure("CLICKUP_RATE_LIMITED");
+      throw new ReadFailure("CLICKUP_RATE_LIMITED", chatDiagnostic("rejected", 429));
     }
-    if (res.status === 401 || res.status === 403) throw new ReadFailure("CLICKUP_UPSTREAM_DENIED");
-    if (!res.ok)
+    if (res.status === 401 || res.status === 403)
+      throw new ReadFailure("CLICKUP_UPSTREAM_DENIED", chatDiagnostic("rejected", res.status));
+    if (!res.ok) {
+      if (chatSend) {
+        if (res.status === 400 || res.status === 422)
+          throw new ReadFailure(
+            "CLICKUP_CHAT_REQUEST_REJECTED",
+            chatDiagnostic("rejected", res.status),
+          );
+        if (res.status === 404)
+          throw new ReadFailure(
+            "CLICKUP_CHAT_DESTINATION_UNAVAILABLE",
+            chatDiagnostic("rejected", 404),
+          );
+        if (res.status === 409)
+          throw new ReadFailure("CLICKUP_CHAT_CONFLICT", chatDiagnostic("rejected", 409));
+        if (res.status >= 500)
+          throw new ReadFailure(
+            "CLICKUP_WRITE_OUTCOME_UNKNOWN",
+            chatDiagnostic("unknown", res.status),
+          );
+      }
       throw new ReadFailure(
         method === "GET" || res.status < 500
           ? "CLICKUP_UPSTREAM_UNAVAILABLE"
           : "CLICKUP_WRITE_OUTCOME_UNKNOWN",
+        chatDiagnostic(res.status >= 500 ? "unknown" : "rejected", res.status),
       );
+    }
     if (res.status === 204 || res.status === 205) {
       if (method === "DELETE" || responseMode === "empty-write-ack")
         return { success: true, source: "clickup-api", response_empty: true };
@@ -284,6 +321,7 @@ async function send(
     if (e instanceof ReadFailure) throw e;
     throw new ReadFailure(
       method === "GET" ? "CLICKUP_UPSTREAM_UNAVAILABLE" : "CLICKUP_WRITE_OUTCOME_UNKNOWN",
+      chatDiagnostic("unknown"),
     );
   } finally {
     clearTimeout(timeout);
