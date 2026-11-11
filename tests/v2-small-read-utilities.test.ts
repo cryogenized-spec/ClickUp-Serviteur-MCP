@@ -36,7 +36,7 @@ function fakeApi(options: Options = {}) {
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const u = new URL(String(input));
     const method = init?.method ?? "GET";
-    const token = (init?.headers as Record<string, string>)?.["Authorization"];
+    const token = (init?.headers as Record<string, string> | undefined)?.["Authorization"] ?? "";
     calls.push({ path: u.pathname, query: new URLSearchParams(u.search), method, token });
     if (u.hostname !== "api.clickup.com") throw Error("Unexpected host");
     const reply = (value: unknown) => Response.json(value);
