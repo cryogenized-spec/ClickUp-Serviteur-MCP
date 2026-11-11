@@ -152,7 +152,10 @@ const F = {
   space_id: str("Numeric ClickUp Space ID within the authorized Workspace.", 24),
   folder_id: str("Numeric ClickUp Folder ID within the authorized Workspace.", 24),
   list_id: str("Numeric ClickUp List ID; server must authorize this List first.", 24),
-  goal_id: str("Exact ClickUp Goal UUID, first proven present in the OAuth-authorized Workspace.", 80),
+  goal_id: str(
+    "Exact ClickUp Goal UUID, first proven present in the OAuth-authorized Workspace.",
+    80,
+  ),
   goal_offset: integer(
     "Local zero-based Goal offset within one complete Workspace listing; not a remote ClickUp cursor.",
     0,
