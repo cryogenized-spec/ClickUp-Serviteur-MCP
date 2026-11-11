@@ -41,6 +41,7 @@ function fakeApi(options: Options = {}) {
     if (u.hostname !== "api.clickup.com") throw Error("Unexpected host");
     const reply = (value: unknown) => Response.json(value);
     if (u.pathname === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
+    if (u.pathname === "/api/v2/team/555/shared") return reply({ shared: { lists: [] } });
     if (u.pathname === "/api/v2/list/12345")
       return reply({ id: "12345", space: { id: options.foreignList ? "888" : "777" } });
     if (u.pathname === "/api/v2/list/99999") return reply({ id: "99999", space: { id: "888" } });
