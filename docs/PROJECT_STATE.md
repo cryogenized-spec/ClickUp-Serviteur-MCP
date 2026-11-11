@@ -1,3 +1,17 @@
+# 11 November 2026 SAST — M3 Goals + Sprint/List read-only expansion (PR #131)
+
+**Source:** [PR #131](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/131) adds three named REST reads to the public source candidate: `clickup_get_workspace_goals`, `clickup_get_goal_details`, and `clickup_get_sprint_task_snapshot`. These bring the reviewed operational catalogue from **71** to **74** REST operations; existing helper tools remain separate.
+
+**Implemented boundaries:** Both Goals operations require explicit OAuth Workspace scope. Goal detail lookup first verifies its exact ID in the authorized Workspace's Goals listing, then validates the returned Goal and any explicit Workspace ancestry. Sprint/List snapshots preflight a verified List, fetch home-List tasks only, validate each returned home List, enforce page/offset bounds, and report **sampled** counts/points only. No Sprint velocity, burndown, commitment report, cross-List task expansion, generic HTTP executor or mutation was added. A Sprint designation cannot be proven by this task read alone.
+
+**Independent evidence (synthetic only):** On PR HEAD `71a58c78201cd497a140411a2c18e058556a291d`, [Strict CI](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/actions/runs/43085141028) passed repository policy checks, formatting, ESLint, three TypeScript checks, unit/regression tests, reproducible build, isolated workerd HTTPS OAuth smoke and the high-severity dependency audit. [CodeQL](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/actions/runs/43085141075) passed Python, JavaScript/TypeScript and GitHub Actions analysis. This establishes source quality, **not** live ClickUp plan compatibility or staging acceptance.
+
+**Deployment/blockers:** The company Worker is intentionally unchanged (last observed `service_info.build_sha=f1dd7aa3759d584f6acf6f0eb4b96dbfc61a2a48`). Live Goals availability and selected Sprint List behavior still require permissioned staging validation. Issue [#120](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/issues/120) remains open for a safe self-DM send/readback acceptance; no staff Chat posts were sent.
+
+**Next action:** Complete final PR #131 review and merge only after the exact final-head security/quality gates. Then test approved, read-only Goals/List responses in staging; unblock company deployment separately after issue #120 staging acceptance.
+
+---
+
 # 7 November 2026 SAST — #88 genuine @mention readback normalization candidate
 
 **Observed:** One owner-approved company task-comment test posted a structured mention. ClickUp's subsequent GET returned a positional `{"type":"tag"}` entry without `user.id`, while the persisted comment and author were present. Existing strict identity readback wrongly reported `CLICKUP_WRITE_OUTCOME_UNKNOWN`; the comment was already created and must not be reposted.
