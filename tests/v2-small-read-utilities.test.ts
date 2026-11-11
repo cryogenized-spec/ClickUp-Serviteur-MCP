@@ -99,8 +99,8 @@ async function run(
 
 describe("ClickUp v2 small discovery utilities (typed, scoped, read only)", () => {
   it("registers five explicit read tools and no generic API execution or credential input", () => {
-    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(71);
-    expect(new Set(OPERATIONAL_CATALOG_NAMES).size).toBe(71);
+    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(74);
+    expect(new Set(OPERATIONAL_CATALOG_NAMES).size).toBe(74);
     for (const name of toolNames) {
       const specs = CLICKUP_MODEL_TOOL_CATALOG.filter((s) => s.name === name);
       expect(specs).toHaveLength(1);

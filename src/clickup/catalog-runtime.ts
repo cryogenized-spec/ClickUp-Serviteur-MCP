@@ -1,5 +1,6 @@
 import { quotaCall } from "./client.js";
 import { getMyAttentionItems } from "./attention-items.js";
+import { readGoalDetails, readSprintTaskSnapshot, readWorkspaceGoals } from "./reporting-reads.js";
 import { compileClickUpRichSegments, compareRichCommentReadback } from "./comment-rich.js";
 import { verifySharedListWorkspace } from "./operations.js";
 import { COMPANY_LIST_TASK_OPERATIONS, ReadFailure, type ReadGrant } from "./policy.js";
@@ -840,6 +841,9 @@ async function verifiedChatChannel(
 }
 
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
+  "clickup_get_workspace_goals",
+  "clickup_get_goal_details",
+  "clickup_get_sprint_task_snapshot",
   "clickup_get_list_custom_fields",
   "clickup_get_list_members",
   "clickup_get_task_members",
@@ -918,6 +922,8 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
 // operations remain blocked. ClickUp owns task history and enforces its ACL.
 const WORKSPACE_SCOPE_OPERATIONS = new Set([
   // These tools have Workspace-wide effects or return data outside the home List.
+  "clickup_get_workspace_goals",
+  "clickup_get_goal_details",
   "clickup_get_space_tags",
   "clickup_get_workspace_hierarchy",
   "clickup_get_custom_task_types",
@@ -1015,6 +1021,61 @@ export async function runCatalogOperation(
   if (a["workspace_id"] !== undefined && String(a["workspace_id"]) !== g.workspaceId)
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   switch (name) {
+    case "clickup_get_workspace_goals": {
+      const completed = a["include_completed"] ?? false;
+      const offset = a["goal_offset"] ?? 0;
+      if (
+        typeof completed !== "boolean" ||
+        !Number.isInteger(offset) ||
+        Number(offset) < 0 ||
+        Number(offset) > 10_000
+      )
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const result = await readWorkspaceGoals(W, completed, Number(offset), N, (path) =>
+        call("GET", path),
+      );
+      return {
+        ...(clip(result) as Json),
+        incomplete:
+          result["incomplete"] === true || hasClippedNestedArray(result) || hasClippedText(result),
+      };
+    }
+    case "clickup_get_goal_details": {
+      const goalId = val(a, "goal_id");
+      const result = await readGoalDetails(W, goalId, N, (path) => call("GET", path));
+      return {
+        ...(clip(result) as Json),
+        incomplete:
+          result["incomplete"] === true || hasClippedNestedArray(result) || hasClippedText(result),
+      };
+    }
+    case "clickup_get_sprint_task_snapshot": {
+      const page = a["task_page"] ?? 0;
+      const offset = a["task_offset"] ?? 0;
+      if (
+        !Number.isInteger(page) ||
+        Number(page) < 0 ||
+        Number(page) > 100_000 ||
+        !Number.isInteger(offset) ||
+        Number(offset) < 0 ||
+        Number(offset) > 99
+      )
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      // The preflight is required even for a Workspace-granted OAuth identity.
+      await list("list_id");
+      const result = await readSprintTaskSnapshot(
+        val(a, "list_id"),
+        Number(page),
+        Number(offset),
+        N,
+        (path) => call("GET", path),
+      );
+      return {
+        ...(clip(result) as Json),
+        incomplete:
+          result["incomplete"] === true || hasClippedNestedArray(result) || hasClippedText(result),
+      };
+    }
     case "clickup_get_list_custom_fields": {
       await list("list_id");
       const result = await call(
