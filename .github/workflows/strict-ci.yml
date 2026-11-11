@@ -57,6 +57,15 @@ jobs:
         if: steps.stage.outputs.application == 'true'
         run: npm ci --ignore-scripts --no-audit --no-fund
 
+      - name: Temporary source-only formatting diagnostics (PR #130)
+        if: steps.stage.outputs.application == 'true'
+        run: |
+          for source_file in src/clickup/catalog-runtime.ts tests/chat-send-errors.test.ts tests/phase7-catalog.test.ts; do
+            echo "::group::Formatting differences for $source_file"
+            ./node_modules/.bin/prettier "$source_file" | diff -u "$source_file" - || true
+            echo "::endgroup::"
+          done
+
       - name: Enforce formatting
         if: steps.stage.outputs.application == 'true'
         run: npm run format:check
