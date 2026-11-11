@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { runCatalogOperation } from "../src/clickup/catalog-runtime.js";
 import { ReadFailure, type ReadGrant } from "../src/clickup/policy.js";
+import { toolError } from "../src/mcp/create-server.js";
 
 const grant: ReadGrant = {
   subject: "github:707",
@@ -101,6 +102,33 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
     });
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(failure)).not.toContain("private contents");
+  });
+
+  it("serializes only allowlisted fields at the MCP error boundary", () => {
+    const upstream = new ReadFailure("CLICKUP_CHAT_DESTINATION_UNAVAILABLE", {
+      endpoint_category: "chat_message_send",
+      http_status: 404,
+      write_outcome: "rejected",
+    });
+    Object.assign(upstream, {
+      private_message: "Confidential staff message",
+      channel_id: "private-channel",
+      authorization: "private-synthetic-test-token",
+    });
+    const result = toolError(upstream);
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content[0]!.text)).toEqual({
+      code: "CLICKUP_CHAT_DESTINATION_UNAVAILABLE",
+      endpoint_category: "chat_message_send",
+      http_status: 404,
+      write_outcome: "rejected",
+    });
+    expect(JSON.stringify(result)).not.toContain("Confidential staff message");
+    expect(JSON.stringify(result)).not.toContain("private-channel");
+    expect(JSON.stringify(result)).not.toContain("private-synthetic-test-token");
+    expect(JSON.parse(toolError(new Error("secret upstream body")).content[0]!.text)).toEqual({
+      code: "CLICKUP_UNAVAILABLE",
+    });
   });
 
   it("does not change error classification of other ClickUp reads", async () => {
