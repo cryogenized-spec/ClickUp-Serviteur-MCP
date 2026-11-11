@@ -46,7 +46,7 @@ const SERVICE_INFO = Object.freeze({
   note: "Phase 3 read-only diagnostic; GitHub OAuth gates the public MCP endpoint. Live ClickUp access is disabled.",
 });
 
-function toolError(error: unknown) {
+export function toolError(error: unknown) {
   const code = error instanceof ReadFailure ? error.code : "CLICKUP_UNAVAILABLE";
   const safe: Record<string, string | number> = { code };
   // Never forward upstream error bodies, message content, channel IDs, or tokens.
