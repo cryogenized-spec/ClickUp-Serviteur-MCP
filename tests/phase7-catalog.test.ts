@@ -29,6 +29,8 @@ const fixture = (path: string) => {
   if (path === "/api/v2/list/12346") return { id: "12346", space: { id: "777" } };
   if (path === "/api/v2/team/555/space") return { spaces: [{ id: "777", name: "Operations" }] };
   if (path === "/api/v2/task/abc123") return { id: "abc123", list: { id: "12345" }, name: "Order" };
+  if (path.startsWith("/api/v3/workspaces/555/chat/channels/") && path.split("/").length === 8)
+    return { id: path.split("/").at(-1), workspace_id: "555" };
   return { id: "new123", name: "Test" };
 };
 const fakeApi = () =>
@@ -1060,8 +1062,12 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
   });
 
   it("uses a real v3 ClickUp Chat API message endpoint with the employee token", async () => {
-    const f = vi.fn(async (_req: RequestInfo | URL, _init?: RequestInit) =>
-      reply({ id: "message-1" }),
+    const f = vi.fn(async (_req: RequestInfo | URL, init?: RequestInit) =>
+      reply(
+        init?.method === "GET"
+          ? { id: "chan-123", workspace_id: "555" }
+          : { id: "message-1" },
+      ),
     );
     const result = await runCatalogOperation(
       "clickup_send_chat_message",
@@ -1070,7 +1076,12 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       f as typeof fetch,
     );
     expect(result).toMatchObject({ id: "message-1" });
-    const [url, options] = f.mock.calls[0]!;
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(String(f.mock.calls[0]?.[0])).toBe(
+      "https://api.clickup.com/api/v3/workspaces/555/chat/channels/chan-123",
+    );
+    expect(f.mock.calls[0]?.[1]?.method).toBe("GET");
+    const [url, options] = f.mock.calls[1]!;
     expect(String(url)).toBe(
       "https://api.clickup.com/api/v3/workspaces/555/chat/channels/chan-123/messages",
     );
@@ -1083,16 +1094,21 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
   });
 
   it("reports HTTP 429 without further retries and does not make the write falsely successful", async () => {
-    const f = vi.fn(async () => reply({ error: "rate limit" }, 429));
+    const fetcher = vi.fn(async (_req: RequestInfo | URL, init?: RequestInit) =>
+      init?.method === "GET"
+        ? reply({ id: "chan-123", workspace_id: "555" })
+        : reply({ error: "rate limit" }, 429),
+    );
     await expect(
       runCatalogOperation(
         "clickup_send_chat_message",
         { channel_id: "chan-123", text: "Test" },
         makeGrant(),
-        f as typeof fetch,
+        fetcher as typeof fetch,
       ),
     ).rejects.toThrow("CLICKUP_RATE_LIMITED");
-    expect(f).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
   });
   it("sends actual provided file bytes as multipart to ClickUp, never fetches a file URL", async () => {
     let sent: FormData | null = null;
