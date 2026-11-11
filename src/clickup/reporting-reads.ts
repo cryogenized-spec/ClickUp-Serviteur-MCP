@@ -6,9 +6,7 @@ import { ReadFailure } from "./policy.js";
 type Json = Record<string, unknown>;
 type FetchRead = (path: string) => Promise<Json>;
 const record = (value: unknown): Json | null =>
-  value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Json)
-    : null;
+  value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Json) : null;
 
 const validId = (value: unknown): value is string =>
   typeof value === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(value);
@@ -81,8 +79,7 @@ export async function readGoalDetails(
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   const response = await get("api/v2/goal/" + goalId);
   const goal = record(response["goal"]);
-  if (!goal || goal["id"] !== goalId)
-    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  if (!goal || goal["id"] !== goalId) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   goalBelongsToWorkspace(goal, workspaceId);
 
   const raw = goal["key_results"];
@@ -138,8 +135,7 @@ export async function readSprintTaskSnapshot(
       throw new ReadFailure("CLICKUP_BAD_RESPONSE");
     ids.add(task["id"]);
     const homeList = record(task["list"])?.["id"];
-    if (String(homeList) !== listId)
-      throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    if (String(homeList) !== listId) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     const status = task["status"] == null ? null : record(task["status"]);
     if (task["status"] != null && !status) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
     const points = task["points"];
