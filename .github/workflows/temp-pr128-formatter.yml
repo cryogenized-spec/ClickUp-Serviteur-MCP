@@ -1,0 +1,32 @@
+name: Temporary PR128 pinned format
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  formatter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Emit formatted source files only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/prettier --write src/mcp/tool-catalog.ts src/clickup/catalog-runtime.ts tests/v2-small-read-utilities.test.ts tests/tool-catalog.test.ts tests/phase7-catalog.test.ts
+          for file in src/mcp/tool-catalog.ts src/clickup/catalog-runtime.ts tests/v2-small-read-utilities.test.ts tests/tool-catalog.test.ts tests/phase7-catalog.test.ts; do
+            echo "=== BEGIN: $file ==="
+            base64 -w0 "$file"
+            echo
+            echo "=== END: $file ==="
+          done
