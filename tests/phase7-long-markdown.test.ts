@@ -24,6 +24,12 @@ function mock() {
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
     calls.push({ url, method, body });
     expect(url.hostname).toBe("api.clickup.com");
+    if (
+      method === "GET" &&
+      url.pathname.startsWith("/api/v3/workspaces/555/chat/channels/") &&
+      url.pathname.split("/").length === 8
+    )
+      return Response.json({ id: url.pathname.split("/").at(-1), workspace_id: "555" });
     return Response.json({ id: "synthetic-1", name: "test" });
   });
   return { calls, fetcher };
@@ -54,8 +60,10 @@ describe("full-length Markdown authoring for v3 Docs and Chat", () => {
       grant,
       api.fetcher as typeof fetch,
     );
-    expect(api.calls).toHaveLength(1);
-    expect(api.calls[0]?.body).toEqual({
+    expect(api.calls).toHaveLength(2);
+    expect(api.calls[0]?.method).toBe("GET");
+    expect(api.calls[1]?.method).toBe("POST");
+    expect(api.calls[1]?.body).toEqual({
       type: "message",
       content: markdown,
       content_format: "text/md",
@@ -68,7 +76,7 @@ describe("full-length Markdown authoring for v3 Docs and Chat", () => {
         api.fetcher as typeof fetch,
       ),
     ).rejects.toThrow("CLICKUP_INVALID_ARGUMENT");
-    expect(api.calls).toHaveLength(1);
+    expect(api.calls).toHaveLength(2);
   });
 
   it("reads a complete 30k Docs page and explicitly reports content above the response cap", async () => {
