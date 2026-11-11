@@ -125,19 +125,13 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
     [{ channel: { id: "test-channel", workspace: { id: "999" } } }, "nested foreign Workspace"],
   ])("rejects %s channel preflight without a POST (%s)", async (payload) => {
     const fetcher = vi.fn(async () => Response.json(payload));
-    await expect(send(fetcher as typeof fetch)).rejects.toThrow(
-      "CLICKUP_SCOPE_OR_SCHEMA_REJECTED",
-    );
+    await expect(send(fetcher as typeof fetch)).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it("refuses to post when the claimed channel cannot be read", async () => {
-    const fetcher = vi.fn(async () =>
-      Response.json({ error: "no such channel" }, { status: 404 }),
-    );
-    await expect(send(fetcher as typeof fetch)).rejects.toThrow(
-      "CLICKUP_UPSTREAM_UNAVAILABLE",
-    );
+    const fetcher = vi.fn(async () => Response.json({ error: "no such channel" }, { status: 404 }));
+    await expect(send(fetcher as typeof fetch)).rejects.toThrow("CLICKUP_UPSTREAM_UNAVAILABLE");
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
