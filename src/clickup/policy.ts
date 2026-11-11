@@ -21,8 +21,18 @@ export interface ReadGrant {
   };
 }
 
+/** Only fixed, non-sensitive categories and HTTP statuses may cross the MCP error boundary. */
+export interface UpstreamDiagnostic {
+  readonly endpoint_category: "chat_message_send";
+  readonly http_status?: number;
+  readonly write_outcome: "rejected" | "unknown";
+}
+
 export class ReadFailure extends Error {
-  constructor(readonly code: string) {
+  constructor(
+    readonly code: string,
+    readonly diagnostic?: UpstreamDiagnostic,
+  ) {
     super(code);
     this.name = "ReadFailure";
   }
