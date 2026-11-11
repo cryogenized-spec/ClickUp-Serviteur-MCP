@@ -123,7 +123,7 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
     [{ id: "unrelated-channel", workspace_id: "555" }, "wrong channel"],
     [{ id: "test-channel", workspace_id: "999" }, "foreign Workspace"],
     [{ channel: { id: "test-channel", workspace: { id: "999" } } }, "nested foreign Workspace"],
-  ])("rejects %s channel preflight without a POST (%s)", async (payload) => {
+  ])("rejects %s channel preflight without a POST (%s)", async (payload, _description) => {
     const fetcher = vi.fn(async () => Response.json(payload));
     await expect(send(fetcher as typeof fetch)).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     expect(fetcher).toHaveBeenCalledTimes(1);
