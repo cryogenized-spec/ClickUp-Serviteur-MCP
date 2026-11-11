@@ -54,35 +54,38 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
     [429, "CLICKUP_RATE_LIMITED", "rejected"],
     [502, "CLICKUP_WRITE_OUTCOME_UNKNOWN", "unknown"],
     [503, "CLICKUP_WRITE_OUTCOME_UNKNOWN", "unknown"],
-  ] as const)("maps HTTP %i to %s and exposes only sanitized diagnostics", async (status, code, outcome) => {
-    const fetcher = vi.fn(async () =>
-      Response.json(
-        {
-          error: "private channel test-user@example.com",
-          request: { authorization: "private-synthetic-test-token" },
-          content: "Benign synthetic test",
-        },
-        { status },
-      ),
-    );
-    let failure: ReadFailure | undefined;
-    try {
-      await send(fetcher as typeof fetch);
-    } catch (error) {
-      if (error instanceof ReadFailure) failure = error;
-      else throw error;
-    }
-    expect(failure).toBeInstanceOf(ReadFailure);
-    expect(failure?.code).toBe(code);
-    expect(failure?.diagnostic).toEqual({
-      endpoint_category: "chat_message_send",
-      http_status: status,
-      write_outcome: outcome,
-    });
-    expect(fetcher).toHaveBeenCalledTimes(1); // never replay a potentially delivered write
-    expect(JSON.stringify(failure)).not.toContain("test-user@example.com");
-    expect(JSON.stringify(failure)).not.toContain("private-synthetic-test-token");
-  });
+  ] as const)(
+    "maps HTTP %i to %s and exposes only sanitized diagnostics",
+    async (status, code, outcome) => {
+      const fetcher = vi.fn(async () =>
+        Response.json(
+          {
+            error: "private channel test-user@example.com",
+            request: { authorization: "private-synthetic-test-token" },
+            content: "Benign synthetic test",
+          },
+          { status },
+        ),
+      );
+      let failure: ReadFailure | undefined;
+      try {
+        await send(fetcher as typeof fetch);
+      } catch (error) {
+        if (error instanceof ReadFailure) failure = error;
+        else throw error;
+      }
+      expect(failure).toBeInstanceOf(ReadFailure);
+      expect(failure?.code).toBe(code);
+      expect(failure?.diagnostic).toEqual({
+        endpoint_category: "chat_message_send",
+        http_status: status,
+        write_outcome: outcome,
+      });
+      expect(fetcher).toHaveBeenCalledTimes(1); // never replay a potentially delivered write
+      expect(JSON.stringify(failure)).not.toContain("test-user@example.com");
+      expect(JSON.stringify(failure)).not.toContain("private-synthetic-test-token");
+    },
+  );
 
   it("treats a lost response after POST as unknown, without a blind second send", async () => {
     const fetcher = vi.fn(async () => {
