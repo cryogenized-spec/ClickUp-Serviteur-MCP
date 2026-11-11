@@ -988,8 +988,10 @@ export async function runCatalogOperation(
             (a["include_applied_objects"] === false ? "false" : "true"),
         ),
       );
-      if (!Array.isArray(result["fields"]) ||
-        result["fields"].some((field: unknown) => !obj(field)))
+      if (
+        !Array.isArray(result["fields"]) ||
+        result["fields"].some((field: unknown) => !obj(field))
+      )
         throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       const fields = result["fields"] as Json[];
       const selected = fields.slice(0, N);
@@ -999,7 +1001,8 @@ export async function runCatalogOperation(
         fields: clip(selected),
         fields_in_response: fields.length,
         include_applied_objects: a["include_applied_objects"] !== false,
-        incomplete: fields.length > N || hasClippedNestedArray(selected) || hasClippedText(selected),
+        incomplete:
+          fields.length > N || hasClippedNestedArray(selected) || hasClippedText(selected),
       };
     }
     case "clickup_get_list_members":
@@ -1012,8 +1015,10 @@ export async function runCatalogOperation(
         "GET",
         v2((listMembers ? "list/" : "task/") + resourceId + "/member"),
       );
-      if (!Array.isArray(result["members"]) ||
-        result["members"].some((member: unknown) => !obj(member)))
+      if (
+        !Array.isArray(result["members"]) ||
+        result["members"].some((member: unknown) => !obj(member))
+      )
         throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       const members = result["members"] as Json[];
       return {
@@ -1023,15 +1028,16 @@ export async function runCatalogOperation(
         members_in_response: members.length,
         explicit_access_only: true,
         inherited_permissions_not_included: true,
-        incomplete: members.length > N || hasClippedNestedArray(members.slice(0, N)) ||
+        incomplete:
+          members.length > N ||
+          hasClippedNestedArray(members.slice(0, N)) ||
           hasClippedText(members.slice(0, N)),
       };
     }
     case "clickup_get_space_tags": {
       await inWorkspace(g, f, a["space_id"]);
       const result = await call("GET", v2("space/" + val(a, "space_id") + "/tag"));
-      if (!Array.isArray(result["tags"]) ||
-        result["tags"].some((tag: unknown) => !obj(tag)))
+      if (!Array.isArray(result["tags"]) || result["tags"].some((tag: unknown) => !obj(tag)))
         throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       const tags = result["tags"] as Json[];
       return {
@@ -1039,7 +1045,9 @@ export async function runCatalogOperation(
         space_id: String(a["space_id"]),
         tags: clip(tags.slice(0, N)),
         tags_in_response: tags.length,
-        incomplete: tags.length > N || hasClippedNestedArray(tags.slice(0, N)) ||
+        incomplete:
+          tags.length > N ||
+          hasClippedNestedArray(tags.slice(0, N)) ||
           hasClippedText(tags.slice(0, N)),
       };
     }
@@ -1061,16 +1069,20 @@ export async function runCatalogOperation(
         const result = await call(
           "GET",
           v2(
-            "list/" + val(a, "list_id") + "/comment" +
-            (cursor !== null ? "?" + params.toString() : ""),
+            "list/" +
+              val(a, "list_id") +
+              "/comment" +
+              (cursor !== null ? "?" + params.toString() : ""),
           ),
         );
-        if (!Array.isArray(result["comments"]) ||
+        if (
+          !Array.isArray(result["comments"]) ||
           result["comments"].length > 25 ||
           result["comments"].some((entry: unknown) => {
             const comment = obj(entry);
             return !comment || typeof comment["id"] !== "string";
-          }))
+          })
+        )
           throw new ReadFailure("CLICKUP_BAD_RESPONSE");
         const batch = result["comments"] as Json[];
         pagesScanned++;
@@ -1088,9 +1100,12 @@ export async function runCatalogOperation(
         if (comments.length === N || batch.length < 25 || !next) break;
         cursor = next;
       }
-      const payloadClipped = hasClippedText({ comments }) ||
-        comments.some((entry) => Array.isArray(entry["comment"]) &&
-          (entry["comment"] as unknown[]).length > 100);
+      const payloadClipped =
+        hasClippedText({ comments }) ||
+        comments.some(
+          (entry) =>
+            Array.isArray(entry["comment"]) && (entry["comment"] as unknown[]).length > 100,
+        );
       return {
         source: "clickup-api-v2",
         list_id: String(a["list_id"]),
