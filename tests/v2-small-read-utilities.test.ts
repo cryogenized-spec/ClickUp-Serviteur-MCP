@@ -40,18 +40,21 @@ function fakeApi(options: Options = {}) {
     calls.push({ path: u.pathname, query: new URLSearchParams(u.search), method, token });
     if (u.hostname !== "api.clickup.com") throw Error("Unexpected host");
     const reply = (value: unknown) => Response.json(value);
-    if (u.pathname === "/api/v2/team/555/space")
-      return reply({ spaces: [{ id: "777" }] });
+    if (u.pathname === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
     if (u.pathname === "/api/v2/list/12345")
       return reply({ id: "12345", space: { id: options.foreignList ? "888" : "777" } });
-    if (u.pathname === "/api/v2/list/99999")
-      return reply({ id: "99999", space: { id: "888" } });
+    if (u.pathname === "/api/v2/list/99999") return reply({ id: "99999", space: { id: "888" } });
     if (u.pathname === "/api/v2/task/abc123")
       return reply({ id: "abc123", list: { id: options.foreignTask ? "99999" : "12345" } });
     if (u.pathname === "/api/v2/list/12345/field")
       return reply({
         fields: options.listFields ?? [
-          { id: "field-one", name: "Repair type", type: "drop_down", type_config: { options: [{ id: "part", name: "Parts" }] } },
+          {
+            id: "field-one",
+            name: "Repair type",
+            type: "drop_down",
+            type_config: { options: [{ id: "part", name: "Parts" }] },
+          },
           { id: "field-two", name: "Cost", type: "currency" },
         ],
       });
@@ -122,22 +125,36 @@ describe("ClickUp v2 small discovery utilities (typed, scoped, read only)", () =
       include_applied_objects: true,
     });
     expect(result["fields"]).toEqual([
-      { id: "field-one", name: "Repair type", type: "drop_down", type_config: { options: [{ id: "part", name: "Parts" }] } },
+      {
+        id: "field-one",
+        name: "Repair type",
+        type: "drop_down",
+        type_config: { options: [{ id: "part", name: "Parts" }] },
+      },
       { id: "field-two", name: "Cost", type: "currency" },
     ]);
     const metadata = api.calls.find((c) => c.path.endsWith("/field"))!;
     expect(metadata.query.get("include_applied_objects")).toBe("true");
-    expect(api.calls.every((c) => c.method === "GET" && c.token === "synthetic-private-token")).toBe(true);
+    expect(
+      api.calls.every((c) => c.method === "GET" && c.token === "synthetic-private-token"),
+    ).toBe(true);
     expect(JSON.stringify(result)).not.toContain("synthetic-private-token");
   });
 
   it("reports clipped field metadata instead of implying full coverage", async () => {
     const api = fakeApi();
-    const result = await run("clickup_get_list_custom_fields", { list_id: "12345", max_results: 1, include_applied_objects: false }, grant(), api);
-    expect((result["fields"] as unknown[])).toHaveLength(1);
+    const result = await run(
+      "clickup_get_list_custom_fields",
+      { list_id: "12345", max_results: 1, include_applied_objects: false },
+      grant(),
+      api,
+    );
+    expect(result["fields"] as unknown[]).toHaveLength(1);
     expect(result["fields_in_response"]).toBe(2);
     expect(result["incomplete"]).toBe(true);
-    expect(api.calls.find((c) => c.path.endsWith("/field"))?.query.get("include_applied_objects")).toBe("false");
+    expect(
+      api.calls.find((c) => c.path.endsWith("/field"))?.query.get("include_applied_objects"),
+    ).toBe("false");
   });
 
   it("reports explicit List members without claiming inherited access", async () => {
@@ -175,28 +192,36 @@ describe("ClickUp v2 small discovery utilities (typed, scoped, read only)", () =
 
   it("rejects foreign task ancestry and never fetches member data from that task", async () => {
     const api = fakeApi({ foreignTask: true });
-    await expect(run("clickup_get_task_members", { task_id: "abc123" }, grant(), api))
-      .rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    await expect(
+      run("clickup_get_task_members", { task_id: "abc123" }, grant(), api),
+    ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     expect(api.calls.some((c) => c.path.endsWith("/member"))).toBe(false);
   });
 
   it("does not fetch List metadata when the caller lacks the List grant", async () => {
     const api = fakeApi();
-    await expect(run("clickup_get_list_members", { list_id: "99999" }, grant(), api))
-      .rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    await expect(
+      run("clickup_get_list_members", { list_id: "99999" }, grant(), api),
+    ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     expect(api.calls).toHaveLength(0);
   });
 
   it("checks real Workspace ancestry before returning foreign-space List data", async () => {
     const api = fakeApi({ foreignList: true });
-    await expect(run("clickup_get_list_custom_fields", { list_id: "12345" }, grant("workspace"), api))
-      .rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    await expect(
+      run("clickup_get_list_custom_fields", { list_id: "12345" }, grant("workspace"), api),
+    ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     expect(api.calls.some((c) => c.path.endsWith("/field"))).toBe(false);
   });
 
   it("retrieves List-level comments, preserving the precise first-page scope", async () => {
     const api = fakeApi();
-    const result = await run("clickup_get_list_comments", { list_id: "12345", max_results: 3 }, grant(), api);
+    const result = await run(
+      "clickup_get_list_comments",
+      { list_id: "12345", max_results: 3 },
+      grant(),
+      api,
+    );
     const comments = result["comments"] as Array<{ id: string }>;
     expect(comments.map((c) => c.id)).toEqual(["first-0", "first-1", "first-2"]);
     expect(result).toMatchObject({
@@ -211,7 +236,12 @@ describe("ClickUp v2 small discovery utilities (typed, scoped, read only)", () =
 
   it("continues List comments using paired date and ID cursors without skipping the next page", async () => {
     const api = fakeApi();
-    const result = await run("clickup_get_list_comments", { list_id: "12345", max_results: 28 }, grant(), api);
+    const result = await run(
+      "clickup_get_list_comments",
+      { list_id: "12345", max_results: 28 },
+      grant(),
+      api,
+    );
     const comments = result["comments"] as Array<{ id: string }>;
     expect(comments).toHaveLength(28);
     expect(comments[0]?.id).toBe("first-0");
@@ -230,20 +260,32 @@ describe("ClickUp v2 small discovery utilities (typed, scoped, read only)", () =
 
   it("rejects an unpaired or malformed comment cursor before reading comment data", async () => {
     const api = fakeApi();
-    await expect(run("clickup_get_list_comments", { list_id: "12345", comment_start: 1700000000000 }, grant(), api))
-      .rejects.toThrow("CLICKUP_INVALID_ARGUMENT");
+    await expect(
+      run(
+        "clickup_get_list_comments",
+        { list_id: "12345", comment_start: 1700000000000 },
+        grant(),
+        api,
+      ),
+    ).rejects.toThrow("CLICKUP_INVALID_ARGUMENT");
     expect(api.calls.some((c) => c.path.endsWith("/comment"))).toBe(false);
   });
 
   it("rejects malformed comment pages instead of reporting an empty history", async () => {
     const api = fakeApi({ listComments: [{ comment_text: "no id" }] });
-    await expect(run("clickup_get_list_comments", { list_id: "12345" }, grant(), api))
-      .rejects.toThrow("CLICKUP_BAD_RESPONSE");
+    await expect(
+      run("clickup_get_list_comments", { list_id: "12345" }, grant(), api),
+    ).rejects.toThrow("CLICKUP_BAD_RESPONSE");
   });
 
   it("lists known Space tags only with Workspace authority", async () => {
     const api = fakeApi();
-    const result = await run("clickup_get_space_tags", { space_id: "777" }, grant("workspace"), api);
+    const result = await run(
+      "clickup_get_space_tags",
+      { space_id: "777" },
+      grant("workspace"),
+      api,
+    );
     expect(result).toMatchObject({
       space_id: "777",
       tags: [{ name: "supplier", tag_fg: "#000000" }],
@@ -257,21 +299,28 @@ describe("ClickUp v2 small discovery utilities (typed, scoped, read only)", () =
 
   it("rejects Space tag discovery for a List-only grant before upstream reads", async () => {
     const api = fakeApi();
-    await expect(run("clickup_get_space_tags", { space_id: "777" }, grant(), api))
-      .rejects.toThrow("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
+    await expect(run("clickup_get_space_tags", { space_id: "777" }, grant(), api)).rejects.toThrow(
+      "CLICKUP_WORKSPACE_SCOPE_REQUIRED",
+    );
     expect(api.calls).toHaveLength(0);
   });
 
   it("rejects Space tag discovery in a Space outside the approved Workspace", async () => {
     const api = fakeApi();
-    await expect(run("clickup_get_space_tags", { space_id: "888" }, grant("workspace"), api))
-      .rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    await expect(
+      run("clickup_get_space_tags", { space_id: "888" }, grant("workspace"), api),
+    ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     expect(api.calls.some((c) => c.path.includes("/tag"))).toBe(false);
   });
 
   it("clips large member responses with an accurate incomplete flag", async () => {
     const api = fakeApi({ listMembers: Array.from({ length: 25 }, (_, i) => ({ id: 700 + i })) });
-    const result = await run("clickup_get_list_members", { list_id: "12345", max_results: 4 }, grant(), api);
+    const result = await run(
+      "clickup_get_list_members",
+      { list_id: "12345", max_results: 4 },
+      grant(),
+      api,
+    );
     expect((result["members"] as unknown[]).length).toBe(4);
     expect(result["members_in_response"]).toBe(25);
     expect(result["incomplete"]).toBe(true);
