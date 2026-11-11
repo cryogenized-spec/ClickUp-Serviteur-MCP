@@ -1063,11 +1063,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
 
   it("uses a real v3 ClickUp Chat API message endpoint with the employee token", async () => {
     const f = vi.fn(async (_req: RequestInfo | URL, init?: RequestInit) =>
-      reply(
-        init?.method === "GET"
-          ? { id: "chan-123", workspace_id: "555" }
-          : { id: "message-1" },
-      ),
+      reply(init?.method === "GET" ? { id: "chan-123", workspace_id: "555" } : { id: "message-1" }),
     );
     const result = await runCatalogOperation(
       "clickup_send_chat_message",
