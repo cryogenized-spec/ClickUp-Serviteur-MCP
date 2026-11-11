@@ -207,9 +207,9 @@ async function send(
   // Keep diagnostics strictly status-based: never parse/echo private Chat errors.
   const chatSend =
     method === "POST" &&
-    new RegExp(
-      "^api/v3/workspaces/[a-zA-Z0-9_-]+/chat/channels/[a-zA-Z0-9_-]+/messages$",
-    ).test(path);
+    path.startsWith("api/v3/workspaces/") &&
+    path.includes("/chat/channels/") &&
+    path.endsWith("/messages");
   const chatDiagnostic = (outcome: "rejected" | "unknown", status?: number) =>
     chatSend
       ? {
