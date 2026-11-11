@@ -152,6 +152,13 @@ const F = {
   space_id: str("Numeric ClickUp Space ID within the authorized Workspace.", 24),
   folder_id: str("Numeric ClickUp Folder ID within the authorized Workspace.", 24),
   list_id: str("Numeric ClickUp List ID; server must authorize this List first.", 24),
+  goal_id: str("Exact ClickUp Goal UUID, first proven present in the OAuth-authorized Workspace.", 80),
+  goal_offset: integer(
+    "Local zero-based Goal offset within one complete Workspace listing; not a remote ClickUp cursor.",
+    0,
+    10_000,
+  ),
+  include_completed: flag("Include completed Goals in the authorized Workspace listing."),
   source_list_id: str("Currently verified task home List ID.", 24),
   destination_list_id: str(
     "Destination List ID; future policy must grant write access to both Lists.",
@@ -1219,6 +1226,38 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Show tasks in this saved List View.",
     ["view_id", "list_id"],
     ["max_results", "view_page", "view_offset"],
+  ),
+
+  // M3 GOALS & SPRINT/LIST INTELLIGENCE — no native Sprint Dashboard claims.
+  tool(
+    "clickup_get_workspace_goals",
+    "Get Workspace Goals",
+    "reporting",
+    "read",
+    "List Goals in the OAuth-authorized Workspace using ClickUp v2; bounded local offset paging, not an upstream cursor. Requires Workspace scope and plan support.",
+    "Which Goals are underway in our Workspace?",
+    [],
+    ["include_completed", "goal_offset", "max_results"],
+  ),
+  tool(
+    "clickup_get_goal_details",
+    "Get Goal Details and Targets",
+    "reporting",
+    "read",
+    "Read one exact Goal and its key-result Targets after proving the Goal exists in the OAuth-authorized Workspace. Targets are capped, with incompleteness disclosed.",
+    "Show the Targets and progress for this verified Goal.",
+    ["goal_id"],
+    ["max_results"],
+  ),
+  tool(
+    "clickup_get_sprint_task_snapshot",
+    "Get Sprint/List Task Snapshot",
+    "reporting",
+    "read",
+    "Summarize a bounded page of tasks from a verified List, which may be a Sprint List. Sampled task counts and points are NOT native Sprint Dashboard velocity, burndown or authoritative full-Sprint totals.",
+    "Show sampled completed tasks and points from this Sprint List.",
+    ["list_id"],
+    ["max_results", "task_page", "task_offset"],
   ),
 
   // TIME IN STATUS (2)
