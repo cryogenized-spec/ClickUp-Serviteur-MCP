@@ -80,7 +80,7 @@ export function stagingConfig(env) {
 
 export function sameOriginAuthorizedFetch(endpoint, token, fetcher) {
   return async (input, init) => {
-    const url = new URL(String(input));
+    const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.origin !== endpoint.origin || url.pathname !== "/mcp")
       throw new StagingAcceptanceError("network_origin");
     const headers = new Headers(init?.headers);
