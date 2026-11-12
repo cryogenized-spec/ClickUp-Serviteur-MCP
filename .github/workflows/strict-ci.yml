@@ -77,6 +77,10 @@ jobs:
         if: steps.stage.outputs.application == 'true'
         run: node --test scripts/tests/staging-readonly-acceptance.node.mjs
 
+      - name: Test public staging OAuth boundary without credentials
+        if: steps.stage.outputs.application == 'true'
+        run: node --test scripts/tests/staging-public-oauth-probe.node.mjs
+
       - name: Enforce reproducible build
         if: steps.stage.outputs.application == 'true'
         run: npm run build
