@@ -1,3 +1,15 @@
+# 12 November 2026 SAST — M4 Chat acknowledgement integrity candidate
+
+**Owner direction:** Continue in the existing **one ClickUp Serviteur MCP** (D-026); the isolated staging Worker is internal validation infrastructure only.
+
+**M4 source change (topic branch):** Only exact HTTP 201 with a usable message ID may be reported as a successfully acknowledged v3 Chat send. Unexpected successful 2xx responses, 201 malformed/missing ID or invalid body return `CLICKUP_WRITE_OUTCOME_UNKNOWN` with sanitized `endpoint_category`, HTTP status when received, and `write_outcome: "unknown"`. No blind repeat of a POST, new REST tool, channel scope expansion, or second MCP connection. Updated synthetic Markdown fixtures to HTTP 201 and added targeted tests for HTTP 200/202/204/205/206 and malformed 201 replies. See [M4 Chat acknowledgement documentation](M4_CHAT_SEND_ACK_2026-11.md).
+
+**Live gates:** The most recent recorded staging deploy still predates PR #133's new public OAuth post-deployment probe; run the existing protected staging deploy workflow on reviewed `main` after source merge to exercise it. Staging authenticated Goals/Sprint and the self-DM delivery/readback issue #120 remain unverified. The live company Worker has not been deployed from this new source; no customer/staff Chat message was sent.
+
+**Next:** Strict CI and CodeQL on exact head, manual source review, then merge only when green. Continue M4 performance/reliability after gated staging test evidence, without claiming Chat delivery acceptance prematurely.
+
+---
+
 # 12 November 2026 SAST — one user-facing MCP + staging post-deployment OAuth gate (PR pending)
 
 **Architecture:** Owner reconfirmed one operational ClickUp Serviteur MCP in ChatGPT and one unified tool catalogue. An isolated Cloudflare staging Worker may exist for internal release testing, but must not be presented as an additional user-facing connector or require another ChatGPT plugin. Decision D-026 records this explicitly.
