@@ -133,7 +133,7 @@ describe("staging readonly acceptance configuration guards", () => {
     await fetch(new Request("https://clickup-serviteur-staging.example.workers.dev/mcp"));
     assert.equal(observed.init.headers.get("Authorization"), "Bearer test-only-fake-bearer-value");
     assert.equal(observed.init.redirect, "manual");
-    assert.equal(observed.url.pathname, "/mcp");
+    assert.equal(new URL(observed.url instanceof Request ? observed.url.url : observed.url).pathname, "/mcp");
   });
 });
 
