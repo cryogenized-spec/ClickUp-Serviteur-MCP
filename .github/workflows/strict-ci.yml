@@ -75,7 +75,7 @@ jobs:
 
       - name: Test staging-only acceptance with synthetic MCP responses
         if: steps.stage.outputs.application == 'true'
-        run: node --test scripts/tests/staging-readonly-acceptance.test.mjs
+        run: node --test scripts/tests/staging-readonly-acceptance.node.mjs
 
       - name: Enforce reproducible build
         if: steps.stage.outputs.application == 'true'
