@@ -35,7 +35,7 @@ jobs:
           npm run lint
           npm run typecheck
           npm test
-          node --test scripts/tests/staging-readonly-acceptance.test.mjs
+          node --test scripts/tests/staging-readonly-acceptance.node.mjs
           npm run build
           node scripts/staging-local-smoke.mjs
           npm audit --audit-level=high
