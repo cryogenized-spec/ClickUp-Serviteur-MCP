@@ -9,7 +9,8 @@
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 
-const STAGING_HOST = /^clickup-serviteur-staging\.[a-z0-9-]+\.workers\.dev$/;
+// Pin this owner's known Worker account. Do not accept a look-alike workers.dev host.
+const STAGING_HOST = "clickup-serviteur-staging.cryogenized.workers.dev";
 const SHA = /^[a-f0-9]{40}$/i;
 const NUMERIC_ID = /^[1-9][0-9]{0,23}$/;
 const GOAL_ID = /^[a-zA-Z0-9_-]{1,80}$/;
@@ -45,7 +46,7 @@ export function stagingConfig(env) {
   }
   if (
     endpoint.protocol !== "https:" ||
-    !STAGING_HOST.test(endpoint.hostname) ||
+    endpoint.hostname !== STAGING_HOST ||
     endpoint.pathname !== "/mcp" ||
     endpoint.username ||
     endpoint.password ||
