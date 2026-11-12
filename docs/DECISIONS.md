@@ -37,6 +37,8 @@
 
 | D-025 | 2026-10-21 | PROPOSED — NOT ACTIVATED | Make Serviteur Workspace (not a single List) the authority for the 48-operation catalogue **only after explicit owner acceptance**. Require one-Workspace ClickUp OAuth consent per staff member and preserve legacy List mode with fail-closed task-ID tools. | Resolves the incompatible cross-List requirements without claiming a nonexistent atomic List precondition; live ClickUp scope/permission and cross-Workspace move tests remain release gates. See [PR25_WORKSPACE_SCOPE_PLAN.md](PR25_WORKSPACE_SCOPE_PLAN.md). |
 
+| D-026 | 2026-11-12 | ACCEPTED (owner direction) | **One operational ClickUp Serviteur MCP connection and one unified tool catalogue** in ChatGPT; do not require a second staging connector. | The separate Cloudflare staging Worker is internal release infrastructure only, for isolated tests through protected CI or explicit operator-operated probes. Promote approved source into the same existing company MCP connection after gates; never reuse company OAuth credentials for staging or bypass its authorization. |
+
 ## Record an accepted decision
 
 Add a new row (or change PROPOSED → ACCEPTED) with the owner's actual review decision, date/time in SAST if known, trade-offs, and affected files. For changed decisions, mark original SUPERSEDED and link the replacement. Don't fabricate approval.
