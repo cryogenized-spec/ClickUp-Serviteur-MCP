@@ -30,6 +30,8 @@ function mock() {
       url.pathname.split("/").length === 8
     )
       return Response.json({ id: url.pathname.split("/").at(-1), workspace_id: "555" });
+    if (method === "POST" && url.pathname.endsWith("/chat/channels/chan-123/messages"))
+      return Response.json({ id: "synthetic-1" }, { status: 201 });
     return Response.json({ id: "synthetic-1", name: "test" });
   });
   return { calls, fetcher };
