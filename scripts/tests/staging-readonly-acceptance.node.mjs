@@ -8,7 +8,7 @@ import {
 } from "../staging-readonly-acceptance.mjs";
 
 const env = (extra = {}) => ({
-  STAGING_MCP_URL: "https://clickup-serviteur-staging.example.workers.dev/mcp",
+  STAGING_MCP_URL: "https://clickup-serviteur-staging.cryogenized.workers.dev/mcp",
   STAGING_ACCESS_TOKEN: "test-only-fake-bearer-value",
   STAGING_EXPECTED_BUILD_SHA: "a".repeat(40),
   STAGING_EXPECTED_WORKSPACE_ID: "555",
@@ -86,10 +86,11 @@ describe("staging readonly acceptance configuration guards", () => {
   it("requires the exact staging Worker naming convention, TLS and MCP path", () => {
     for (const url of [
       "https://clickup-serviteur-company.example.workers.dev/mcp",
+      "https://clickup-serviteur-staging.attacker.workers.dev/mcp",
       "https://clickup-serviteur-staging.example.workers.dev/auth",
       "http://clickup-serviteur-staging.example.workers.dev/mcp",
-      "https://clickup-serviteur-staging.example.workers.dev/mcp?access_token=a",
-      "https://clickup-serviteur-staging.example.workers.dev:8443/mcp",
+      "https://clickup-serviteur-staging.cryogenized.workers.dev/mcp?access_token=a",
+      "https://clickup-serviteur-staging.cryogenized.workers.dev:8443/mcp",
       "https://attacker.example/clickup-serviteur-staging.example.workers.dev/mcp",
       "https://clickup-serviteur-staging.example.workers.dev@attacker.example/mcp",
     ]) {
@@ -126,11 +127,11 @@ describe("staging readonly acceptance configuration guards", () => {
       StagingAcceptanceError,
     );
     await assert.rejects(
-      fetch("https://clickup-serviteur-staging.example.workers.dev/github/callback"),
+      fetch("https://clickup-serviteur-staging.cryogenized.workers.dev/github/callback"),
       StagingAcceptanceError,
     );
     assert.equal(observed, undefined);
-    await fetch(new Request("https://clickup-serviteur-staging.example.workers.dev/mcp"));
+    await fetch(new Request("https://clickup-serviteur-staging.cryogenized.workers.dev/mcp"));
     assert.equal(observed.init.headers.get("Authorization"), "Bearer test-only-fake-bearer-value");
     assert.equal(observed.init.redirect, "manual");
     assert.equal(new URL(observed.url instanceof Request ? observed.url.url : observed.url).pathname, "/mcp");
