@@ -1,3 +1,15 @@
+# 12 November 2026 SAST — staging acceptance probe candidate (PR #132)
+
+**New source-only capability:** Draft [PR #132](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/132) introduces an optional owner-operated, read-only staging MCP acceptance CLI. It validates only the pinned `clickup-serviteur-staging.cryogenized.workers.dev/mcp` origin, reviewed deployment `build_sha`, OAuth Workspace and dummy List identity, read-only MCP tool metadata, Goals replies and sampled Sprint/List snapshot. It never sends Chat messages, writes ClickUp tasks, or logs private response bodies. Node built-in synthetic regression cases verify wrong origin, credentials, access and response fail-closed behavior.
+
+**Deployment integrity repair:** `scripts/generate-staging-config.mjs` now requires a valid reviewed `GITHUB_SHA` and stamps `MCP_BUILD_SHA` in the staging manifest, matching the existing company manifest's source/build identity check. Python manifest tests cover missing/invalid SHA and correct stamping. Both protected deploy workflows and Strict CI include the offline Node harness tests; this does not dispatch any workflow or deploy a Worker.
+
+**Live blocker:** The connected company `service_info.build_sha` remained `f1dd7aa3759d584f6acf6f0eb4b96dbfc61a2a48` during the preceding inspection. A historical staging hostname is documented but live access was unavailable from this session (browser controller HTTP 429; unauthenticated source probe unavailable). New M3 Goals/Sprint reads have **not** yet passed live staging acceptance, and company source has not been promoted. Private Chat send issue [#120](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/issues/120) remains open pending disposable self-DM readback.
+
+**Acceptance and next step:** Complete the exact final PR-head Strict CI, CodeQL and review; merge only on green. Later an approved staging client must independently invoke the read-only acceptance checks, and a separate manual workflow controls company promotion. No private OAuth token should be copied to GitHub or the chat.
+
+---
+
 # 11 November 2026 SAST — M3 Goals + Sprint/List read-only expansion (PR #131)
 
 **Source:** [PR #131](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/131) adds three named REST reads to the public source candidate: `clickup_get_workspace_goals`, `clickup_get_goal_details`, and `clickup_get_sprint_task_snapshot`. These bring the reviewed operational catalogue from **71** to **74** REST operations; existing helper tools remain separate.
