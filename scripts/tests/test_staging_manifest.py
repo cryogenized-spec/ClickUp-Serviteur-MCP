@@ -14,10 +14,18 @@ GENERATOR = ROOT / "scripts/generate-staging-config.mjs"
 
 
 class StagingManifestTests(unittest.TestCase):
-    def generate(self, owner_ids: str | None = None) -> tuple[subprocess.CompletedProcess[str], dict | None]:
+    def generate(
+        self,
+        owner_ids: str | None = None,
+        build_sha: str | None = "b" * 40,
+    ) -> tuple[subprocess.CompletedProcess[str], dict | None]:
         with tempfile.TemporaryDirectory() as directory:
             env = os.environ.copy()
             env["STAGING_OAUTH_KV_ID"] = "a" * 32  # Fake, syntactically valid test namespace.
+            if build_sha is None:
+                env.pop("GITHUB_SHA", None)
+            else:
+                env["GITHUB_SHA"] = build_sha
             if owner_ids is None:
                 env.pop("STAGING_WORKSPACE_GITHUB_IDS", None)
             else:
@@ -47,7 +55,16 @@ class StagingManifestTests(unittest.TestCase):
         assert config is not None
         self.assertEqual("111222333,444555666", config["vars"]["CLICKUP_WORKSPACE_GITHUB_IDS"])
         self.assertEqual("clickup-serviteur-staging", config["name"])
+        self.assertEqual("b" * 40, config["vars"]["MCP_BUILD_SHA"])
         self.assertTrue(config["keep_vars"])
+
+    def test_staging_deploy_requires_an_exact_reviewed_commit_sha(self) -> None:
+        for candidate in (None, "", "invalid", "f" * 39, "g" * 40):
+            with self.subTest(candidate=candidate):
+                result, config = self.generate("111222333", candidate)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIsNone(config)
+                self.assertIn("GITHUB_SHA", result.stderr)
 
     def test_workflow_forwards_explicit_owner_allowlist(self) -> None:
         workflow = (ROOT / ".github/workflows/deploy-staging.yml").read_text(encoding="utf-8")
