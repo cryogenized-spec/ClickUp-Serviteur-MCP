@@ -50,6 +50,86 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
     );
   });
 
+  it.each([200, 202, 204, 205, 206])(
+    "does not claim delivery on unexpected HTTP %i despite successful 2xx transport",
+    async (status) => {
+      const fetcher = vi.fn(async (_input: RequestInfo | URL, options?: RequestInit) =>
+        options?.method === "GET"
+          ? Response.json({ id: "test-channel", workspace_id: "555" })
+          : status === 204 || status === 205
+            ? new Response(null, { status })
+            : Response.json({ id: "synthetic-msg-id" }, { status }),
+      );
+      let failure: ReadFailure | undefined;
+      try {
+        await send(fetcher as typeof fetch);
+      } catch (error) {
+        if (error instanceof ReadFailure) failure = error;
+        else throw error;
+      }
+      expect(failure?.code).toBe("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      expect(failure?.diagnostic).toEqual({
+        endpoint_category: "chat_message_send",
+        http_status: status,
+        write_outcome: "unknown",
+      });
+      expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    [{}, "missing message ID"],
+    [{ id: 123 }, "non-string message ID"],
+    [{ id: "wrong id with spaces" }, "malformed message ID"],
+    [{ message_id: "synthetic-msg-id" }, "unexpected response shape"],
+  ])("does not claim delivery for 201 with %s (%s)", async (payload, _reason) => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, options?: RequestInit) =>
+      options?.method === "GET"
+        ? Response.json({ id: "test-channel", workspace_id: "555" })
+        : Response.json(payload, { status: 201 }),
+    );
+    let failure: ReadFailure | undefined;
+    try {
+      await send(fetcher as typeof fetch);
+    } catch (error) {
+      if (error instanceof ReadFailure) failure = error;
+      else throw error;
+    }
+    expect(failure?.code).toBe("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    expect(failure?.diagnostic).toEqual({
+      endpoint_category: "chat_message_send",
+      http_status: 201,
+      write_outcome: "unknown",
+    });
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
+  it.each([
+    ["non-JSON content-type", "text/plain", "Message may be saved"],
+    ["invalid JSON", "application/json", "{invalid"],
+  ])("keeps sanitized unknown outcome for 201 %s", async (_case, mimeType, payload) => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, options?: RequestInit) =>
+      options?.method === "GET"
+        ? Response.json({ id: "test-channel", workspace_id: "555" })
+        : new Response(payload, { status: 201, headers: { "Content-Type": mimeType } }),
+    );
+    let failure: ReadFailure | undefined;
+    try {
+      await send(fetcher as typeof fetch);
+    } catch (error) {
+      if (error instanceof ReadFailure) failure = error;
+      else throw error;
+    }
+    expect(failure?.code).toBe("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    expect(failure?.diagnostic).toEqual({
+      endpoint_category: "chat_message_send",
+      http_status: 201,
+      write_outcome: "unknown",
+    });
+    expect(JSON.stringify(toolError(failure))).not.toContain(payload);
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
   it.each([
     [400, "CLICKUP_CHAT_REQUEST_REJECTED", "rejected"],
     [422, "CLICKUP_CHAT_REQUEST_REJECTED", "rejected"],

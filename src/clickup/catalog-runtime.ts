@@ -222,6 +222,7 @@ async function send(
   await quotaCall(grant, "reserve");
   const abort = new AbortController();
   const timeout = setTimeout(() => abort.abort(), 7000);
+  let upstreamStatus: number | undefined;
   try {
     const res = await fetcher(target, {
       method,
@@ -234,6 +235,7 @@ async function send(
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
+    upstreamStatus = res.status;
     if (res.status === 429) {
       const reset = res.headers.get("X-RateLimit-Reset");
       if (reset && /^\d{1,12}$/.test(reset)) {
@@ -272,6 +274,11 @@ async function send(
         chatDiagnostic(res.status >= 500 ? "unknown" : "rejected", res.status),
       );
     }
+    // ClickUp v3 Chat documents 201 for creation. Any other 2xx may
+    // represent a persisted write, but cannot be called a confirmed delivery.
+    // Never retry that POST; preserve a sanitized unknown-outcome diagnostic.
+    if (chatSend && res.status !== 201)
+      throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN", chatDiagnostic("unknown", res.status));
     if (res.status === 204 || res.status === 205) {
       if (method === "DELETE" || responseMode === "empty-write-ack")
         return { success: true, source: "clickup-api", response_empty: true };
@@ -317,12 +324,23 @@ async function send(
       (typeof data["id"] !== "string" || !/^[a-zA-Z0-9_-]{1,80}$/.test(data["id"]))
     )
       throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    // A 201 without a usable exact message ID cannot be safely verified
+    // later. Don't claim success or repeat the potentially delivered message.
+    if (chatSend && (typeof data["id"] !== "string" || !/^[a-zA-Z0-9_-]{1,80}$/.test(data["id"])))
+      throw new ReadFailure(
+        "CLICKUP_WRITE_OUTCOME_UNKNOWN",
+        chatDiagnostic("unknown", upstreamStatus),
+      );
     return data;
   } catch (e) {
-    if (e instanceof ReadFailure) throw e;
+    if (e instanceof ReadFailure) {
+      if (chatSend && e.code === "CLICKUP_WRITE_OUTCOME_UNKNOWN" && !e.diagnostic)
+        throw new ReadFailure(e.code, chatDiagnostic("unknown", upstreamStatus));
+      throw e;
+    }
     throw new ReadFailure(
       method === "GET" ? "CLICKUP_UPSTREAM_UNAVAILABLE" : "CLICKUP_WRITE_OUTCOME_UNKNOWN",
-      chatDiagnostic("unknown"),
+      chatDiagnostic("unknown", upstreamStatus),
     );
   } finally {
     clearTimeout(timeout);
