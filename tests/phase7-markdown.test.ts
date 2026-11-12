@@ -43,7 +43,11 @@ function mockClickUp(taskMarkdown = "# Existing formatted content") {
       path.split("/").length === 8
     )
       return Response.json({ id: path.split("/").at(-1), workspace_id: "555" });
-    if (method === "POST" && path.startsWith("/api/v3/workspaces/555/chat/channels/") && path.endsWith("/messages"))
+    if (
+      method === "POST" &&
+      path.startsWith("/api/v3/workspaces/555/chat/channels/") &&
+      path.endsWith("/messages")
+    )
       return Response.json({ id: "new123" }, { status: 201 });
     return Response.json({ id: "new123", name: "Synthetic" });
   });
