@@ -36,6 +36,7 @@ jobs:
           npm run typecheck
           npm test
           node --test scripts/tests/staging-readonly-acceptance.node.mjs
+          node --test scripts/tests/staging-public-oauth-probe.node.mjs
           npm run build
           node scripts/staging-local-smoke.mjs
           npm audit --audit-level=high
@@ -52,6 +53,8 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           npx wrangler deploy --config .wrangler-staging.generated.jsonc
+      - name: Verify deployed staging OAuth boundary (no credentials)
+        run: node scripts/staging-public-oauth-probe.mjs
       - name: Remove temporary generated config
         if: always()
         run: rm -f .wrangler-staging.generated.jsonc
