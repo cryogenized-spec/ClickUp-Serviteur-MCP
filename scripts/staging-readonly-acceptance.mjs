@@ -80,13 +80,22 @@ export function stagingConfig(env) {
 
 export function sameOriginAuthorizedFetch(endpoint, token, fetcher) {
   return async (input, init) => {
-    const url = new URL(input instanceof Request ? input.url : String(input));
-    if (url.origin !== endpoint.origin || url.pathname !== "/mcp")
+    const isRequest = input instanceof Request;
+    const url = new URL(isRequest ? input.url : String(input));
+    if (
+      url.origin !== endpoint.origin ||
+      url.pathname !== "/mcp" ||
+      url.search ||
+      url.hash ||
+      url.username ||
+      url.password
+    )
       throw new StagingAcceptanceError("network_origin");
-    const headers = new Headers(init?.headers);
+    const headers = new Headers(isRequest ? input.headers : undefined);
+    for (const [name, value] of new Headers(init?.headers)) headers.set(name, value);
     headers.set("Authorization", "Bearer " + token);
-    // A redirect cannot forward the private token to any other host.
-    return fetcher(url, { ...init, headers, redirect: "manual" });
+    // Preserve an SDK Request's method and body; never follow an OAuth redirect.
+    return fetcher(isRequest ? input : url, { ...init, headers, redirect: "manual" });
   };
 }
 
