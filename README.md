@@ -58,6 +58,8 @@ The root package is intentionally `private: true`: this beta is **open-source on
 
 The maintained deployment paths are [staging](.github/workflows/deploy-staging.yml) and [isolated company](.github/workflows/deploy-company.yml). They are invoked manually from reviewed `main`; they do **not** publish an unauthenticated ClickUp gateway.
 
+**One user-facing MCP integration:** The company Worker is the sole ClickUp Serviteur connection in ChatGPT. Staging is internal release-validation infrastructure, **not** a second ChatGPT plugin. The staging deploy pipeline uses an [unauthenticated OAuth perimeter probe](docs/STAGING_PUBLIC_OAUTH_GATE.md) that checks fail-closed discovery and metadata without tokens or ClickUp writes; this check is distinct from authenticated acceptance.
+
 1. Fork the source or create a repository you control. Configure two separate OAuth clients (GitHub for the MCP connection, ClickUp for the upstream personal account) and register the exact HTTPS redirect origins. Use different credentials and stores for staging and company environments.
 2. Create Cloudflare OAuth KV and the Worker/Durable Object bindings. Store **GITHUB_CLIENT_SECRET, CLICKUP_CLIENT_SECRET, CLICKUP_STATE_KEY and CLICKUP_TOKEN_KEY** only as Cloudflare secrets or appropriate protected deployment secrets, never as Git-tracked files. Confirm the key encoding requirements in [OAuth setup](docs/PHASE5_USER_OAUTH_AND_CLOUD_CI.md).
 3. Configure repository **staging** environment variable `STAGING_OAUTH_KV_ID` and an explicit comma-separated allowlist `STAGING_WORKSPACE_GITHUB_IDS` containing only GitHub identities you authorize. The public beta no longer defaults to the original repository owner's GitHub ID.
