@@ -278,7 +278,10 @@ async function send(
     // represent a persisted write, but cannot be called a confirmed delivery.
     // Never retry that POST; preserve a sanitized unknown-outcome diagnostic.
     if (chatSend && res.status !== 201)
-      throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN", chatDiagnostic("unknown", res.status));
+      throw new ReadFailure(
+        "CLICKUP_WRITE_OUTCOME_UNKNOWN",
+        chatDiagnostic("unknown", res.status),
+      );
     if (res.status === 204 || res.status === 205) {
       if (method === "DELETE" || responseMode === "empty-write-ack")
         return { success: true, source: "clickup-api", response_empty: true };
