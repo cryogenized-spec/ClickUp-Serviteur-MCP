@@ -1,3 +1,15 @@
+# 12 November 2026 SAST — one user-facing MCP + staging post-deployment OAuth gate (PR pending)
+
+**Architecture:** Owner reconfirmed one operational ClickUp Serviteur MCP in ChatGPT and one unified tool catalogue. An isolated Cloudflare staging Worker may exist for internal release testing, but must not be presented as an additional user-facing connector or require another ChatGPT plugin. Decision D-026 records this explicitly.
+
+**Implemented on topic branch:** A credential-free `scripts/staging-public-oauth-probe.mjs` validates that the deployed staging Worker denies unauthenticated MCP access with 401, advertises same-origin protected-resource metadata and issuer, and supports `mcp:read`. Exact staging hostname is pinned; redirects, cross-origin URLs, invalid JSON, malformed status and unexpected public success fail closed. Up to three bounded GET-only propagation retries; no ClickUp access, user data or tokens. Added adversarial Node regression suite and wired the probe after Wrangler's staging deployment, with its tests in all protected deploy and CI workflows. **This is source work until exact-head CI, review and merge.**
+
+**Verified context:** Prior isolated staging deployment [#43273896797](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/actions/runs/43273896797) completed successfully at merge `16fa1b94c58c77e370cb790e6839859946092140`. Public OAuth connectivity and authenticated Goals/Sprint/Chat live acceptance have **not** yet been recorded as passed. Company Worker remains on the earlier `f1dd7aa3759d584f6acf6f0eb4b96dbfc61a2a48` when last checked.
+
+**Next:** Merge only after exact-head Strict CI and CodeQL succeed; on a separately approved staging deployment, verify the new public OAuth gate runs. Authenticated staging M3 and self-DM #120 require their own controlled tests. Do not deploy company prematurely.
+
+---
+
 # 12 November 2026 SAST — staging acceptance probe candidate (PR #132)
 
 **New source-only capability:** Draft [PR #132](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/132) introduces an optional owner-operated, read-only staging MCP acceptance CLI. It validates only the pinned `clickup-serviteur-staging.cryogenized.workers.dev/mcp` origin, reviewed deployment `build_sha`, OAuth Workspace and dummy List identity, read-only MCP tool metadata, Goals replies and sampled Sprint/List snapshot. It never sends Chat messages, writes ClickUp tasks, or logs private response bodies. Node built-in synthetic regression cases verify wrong origin, credentials, access and response fail-closed behavior.
