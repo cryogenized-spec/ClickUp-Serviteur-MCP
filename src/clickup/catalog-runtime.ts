@@ -953,7 +953,7 @@ async function verifiedChatMessage(
     );
     entries = chatCollection(page, "messages", 50);
   }
-  const message = entries.find((entry) => String(entry["id"]) === String(arguments_["message_id"]));
+  const message = entries.find((entry) => String(entry["id"]) === messageId);
   if (!message) throw new ReadFailure("CLICKUP_CHAT_MESSAGE_NOT_VERIFIED");
   if (
     message["channel_id"] !== undefined &&
