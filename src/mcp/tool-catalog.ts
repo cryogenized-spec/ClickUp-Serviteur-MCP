@@ -183,11 +183,20 @@ const F = {
   document_id: str("Exact ClickUp Document ID.", 100),
   page_id: str("Exact Document page ID.", 100),
   channel_id: str("Exact ClickUp Chat channel identifier.", 100),
-  parent_message_id: str("Exact verified parent Chat message ID when editing/removing a reply.", 100),
-  reply_cursor: str("Opaque cursor for the page containing a Chat reply; verify parent first.", 500),
+  parent_message_id: str(
+    "Exact verified parent Chat message ID when editing/removing a reply.",
+    100,
+  ),
+  reply_cursor: str(
+    "Opaque cursor for the page containing a Chat reply; verify parent first.",
+    500,
+  ),
   reaction_cursor: str("Opaque cursor returned by the previous Chat reaction page.", 500),
   reaction_name: str("Lower-case ClickUp reaction emoji name, not arbitrary Unicode or HTML.", 64),
-  expected_content: str("Exact previously verified message content for optimistic own-edit/delete safety.", 40_000),
+  expected_content: str(
+    "Exact previously verified message content for optimistic own-edit/delete safety.",
+    40_000,
+  ),
   user_ids: arrayOf(
     "Unique, verified ClickUp Workspace member IDs excluding the current user; use with a separate recipient-preview step for private messages. Empty only for self_dm.",
     memberId,
