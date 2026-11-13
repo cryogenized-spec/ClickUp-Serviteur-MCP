@@ -40,11 +40,7 @@ export function chatReactionOwned(entry: Json, authorId: string, emoji: string):
   return String(rawId) === authorId && rawId !== null && rawId !== undefined;
 }
 
-export function requireOwnChatMessage(
-  message: Json,
-  userId: string,
-  expectedText?: unknown,
-): void {
+export function requireOwnChatMessage(message: Json, userId: string, expectedText?: unknown): void {
   if (chatMessageAuthorId(message) !== userId)
     throw new ReadFailure("CLICKUP_CHAT_AUTHOR_MISMATCH");
   if (expectedText !== undefined && message["content"] !== expectedText)
