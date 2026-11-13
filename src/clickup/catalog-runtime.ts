@@ -3112,6 +3112,9 @@ export async function runCatalogOperation(
       // Reuse the same OAuth-bound Workspace/channel verification as Chat reads.
       const channel = await verifiedChatChannel(g, f, a["channel_id"]);
       const kind = chatChannelType(channel);
+      if (kind === null) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      if (kind === "CHANNEL" && (a["user_ids"] !== undefined || a["self_dm"] !== undefined))
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       if (kind === "DM" || kind === "GROUP_DM") {
         const requested = validateRequestedRecipients(a["user_ids"], a["self_dm"]);
         await verifiedRecipientIds(g, f, requested);
