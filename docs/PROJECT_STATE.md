@@ -1,3 +1,13 @@
+# 13 November 2026 SAST — issue #135 P1 own-message and reaction lifecycle candidate
+
+**Candidate:** P1 source adds six named Chat operations to the same operational Serviteur MCP: verified replies, own-message edits, exact owner-confirmed deletes, read reactions, add own reaction, remove own reaction. Parent message must be read in an OAuth-authorized channel, with explicit cursor on older pages and DM recipient-set verification before mutation. Owner identity, original text, emoji name, readback and cleanup permissions are validated. No generic raw API executor. [Design and remaining gates](CHAT_LIFECYCLE_P1_2026-11.md).
+
+**Status:** Source and synthetic tests only. No live message, reaction or deletion was performed, no company deployment. Issue #135 and #120 remain open pending staging provider response-shape acceptance, private self-DM send/readback and separate company promotion.
+
+**Next:** Exact-head Strict CI/CodeQL, focused source review, owner-controlled merge; staged readback must precede any claim of feature delivery.
+
+---
+
 # 13 November 2026 SAST — issue #135 P0 verified DM identity source candidate
 
 **Single MCP architecture:** One operational ClickUp Serviteur Company MCP with one unified catalogue, separate staging Worker strictly for internal QA. No second ChatGPT connector.
