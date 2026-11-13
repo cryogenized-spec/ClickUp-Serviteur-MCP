@@ -975,7 +975,14 @@ async function scopedChatReactions(
     grant,
     fetcher,
     "GET",
-    v3("workspaces/" + id(grant.workspaceId) + "/chat/messages/" + id(messageId) + "/reactions?" + params),
+    v3(
+      "workspaces/" +
+        id(grant.workspaceId) +
+        "/chat/messages/" +
+        id(messageId) +
+        "/reactions?" +
+        params,
+    ),
   );
   return {
     reactions: chatCollection(response, "reactions", 50),
@@ -3105,11 +3112,10 @@ export async function runCatalogOperation(
       const before = await verifiedChatMessage(g, f, a);
       requireOwnChatMessage(before, g.clickupUserId, expected);
       try {
-        await call(
-          "PATCH",
-          v3("workspaces/" + W + "/chat/messages/" + val(a, "message_id")),
-          { content: wanted, content_format: validatedContentFormat(a) },
-        );
+        await call("PATCH", v3("workspaces/" + W + "/chat/messages/" + val(a, "message_id")), {
+          content: wanted,
+          content_format: validatedContentFormat(a),
+        });
       } catch (error) {
         if (!(error instanceof ReadFailure) || error.code !== "CLICKUP_WRITE_OUTCOME_UNKNOWN")
           throw error;
@@ -3133,10 +3139,7 @@ export async function runCatalogOperation(
       const expected = requiredChatText(a["expected_content"]);
       const before = await verifiedChatMessage(g, f, a);
       requireOwnChatMessage(before, g.clickupUserId, expected);
-      await call(
-        "DELETE",
-        v3("workspaces/" + W + "/chat/messages/" + val(a, "message_id")),
-      );
+      await call("DELETE", v3("workspaces/" + W + "/chat/messages/" + val(a, "message_id")));
       // Only a complete post-delete page supports an absence conclusion.
       // For reply deletions, the parent must be independently verified again.
       const channelId = val(a, "channel_id");
@@ -3162,7 +3165,12 @@ export async function runCatalogOperation(
         messages.some((item) => String(item["id"]) === String(a["message_id"]))
       )
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
-      return { source: "clickup-api-v3", id: a["message_id"], deleted: true, verified_by_readback: true };
+      return {
+        source: "clickup-api-v3",
+        id: a["message_id"],
+        deleted: true,
+        verified_by_readback: true,
+      };
     }
     case "clickup_get_chat_message_reactions": {
       await verifiedChatMessage(g, f, a);
@@ -3204,7 +3212,12 @@ export async function runCatalogOperation(
       }
       if (!after.reactions.some((r) => chatReactionOwned(r, g.clickupUserId, name)))
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
-      return { source: "clickup-api-v3", message_id: a["message_id"], reaction: name, verified_by_readback: true };
+      return {
+        source: "clickup-api-v3",
+        message_id: a["message_id"],
+        reaction: name,
+        verified_by_readback: true,
+      };
     }
     case "clickup_remove_own_chat_reaction": {
       await verifiedChatMessage(g, f, a);
@@ -3228,7 +3241,13 @@ export async function runCatalogOperation(
         after.reactions.some((r) => chatReactionOwned(r, g.clickupUserId, name))
       )
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
-      return { source: "clickup-api-v3", message_id: a["message_id"], reaction: name, removed: true, verified_by_readback: true };
+      return {
+        source: "clickup-api-v3",
+        message_id: a["message_id"],
+        reaction: name,
+        removed: true,
+        verified_by_readback: true,
+      };
     }
     case "clickup_get_chat_channel_messages":
     case "clickup_get_chat_message_replies": {
