@@ -25,7 +25,7 @@ function mockLifecycle(
     otherAuthor?: boolean;
     readbackCursor?: boolean;
     omitReplyId?: boolean;
-  failReplyReadback?: boolean;
+    failReplyReadback?: boolean;
     malformedChannel?: boolean;
   } = {},
 ) {
