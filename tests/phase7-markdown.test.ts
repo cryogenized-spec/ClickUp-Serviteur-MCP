@@ -42,7 +42,7 @@ function mockClickUp(taskMarkdown = "# Existing formatted content") {
       path.startsWith("/api/v3/workspaces/555/chat/channels/") &&
       path.split("/").length === 8
     )
-      return Response.json({ id: path.split("/").at(-1), workspace_id: "555" });
+      return Response.json({ id: path.split("/").at(-1), workspace_id: "555", type: "CHANNEL" });
     if (
       method === "POST" &&
       path.startsWith("/api/v3/workspaces/555/chat/channels/") &&
