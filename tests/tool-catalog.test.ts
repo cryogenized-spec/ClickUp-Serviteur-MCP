@@ -59,7 +59,7 @@ describe("Official ClickUp MCP capability catalogue (model-facing only)", () => 
 
   it("returns bounded catalogue pages and complete JSON schemas by category", () => {
     const first = catalogPage({ group: "tasks", maxResults: 2, includeSchema: true });
-    expect(first.count).toBe(6);
+    expect(first.count).toBe(9);
     expect(first.entries).toHaveLength(2);
     expect(first.has_more).toBe(true);
     expect(first.entries[0]).toMatchObject({
