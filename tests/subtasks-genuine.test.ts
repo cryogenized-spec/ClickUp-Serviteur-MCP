@@ -26,16 +26,18 @@ const task = (id: string, parent: string | null, listId = "12345", name = id) =>
   status: { status: "open" },
 });
 
-const mockApi = (options: {
-  foreignParent?: boolean;
-  missingParent?: boolean;
-  duplicate?: boolean;
-  fullPage?: boolean;
-  wrongCreateReadback?: boolean;
-  wrongReparentReadback?: boolean;
-  unknownWrite?: boolean;
-  cyclic?: boolean;
-} = {}) => {
+const mockApi = (
+  options: {
+    foreignParent?: boolean;
+    missingParent?: boolean;
+    duplicate?: boolean;
+    fullPage?: boolean;
+    wrongCreateReadback?: boolean;
+    wrongReparentReadback?: boolean;
+    unknownWrite?: boolean;
+    cyclic?: boolean;
+  } = {},
+) => {
   const state: Record<string, ReturnType<typeof task>> = {
     parent1: task("parent1", null, options.foreignParent ? "99999" : "12345", "Receiving"),
     parent2: task("parent2", options.cyclic ? "child1" : null, "12345", "Other receiving"),
@@ -48,7 +50,7 @@ const mockApi = (options: {
   const fetcher = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(req));
     const method = init?.method ?? "GET";
-    const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
+    const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
     calls.push({ path: url.pathname, query: url.searchParams, method, body });
     if (url.hostname !== "api.clickup.com") throw Error("foreign host");
     if (url.pathname === "/api/v2/list/12345")
@@ -62,7 +64,12 @@ const mockApi = (options: {
       if (!state[key]) return new Response("not found", { status: 404 });
       if (key === "new-child" && options.wrongCreateReadback)
         return Response.json({ ...state[key], parent: "different" });
-      if (key === "child1" && options.wrongReparentReadback && body === null && state[key]?.parent === "parent2")
+      if (
+        key === "child1" &&
+        options.wrongReparentReadback &&
+        body === null &&
+        state[key]?.parent === "parent2"
+      )
         return Response.json({ ...state[key], parent: "parent1" });
       return Response.json(state[key]);
     }
@@ -100,7 +107,9 @@ describe("Issue #139 — genuine ClickUp subtask relations", () => {
     expect(OPERATIONAL_CATALOG_NAMES).toContain("clickup_reparent_task");
     for (const name of ["clickup_create_subtask", "clickup_reparent_task"])
       expect(COMPANY_SAFE_WRITE_OPERATIONS.has(name)).toBe(true);
-    expect(CLICKUP_MODEL_TOOL_CATALOG.find((x) => x.name === "clickup_list_direct_subtasks")?.effect).toBe("read");
+    expect(
+      CLICKUP_MODEL_TOOL_CATALOG.find((x) => x.name === "clickup_list_direct_subtasks")?.effect,
+    ).toBe("read");
   });
 
   it("creates an actual child with verified parent and preserved details, never a related link", async () => {
@@ -110,30 +119,49 @@ describe("Issue #139 — genuine ClickUp subtask relations", () => {
       {
         parent_task_id: "parent1",
         new_task: {
-          name: "New subtask", description_markdown: "**Please inspect**",
-          status: "open", priority: 2, due_date_ms: 1794574800000, assignee_ids: ["707"],
+          name: "New subtask",
+          description_markdown: "**Please inspect**",
+          status: "open",
+          priority: 2,
+          due_date_ms: 1794574800000,
+          assignee_ids: ["707"],
         },
       },
       grant(),
       api.fetcher as typeof fetch,
     );
     expect(result).toMatchObject({
-      task_id: "new-child", parent_task_id: "parent1", verified_by_readback: true,
+      task_id: "new-child",
+      parent_task_id: "parent1",
+      verified_by_readback: true,
     });
     expect(api.writes()).toHaveLength(1);
     expect(api.writes()[0]?.body).toMatchObject({
-      name: "New subtask", parent: "parent1", markdown_content: "**Please inspect**",
-      status: "open", priority: 2, due_date: 1794574800000, due_date_time: true,
-      assignees: [707], notify_all: false,
+      name: "New subtask",
+      parent: "parent1",
+      markdown_content: "**Please inspect**",
+      status: "open",
+      priority: 2,
+      due_date: 1794574800000,
+      due_date_time: true,
+      assignees: [707],
+      notify_all: false,
     });
-    expect(api.calls.find((call) => call.path === "/api/v2/team/555/task")?.query.get("parent")).toBe("parent1");
-    expect(api.calls.find((call) => call.path === "/api/v2/team/555/task")?.query.get("list_ids[]")).toBe("12345");
+    expect(
+      api.calls.find((call) => call.path === "/api/v2/team/555/task")?.query.get("parent"),
+    ).toBe("parent1");
+    expect(
+      api.calls.find((call) => call.path === "/api/v2/team/555/task")?.query.get("list_ids[]"),
+    ).toBe("12345");
     expect(api.state["new-child"]?.parent).toBe("parent1");
   });
 
   it("refuses name collision, uncertain complete preflight, and a foreign home List before POST", async () => {
     for (const config of [
-      { duplicate: true }, { fullPage: true }, { foreignParent: true }, { missingParent: true },
+      { duplicate: true },
+      { fullPage: true },
+      { foreignParent: true },
+      { missingParent: true },
     ]) {
       const api = mockApi(config);
       await expect(
@@ -172,8 +200,11 @@ describe("Issue #139 — genuine ClickUp subtask relations", () => {
       api.fetcher as typeof fetch,
     );
     expect(result).toMatchObject({
-      source: "clickup-api-v2", parent_task_id: "parent1", incomplete: false,
-      next_task_page: null, next_task_offset: null,
+      source: "clickup-api-v2",
+      parent_task_id: "parent1",
+      incomplete: false,
+      next_task_page: null,
+      next_task_offset: null,
     });
     expect(result["subtasks"]).toHaveLength(1);
     expect((result["subtasks"] as Array<{ parent: string }>)[0]?.parent).toBe("parent1");
@@ -197,15 +228,19 @@ describe("Issue #139 — genuine ClickUp subtask relations", () => {
     const result = await runCatalogOperation(
       "clickup_reparent_task",
       {
-        task_id: "child1", parent_task_id: "parent2",
-        expected_task_name: "Torcraft Cases", expected_current_parent_id: "none",
+        task_id: "child1",
+        parent_task_id: "parent2",
+        expected_task_name: "Torcraft Cases",
+        expected_current_parent_id: "none",
       },
       grant(),
       api.fetcher as typeof fetch,
     );
     expect(result).toMatchObject({
-      task_id: "child1", parent_task_id: "parent2",
-      previous_parent_id: null, verified_by_readback: true,
+      task_id: "child1",
+      parent_task_id: "parent2",
+      previous_parent_id: null,
+      verified_by_readback: true,
     });
     expect(api.writes()).toHaveLength(1);
     expect(api.writes()[0]?.method).toBe("PUT");
@@ -218,8 +253,10 @@ describe("Issue #139 — genuine ClickUp subtask relations", () => {
     const result = await runCatalogOperation(
       "clickup_reparent_task",
       {
-        task_id: "child1", parent_task_id: "parent2",
-        expected_task_name: "Torcraft Cases", expected_current_parent_id: "parent2",
+        task_id: "child1",
+        parent_task_id: "parent2",
+        expected_task_name: "Torcraft Cases",
+        expected_current_parent_id: "parent2",
       },
       grant(),
       api.fetcher as typeof fetch,
@@ -235,22 +272,36 @@ describe("Issue #139 — genuine ClickUp subtask relations", () => {
       { parent_task_id: "child1" },
     ]) {
       const api = mockApi();
-      await expect(runCatalogOperation(
-        "clickup_reparent_task",
-        {
-          task_id: "child1", parent_task_id: "parent2",
-          expected_task_name: "Torcraft Cases", expected_current_parent_id: "none", ...entry,
-        },
-        grant(), api.fetcher as typeof fetch,
-      )).rejects.toThrow();
+      await expect(
+        runCatalogOperation(
+          "clickup_reparent_task",
+          {
+            task_id: "child1",
+            parent_task_id: "parent2",
+            expected_task_name: "Torcraft Cases",
+            expected_current_parent_id: "none",
+            ...entry,
+          },
+          grant(),
+          api.fetcher as typeof fetch,
+        ),
+      ).rejects.toThrow();
       expect(api.writes()).toHaveLength(0);
     }
     const cycle = mockApi({ cyclic: true });
-    await expect(runCatalogOperation(
-      "clickup_reparent_task",
-      { task_id: "child1", parent_task_id: "parent2", expected_task_name: "Torcraft Cases", expected_current_parent_id: "none" },
-      grant(), cycle.fetcher as typeof fetch,
-    )).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    await expect(
+      runCatalogOperation(
+        "clickup_reparent_task",
+        {
+          task_id: "child1",
+          parent_task_id: "parent2",
+          expected_task_name: "Torcraft Cases",
+          expected_current_parent_id: "none",
+        },
+        grant(),
+        cycle.fetcher as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     expect(cycle.writes()).toHaveLength(0);
   });
 
@@ -258,8 +309,14 @@ describe("Issue #139 — genuine ClickUp subtask relations", () => {
     const api = mockApi({ unknownWrite: true });
     const result = await runCatalogOperation(
       "clickup_reparent_task",
-      { task_id: "child1", parent_task_id: "parent2", expected_task_name: "Torcraft Cases", expected_current_parent_id: "none" },
-      grant(), api.fetcher as typeof fetch,
+      {
+        task_id: "child1",
+        parent_task_id: "parent2",
+        expected_task_name: "Torcraft Cases",
+        expected_current_parent_id: "none",
+      },
+      grant(),
+      api.fetcher as typeof fetch,
     );
     expect(result["verified_by_readback"]).toBe(true);
     expect(api.writes()).toHaveLength(1);
@@ -267,11 +324,19 @@ describe("Issue #139 — genuine ClickUp subtask relations", () => {
 
   it("returns unknown without repeating when update did not persist expected parent", async () => {
     const api = mockApi({ wrongReparentReadback: true });
-    await expect(runCatalogOperation(
-      "clickup_reparent_task",
-      { task_id: "child1", parent_task_id: "parent2", expected_task_name: "Torcraft Cases", expected_current_parent_id: "none" },
-      grant(), api.fetcher as typeof fetch,
-    )).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    await expect(
+      runCatalogOperation(
+        "clickup_reparent_task",
+        {
+          task_id: "child1",
+          parent_task_id: "parent2",
+          expected_task_name: "Torcraft Cases",
+          expected_current_parent_id: "none",
+        },
+        grant(),
+        api.fetcher as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
     expect(api.writes()).toHaveLength(1);
   });
 });
