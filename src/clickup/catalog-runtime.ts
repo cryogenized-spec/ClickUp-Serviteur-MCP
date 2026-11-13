@@ -225,8 +225,8 @@ async function send(
   const chatSend =
     method === "POST" &&
     path.startsWith("api/v3/workspaces/") &&
-    path.includes("/chat/channels/") &&
-    (path.endsWith("/messages") || /\/chat\/messages\/[^/]+\/replies$/.test(path));
+    ((path.includes("/chat/channels/") && path.endsWith("/messages")) ||
+      /\/chat\/messages\/[^/]+\/replies$/.test(path));
   const chatDiagnostic = (outcome: "rejected" | "unknown", status?: number) =>
     chatSend
       ? {
@@ -3077,17 +3077,26 @@ export async function runCatalogOperation(
         v3("workspaces/" + W + "/chat/messages/" + val(a, "message_id") + "/replies"),
         { type: "message", content, content_format: validatedContentFormat(a) },
       );
-      const created = chatEntity(response, "message");
+      let created: Json;
+      try {
+        created = chatEntity(response, "message");
+      } catch {
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
       const check = new URLSearchParams({ limit: "50", content_format: "text/plain" });
       const readback = await call(
         "GET",
         v3("workspaces/" + W + "/chat/messages/" + val(a, "message_id") + "/replies?" + check),
       );
-      const sent = chatCollection(readback, "messages", 50).find(
-        (item) => String(item["id"]) === String(created["id"]),
-      );
-      if (!sent || sent["content"] !== content || chatMessageAuthorId(sent) !== g.clickupUserId)
+      try {
+        const sent = chatCollection(readback, "messages", 50).find(
+          (item) => String(item["id"]) === String(created["id"]),
+        );
+        if (!sent || sent["content"] !== content || chatMessageAuthorId(sent) !== g.clickupUserId)
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      } catch {
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
       return { source: "clickup-api-v3", id: created["id"], verified_by_readback: true };
     }
     case "clickup_edit_own_chat_message": {
@@ -3095,19 +3104,28 @@ export async function runCatalogOperation(
       const expected = requiredChatText(a["expected_content"]);
       const before = await verifiedChatMessage(g, f, a);
       requireOwnChatMessage(before, g.clickupUserId, expected);
-      await call(
-        "PATCH",
-        v3("workspaces/" + W + "/chat/messages/" + val(a, "message_id")),
-        { content: wanted, content_format: validatedContentFormat(a) },
-      );
+      try {
+        await call(
+          "PATCH",
+          v3("workspaces/" + W + "/chat/messages/" + val(a, "message_id")),
+          { content: wanted, content_format: validatedContentFormat(a) },
+        );
+      } catch (error) {
+        if (!(error instanceof ReadFailure) || error.code !== "CLICKUP_WRITE_OUTCOME_UNKNOWN")
+          throw error;
+      }
       let after: Json;
       try {
         after = await verifiedChatMessage(g, f, a);
       } catch {
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
       }
-      if (after["content"] !== wanted || chatMessageAuthorId(after) !== g.clickupUserId)
+      try {
+        if (after["content"] !== wanted || chatMessageAuthorId(after) !== g.clickupUserId)
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      } catch {
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
       return { source: "clickup-api-v3", id: a["message_id"], verified_by_readback: true };
     }
     case "clickup_delete_own_chat_message": {
@@ -3178,7 +3196,12 @@ export async function runCatalogOperation(
         if (!(error instanceof ReadFailure) || error.code !== "CLICKUP_WRITE_OUTCOME_UNKNOWN")
           throw error;
       }
-      const after = await scopedChatReactions(g, f, a["message_id"]);
+      let after: { reactions: Json[]; nextCursor: string | null };
+      try {
+        after = await scopedChatReactions(g, f, a["message_id"]);
+      } catch {
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
       if (!after.reactions.some((r) => chatReactionOwned(r, g.clickupUserId, name)))
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
       return { source: "clickup-api-v3", message_id: a["message_id"], reaction: name, verified_by_readback: true };
@@ -3193,7 +3216,12 @@ export async function runCatalogOperation(
         "DELETE",
         v3("workspaces/" + W + "/chat/messages/" + val(a, "message_id") + "/reactions/" + name),
       );
-      const after = await scopedChatReactions(g, f, a["message_id"]);
+      let after: { reactions: Json[]; nextCursor: string | null };
+      try {
+        after = await scopedChatReactions(g, f, a["message_id"]);
+      } catch {
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
       if (
         after.nextCursor !== null ||
         after.reactions.length >= 50 ||
