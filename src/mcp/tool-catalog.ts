@@ -183,6 +183,12 @@ const F = {
   document_id: str("Exact ClickUp Document ID.", 100),
   page_id: str("Exact Document page ID.", 100),
   channel_id: str("Exact ClickUp Chat channel identifier.", 100),
+  user_ids: arrayOf(
+    "Unique, verified ClickUp Workspace member IDs excluding the current user; use with a separate recipient-preview step for private messages. Empty only for self_dm.",
+    memberId,
+    15,
+  ),
+  self_dm: flag("For explicit staging self-DM only: user_ids must be absent or empty."),
   tag: str("Existing ClickUp tag name (exact match).", 100),
   tag_names: arrayOf("One or more existing tag names.", str("Exact tag name.", 100), 20),
   task_type: str("Exact custom task type identifier; discover types before filtering.", 80),
@@ -1063,7 +1069,46 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     ["workspace_id", "people"],
   ),
 
-  // CHAT (2)
+  // CHAT — one existing Serviteur integration, never a second MCP.
+  tool(
+    "clickup_get_chat_channel_details",
+    "Get Chat Channel Details",
+    "chat",
+    "read",
+    "Verify an exact channel ID in the OAuth-bound Workspace. Channel metadata alone does not verify a DM recipient.",
+    "Inspect the exact private Chat channel before checking its members.",
+    ["channel_id"],
+  ),
+  tool(
+    "clickup_get_chat_channel_members",
+    "Get Chat Channel Members",
+    "chat",
+    "read",
+    "Read a bounded page of actual channel members after verifying the channel in this Workspace.",
+    "Inspect members of the selected private channel.",
+    ["channel_id"],
+    ["max_results", "chat_cursor"],
+  ),
+  tool(
+    "clickup_verify_chat_recipients",
+    "Verify Chat Recipients",
+    "chat",
+    "read",
+    "Verify an exact private DM channel's complete real member set against the signed-in ClickUp user and explicitly requested member IDs; no message sent.",
+    "Verify the selected private conversation is with the intended coworker before sending.",
+    ["channel_id"],
+    ["user_ids", "self_dm"],
+  ),
+  tool(
+    "clickup_open_direct_message",
+    "Open Direct Message",
+    "chat",
+    "write",
+    "Create or retrieve a private DM for 1–15 verified Workspace members (or explicit self-DM), then read back exact membership. No message is posted; request explicit approval before opening.",
+    "Open a private conversation with the verified coworker, without sending anything.",
+    [],
+    ["user_ids", "self_dm"],
+  ),
   tool(
     "clickup_get_chat_channels",
     "Get Chat Channels",
@@ -1082,7 +1127,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Send a visible ClickUp Chat message to an explicitly authorized channel; verify recipient and exact text first.",
     "Post an owner-approved dispatch update.",
     ["channel_id"],
-    ["text", "content", "content_format"],
+    ["text", "content", "content_format", "user_ids", "self_dm"],
   ),
 
   // CHAT READS (2) — require explicit Workspace and verified channel.
