@@ -1204,8 +1204,7 @@ export async function runCatalogOperation(
     params.append("list_ids[]", listId);
     const result = await call("GET", v2("team/" + W + "/task?" + params));
     const rows = result["tasks"];
-    if (!Array.isArray(rows) || rows.length > 100)
-      throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+    if (!Array.isArray(rows) || rows.length > 100) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
     return rows.map((entry) => {
       const item = obj(entry);
       if (
@@ -1959,8 +1958,7 @@ export async function runCatalogOperation(
       const payload = taskBody(buildArgs(a, "new_task"));
       if (!payload["name"]) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       const parent = await task("parent_task_id");
-      if (parent["parent"] === undefined)
-        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      if (parent["parent"] === undefined) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       const homeListId = id(obj(parent["list"])?.["id"]);
       // A retry after an ambiguous POST may create duplicate work. Refuse a
       // duplicate title on this exact parent and any incomplete preflight page.
@@ -2003,8 +2001,12 @@ export async function runCatalogOperation(
       const page = a["task_page"] ?? 0;
       const offset = a["task_offset"] ?? 0;
       if (
-        !Number.isInteger(page) || Number(page) < 0 || Number(page) > 100_000 ||
-        !Number.isInteger(offset) || Number(offset) < 0 || Number(offset) > 99
+        !Number.isInteger(page) ||
+        Number(page) < 0 ||
+        Number(page) > 100_000 ||
+        !Number.isInteger(offset) ||
+        Number(offset) < 0 ||
+        Number(offset) > 99
       )
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       const children = await directSubtasksPage(parent, Number(page));
@@ -2037,9 +2039,7 @@ export async function runCatalogOperation(
       const wasParent = child["parent"];
       if (
         child["name"] !== expectedName ||
-        (expectedBefore === "none"
-          ? wasParent !== null
-          : String(wasParent) !== expectedBefore) ||
+        (expectedBefore === "none" ? wasParent !== null : String(wasParent) !== expectedBefore) ||
         String(obj(child["list"])?.["id"]) !== String(obj(parent["list"])?.["id"])
       )
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
