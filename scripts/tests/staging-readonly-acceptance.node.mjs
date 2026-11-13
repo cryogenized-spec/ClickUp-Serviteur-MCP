@@ -26,6 +26,7 @@ const responses = {
   },
   get_clickup_connection_status: {
     connected: true,
+    clickup_user_id: "707",
     workspace_id: "555",
     selected_list_id: "12345",
     workspace_exclusive: true,
@@ -220,5 +221,171 @@ describe("staging tool checks use only fixed READ operations", () => {
       const { client } = fakeClient({ reply: replacement });
       await expectStage(client, valid(), stage);
     }
+  });
+});
+
+
+const CHAT_EFFECTS = Object.freeze({
+  clickup_get_chat_channels: "read",
+  clickup_get_chat_channel_details: "read",
+  clickup_get_chat_channel_members: "read",
+  clickup_verify_chat_recipients: "read",
+  clickup_get_chat_channel_messages: "read",
+  clickup_get_chat_message_replies: "read",
+  clickup_get_chat_message_reactions: "read",
+  clickup_open_direct_message: "write",
+  clickup_send_chat_message: "write",
+  clickup_create_chat_reply: "write",
+  clickup_edit_own_chat_message: "write",
+  clickup_add_chat_reaction: "write",
+  clickup_delete_own_chat_message: "destructive",
+  clickup_remove_own_chat_reaction: "destructive",
+});
+const chatTools = Object.entries(CHAT_EFFECTS).map(([name, effect]) => ({
+  name,
+  annotations: {
+    readOnlyHint: effect === "read",
+    destructiveHint: effect === "destructive",
+  },
+}));
+const chatReplies = {
+  clickup_get_chat_channel_details: {
+    source: "clickup-api-v3",
+    channel_id: "self-qa",
+    recipient_identity_verified: false,
+    channel: { id: "self-qa", type: "DM" },
+  },
+  clickup_verify_chat_recipients: {
+    source: "clickup-api-v3",
+    channel_id: "self-qa",
+    exact_recipients_verified: true,
+    message_sent: false,
+    verified_recipient_ids: [],
+    participant_ids: ["707"],
+  },
+  clickup_get_chat_channel_messages: {
+    source: "clickup-api-v3",
+    channel_id: "self-qa",
+    messages: [{ id: "safe-msg", channel_id: "self-qa", content: "private-not-logged" }],
+    next_cursor: null,
+  },
+  clickup_get_chat_message_reactions: {
+    source: "clickup-api-v3",
+    message_id: "safe-msg",
+    reactions: [],
+    next_cursor: null,
+  },
+};
+
+describe("optional Chat staging acceptance stays inside the existing MCP", () => {
+  it("fails closed on malformed chat flags, cross-field dependencies and injection", () => {
+    const wrong = [
+      { STAGING_VERIFY_CHAT_CATALOG: "yes" },
+      { STAGING_CHAT_SELF_DM_CHANNEL_ID: "self-qa" },
+      { STAGING_VERIFY_CHAT_CATALOG: "true", STAGING_CHAT_SELF_DM_CHANNEL_ID: "../company" },
+      { STAGING_CHAT_MESSAGE_ID: "safe-msg" },
+      { STAGING_VERIFY_CHAT_CATALOG: "true", STAGING_CHAT_SELF_DM_CHANNEL_ID: "self-qa", STAGING_CHAT_MESSAGE_ID: "https://wrong.invalid" },
+    ];
+    for (const entry of wrong)
+      assert.throws(() => stagingConfig(env(entry)), StagingAcceptanceError);
+  });
+
+  it("requires all 14 named Chat tools with correct safe effect annotations", async () => {
+    const cfg = stagingConfig(env({ STAGING_VERIFY_CHAT_CATALOG: "true" }));
+    const { client, calls } = fakeClient({ entries: [...tools, ...chatTools] });
+    const stages = [];
+    await verifyStagingReadOnly(client, cfg, (stage) => stages.push(stage));
+    assert(stages.includes("chat_catalog"));
+    assert(!calls.some((call) => call.name.startsWith("clickup_") && /send|open|add|create|edit|delete|remove/.test(call.name)));
+
+    const bad = [...tools, ...chatTools].map((item) =>
+      item.name === "clickup_delete_own_chat_message"
+        ? { ...item, annotations: { readOnlyHint: true, destructiveHint: false } }
+        : item
+    );
+    const { client: unsafe, calls: attempted } = fakeClient({ entries: bad });
+    await expectStage(unsafe, cfg, "chat_catalog");
+    assert.equal(attempted.length, 0);
+  });
+
+  it("reads ONLY explicitly named staging self-DM metadata and bounded message/reaction pages", async () => {
+    const cfg = stagingConfig(env({
+      STAGING_VERIFY_CHAT_CATALOG: "true",
+      STAGING_CHAT_SELF_DM_CHANNEL_ID: "self-qa",
+      STAGING_CHAT_MESSAGE_ID: "safe-msg",
+    }));
+    const { client, calls } = fakeClient({
+      entries: [...tools, ...chatTools],
+      reply: { ...responses, ...chatReplies },
+    });
+    const reported = [];
+    await verifyStagingReadOnly(client, cfg, (stage) => reported.push(stage));
+    assert.deepEqual(reported.slice(-4), [
+      "chat_channel", "chat_recipients", "chat_messages", "chat_reactions",
+    ]);
+    assert.deepEqual(calls.slice(-4), [
+      { name: "clickup_get_chat_channel_details", args: { channel_id: "self-qa" } },
+      { name: "clickup_verify_chat_recipients", args: { channel_id: "self-qa", self_dm: true } },
+      { name: "clickup_get_chat_channel_messages", args: {
+        channel_id: "self-qa", max_results: 5, content_format: "text/plain",
+      } },
+      { name: "clickup_get_chat_message_reactions", args: {
+        channel_id: "self-qa", message_id: "safe-msg", max_results: 5,
+      } },
+    ]);
+    assert(!JSON.stringify(reported).includes("private-not-logged"));
+    assert(!calls.some((call) => /^(clickup_open|clickup_send|clickup_create|clickup_edit|clickup_add|clickup_delete|clickup_remove)/.test(call.name)));
+  });
+
+  it("refuses foreign private recipients and incomplete identity without any write", async () => {
+    const cfg = stagingConfig(env({
+      STAGING_VERIFY_CHAT_CATALOG: "true",
+      STAGING_CHAT_SELF_DM_CHANNEL_ID: "self-qa",
+    }));
+    for (const override of [
+      { participant_ids: ["707", "808"] },
+      { participant_ids: ["808"] },
+      { verified_recipient_ids: ["808"] },
+      { exact_recipients_verified: false },
+      { message_sent: true },
+    ]) {
+      const { client, calls } = fakeClient({
+        entries: [...tools, ...chatTools],
+        reply: {
+          ...responses,
+          ...chatReplies,
+          clickup_verify_chat_recipients: {
+            ...chatReplies.clickup_verify_chat_recipients,
+            ...override,
+          },
+        },
+      });
+      await expectStage(client, cfg, "chat_recipients");
+      assert(!calls.some((call) => /send|create|delete|remove|edit|add/.test(call.name)));
+    }
+  });
+
+  it("fails closed if the Chat tool returns an error or a mismatched channel response", async () => {
+    const cfg = stagingConfig(env({
+      STAGING_VERIFY_CHAT_CATALOG: "true",
+      STAGING_CHAT_SELF_DM_CHANNEL_ID: "self-qa",
+    }));
+    const { client: badTool } = fakeClient({
+      entries: [...tools, ...chatTools],
+      reply: { ...responses, ...chatReplies },
+      failName: "clickup_verify_chat_recipients",
+    });
+    await expectStage(badTool, cfg, "chat_recipients");
+    const { client: foreign } = fakeClient({
+      entries: [...tools, ...chatTools],
+      reply: {
+        ...responses, ...chatReplies,
+        clickup_get_chat_channel_messages: {
+          ...chatReplies.clickup_get_chat_channel_messages,
+          channel_id: "foreign-channel",
+        },
+      },
+    });
+    await expectStage(foreign, cfg, "chat_messages");
   });
 });

@@ -1,3 +1,13 @@
+# 13 November 2026 SAST — issue #135 read-only internal staging acceptance extension (PR candidate)
+
+The unified ClickUp Serviteur MCP source now includes P0 verified private Chat and P1 message/reaction lifecycle features (merged PRs #136 and #137). Live company Worker and the older staging Worker have **not** been promoted to this source.
+
+**This source PR** extends the existing optional **owner-operated**, staging-only acceptance tool without adding another ChatGPT connector. Optional `STAGING_VERIFY_CHAT_CATALOG=true` verifies 14 Chat tool names and exact read/write/destructive annotations in the **same MCP**. With an existing disposable staging self-DM channel ID it additionally reads channel details, exact own-member verification, up to 5 messages and (only when a real recent message ID is supplied) at most 5 reactions. No Chat write or channel creation; no private data printed. Tests include wrong Workspace/foreign-channel, incorrect self-DM member set, malformed flags and read/write enforcement. See `docs/STAGING_READONLY_PROBE.md`.
+
+**Remaining gate:** CI review and merge; manual protected staging deploy from the new reviewed SHA; owner-run staging-only OAuth tests, then separately approved disposable Chat message lifecycle tests with real delivery readbacks. Issue #135 cannot be closed from synthetic source tests alone. Keep company deployment unchanged until acceptance and explicit authorization.
+
+---
+
 # 13 November 2026 SAST — issue #135 P1 own-message and reaction lifecycle candidate
 
 **Candidate:** P1 source adds six named Chat operations to the same operational Serviteur MCP: verified replies, own-message edits, exact owner-confirmed deletes, read reactions, add own reaction, remove own reaction. Parent message must be read in an OAuth-authorized channel, with explicit cursor on older pages and DM recipient-set verification before mutation. Owner identity, original text, emoji name, readback and cleanup permissions are validated. No generic raw API executor. [Design and remaining gates](CHAT_LIFECYCLE_P1_2026-11.md).
