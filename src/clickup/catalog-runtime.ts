@@ -1009,6 +1009,9 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_search_tasks_by_type",
   "clickup_search_tasks_by_tag",
   "clickup_create_task",
+  "clickup_create_subtask",
+  "clickup_list_direct_subtasks",
+  "clickup_reparent_task",
   "clickup_get_task",
   "clickup_create_task_checklist",
   "clickup_create_checklist_item",
@@ -1184,6 +1187,59 @@ export async function runCatalogOperation(
     if (actual.length !== wanted.length || wanted.some((user) => !actual.includes(user)))
       throw new ReadFailure("CLICKUP_ASSIGNEES_NOT_APPLIED");
     return after;
+  };
+  /** Use ClickUp's documented parent-filtered Workspace task page while
+   * retaining exact home-List and parent identity checks. No cross-List scan. */
+  const directSubtasksPage = async (parent: Json, page: number): Promise<Json[]> => {
+    if (!Number.isSafeInteger(page) || page < 0 || page > 100_000)
+      throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+    const parentId = id(parent["id"]);
+    const listId = id(obj(parent["list"])?.["id"]);
+    const params = new URLSearchParams({
+      parent: parentId,
+      subtasks: "true",
+      include_closed: "true",
+      page: String(page),
+    });
+    params.append("list_ids[]", listId);
+    const result = await call("GET", v2("team/" + W + "/task?" + params));
+    const rows = result["tasks"];
+    if (!Array.isArray(rows) || rows.length > 100)
+      throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+    return rows.map((entry) => {
+      const item = obj(entry);
+      if (
+        !item ||
+        typeof item["id"] !== "string" ||
+        String(item["parent"]) !== String(parent["id"]) ||
+        String(obj(item["list"])?.["id"]) !== listId
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      return item;
+    });
+  };
+
+  /** Parent assignment must not point to the child or any descendant. */
+  const verifiedReparentTarget = async (child: Json, target: Json): Promise<void> => {
+    const listId = String(obj(child["list"])?.["id"]);
+    let current: Json = target;
+    const seen = new Set<string>();
+    for (let depth = 0; depth < 20; depth += 1) {
+      const key = String(current["id"]);
+      if (
+        key === String(child["id"]) ||
+        seen.has(key) ||
+        String(obj(current["list"])?.["id"]) !== listId
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      seen.add(key);
+      const ancestor = current["parent"];
+      if (ancestor === null) return;
+      if (typeof ancestor !== "string" || !/^[a-zA-Z0-9_-]{1,80}$/.test(ancestor))
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      current = await taskInWorkspace(g, f, ancestor);
+    }
+    throw new ReadFailure("CLICKUP_SUBTASK_ANCESTRY_INCOMPLETE");
   };
   const list = async (k: string) => listInWorkspace(g, f, a[k]);
   const folder = async (k: string) => folderInWorkspace(g, f, a[k]);
@@ -1897,6 +1953,134 @@ export async function runCatalogOperation(
           notify_all: false,
         }),
       );
+    }
+    case "clickup_create_subtask": {
+      // One real ClickUp child: parent is not a related-task link or checklist.
+      const payload = taskBody(buildArgs(a, "new_task"));
+      if (!payload["name"]) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const parent = await task("parent_task_id");
+      if (parent["parent"] === undefined)
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const homeListId = id(obj(parent["list"])?.["id"]);
+      // A retry after an ambiguous POST may create duplicate work. Refuse a
+      // duplicate title on this exact parent and any incomplete preflight page.
+      const existing = await directSubtasksPage(parent, 0);
+      if (existing.length === 100)
+        throw new ReadFailure("CLICKUP_SUBTASK_DUPLICATE_CHECK_INCOMPLETE");
+      if (existing.some((child) => child["name"] === payload["name"]))
+        throw new ReadFailure("CLICKUP_SUBTASK_POSSIBLE_DUPLICATE");
+      const created = await call("POST", v2("list/" + homeListId + "/task"), {
+        ...payload,
+        parent: parent["id"],
+        notify_all: false,
+      });
+      const createdId = created["id"];
+      if (typeof createdId !== "string" || !/^[a-zA-Z0-9_-]{1,80}$/.test(createdId))
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      let after: Json;
+      try {
+        after = await taskInWorkspace(g, f, createdId);
+      } catch {
+        // Do not repeat a possibly successful POST.
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
+      if (
+        String(after["parent"]) !== String(parent["id"]) ||
+        String(obj(after["list"])?.["id"]) !== homeListId ||
+        after["name"] !== payload["name"]
+      )
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return {
+        source: "clickup-api-v2",
+        task_id: createdId,
+        parent_task_id: parent["id"],
+        verified_by_readback: true,
+        task: short(after),
+      };
+    }
+    case "clickup_list_direct_subtasks": {
+      const parent = await task("parent_task_id");
+      const page = a["task_page"] ?? 0;
+      const offset = a["task_offset"] ?? 0;
+      if (
+        !Number.isInteger(page) || Number(page) < 0 || Number(page) > 100_000 ||
+        !Number.isInteger(offset) || Number(offset) < 0 || Number(offset) > 99
+      )
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const children = await directSubtasksPage(parent, Number(page));
+      const selected = children.slice(Number(offset), Number(offset) + N);
+      const advanced = Number(offset) + selected.length;
+      const hasNext = advanced < children.length || children.length === 100;
+      return {
+        source: "clickup-api-v2",
+        parent_task_id: parent["id"],
+        subtasks: clip(selected),
+        next_task_page: hasNext ? (advanced < 100 ? page : Number(page) + 1) : null,
+        next_task_offset: hasNext ? (advanced < 100 ? advanced : 0) : null,
+        incomplete: hasNext,
+        home_list_id: obj(parent["list"])?.["id"],
+      };
+    }
+    case "clickup_reparent_task": {
+      const childId = val(a, "task_id");
+      const newParentId = val(a, "parent_task_id");
+      if (childId === newParentId) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const expectedName = txt(a["expected_task_name"], 180);
+      const expectedBefore = a["expected_current_parent_id"];
+      if (
+        typeof expectedBefore !== "string" ||
+        (expectedBefore !== "none" && !/^[a-zA-Z0-9_-]{1,80}$/.test(expectedBefore))
+      )
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const child = await task("task_id");
+      const parent = await task("parent_task_id");
+      const wasParent = child["parent"];
+      if (
+        child["name"] !== expectedName ||
+        (expectedBefore === "none"
+          ? wasParent !== null
+          : String(wasParent) !== expectedBefore) ||
+        String(obj(child["list"])?.["id"]) !== String(obj(parent["list"])?.["id"])
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      await verifiedReparentTarget(child, parent);
+      if (String(wasParent) === newParentId)
+        return {
+          source: "clickup-api-v2",
+          task_id: child["id"],
+          parent_task_id: parent["id"],
+          already_under_parent: true,
+          verified_by_readback: true,
+        };
+      // Update Task documents {parent: <task id>}. It does not detach to
+      // top-level by passing null; preserve the original task ID/history.
+      try {
+        await call("PUT", v2("task/" + childId), { parent: newParentId });
+      } catch (error) {
+        if (!(error instanceof ReadFailure) || error.code !== "CLICKUP_WRITE_OUTCOME_UNKNOWN")
+          throw error;
+      }
+      let after: Json;
+      try {
+        after = await taskInWorkspace(g, f, child["id"]);
+      } catch {
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
+      if (
+        String(after["id"]) !== childId ||
+        String(after["parent"]) !== newParentId ||
+        String(obj(after["list"])?.["id"]) !== String(obj(child["list"])?.["id"]) ||
+        after["name"] !== expectedName
+      )
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return {
+        source: "clickup-api-v2",
+        task_id: child["id"],
+        previous_parent_id: wasParent,
+        parent_task_id: parent["id"],
+        verified_by_readback: true,
+        task: short(after),
+      };
     }
     // Individual and List-scoped checklist mutations never accept arbitrary
     // checklist IDs. The authoritative task response must demonstrate ancestry.
