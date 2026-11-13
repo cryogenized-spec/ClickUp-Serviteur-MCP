@@ -26,6 +26,7 @@ const responses = {
   },
   get_clickup_connection_status: {
     connected: true,
+    clickup_user_id: "707",
     workspace_id: "555",
     selected_list_id: "12345",
     workspace_exclusive: true,
@@ -343,6 +344,7 @@ describe("optional Chat staging acceptance stays inside the existing MCP", () =>
     }));
     for (const override of [
       { participant_ids: ["707", "808"] },
+      { participant_ids: ["808"] },
       { verified_recipient_ids: ["808"] },
       { exact_recipients_verified: false },
       { message_sent: true },
