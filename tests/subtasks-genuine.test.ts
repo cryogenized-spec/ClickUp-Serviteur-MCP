@@ -44,7 +44,8 @@ const mockApi = (
     child1: task("child1", null, "12345", "Torcraft Cases"),
     sub1: task("sub1", "parent1", "12345", "Existing child"),
   };
-  if (options.missingParent) delete (state["parent1"] as unknown as Record<string, unknown>)["parent"];
+  if (options.missingParent)
+    delete (state["parent1"] as unknown as Record<string, unknown>)["parent"];
   if (options.duplicate) state["duplicate"] = task("duplicate", "parent1", "12345", "New subtask");
   const calls: Array<{ path: string; query: URLSearchParams; method: string; body: unknown }> = [];
   const fetcher = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) => {
