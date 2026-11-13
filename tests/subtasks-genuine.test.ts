@@ -85,7 +85,12 @@ const mockApi = (
       return Response.json({ tasks: filtered });
     }
     if (url.pathname === "/api/v2/list/12345/task" && method === "POST") {
-      state["new-child"] = task("new-child", String(body?.["parent"]), "12345", String(body?.["name"]));
+      state["new-child"] = task(
+        "new-child",
+        String(body?.["parent"]),
+        "12345",
+        String(body?.["name"]),
+      );
       if (options.unknownWrite) throw Error("uncertain delivery");
       return Response.json({ id: "new-child" }, { status: 200 });
     }
