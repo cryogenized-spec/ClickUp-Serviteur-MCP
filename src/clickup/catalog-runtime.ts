@@ -873,7 +873,13 @@ async function verifiedChannelMembers(
     grant,
     fetcher,
     "GET",
-    v3("workspaces/" + id(grant.workspaceId) + "/chat/channels/" + id(channelId) + "/members?limit=50"),
+    v3(
+      "workspaces/" +
+        id(grant.workspaceId) +
+        "/chat/channels/" +
+        id(channelId) +
+        "/members?limit=50",
+    ),
   );
   return chatMemberIds(raw);
 }
@@ -883,15 +889,10 @@ async function verifiedRecipientIds(
   fetcher: typeof fetch,
   requested: readonly string[],
 ): Promise<void> {
-  if (requested.includes(grant.clickupUserId))
-    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  if (requested.includes(grant.clickupUserId)) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   if (requested.length === 0) return;
   const eligible = await members(grant, fetcher);
-  if (
-    requested.some(
-      (memberId) => !eligible.some((member) => String(member["id"]) === memberId),
-    )
-  )
+  if (requested.some((memberId) => !eligible.some((member) => String(member["id"]) === memberId)))
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
 }
 
@@ -2952,11 +2953,9 @@ export async function runCatalogOperation(
       const requested = validateRequestedRecipients(a["user_ids"], a["self_dm"]);
       await verifiedRecipientIds(g, f, requested);
       // Opening a DM is separate from sending a message: no message body here.
-      const response = await call(
-        "POST",
-        v3("workspaces/" + W + "/chat/channels/direct_message"),
-        { user_ids: requested },
-      );
+      const response = await call("POST", v3("workspaces/" + W + "/chat/channels/direct_message"), {
+        user_ids: requested,
+      });
       const opened = chatEntity(response, "channel");
       const channel = await verifiedChatChannel(g, f, opened["id"]);
       const actual = await verifiedChannelMembers(g, f, opened["id"]);
@@ -3016,10 +3015,7 @@ export async function runCatalogOperation(
           parent_message_id: a["message_id"],
           messages: clip(replies),
           next_cursor: cursor,
-          incomplete:
-            cursor !== null ||
-            replies.length === N ||
-            hasClippedNestedArray(replies),
+          incomplete: cursor !== null || replies.length === N || hasClippedNestedArray(replies),
           continuation_unavailable: cursor === null && replies.length === N,
         };
       }
@@ -3042,10 +3038,7 @@ export async function runCatalogOperation(
         channel_id: a["channel_id"],
         messages: clip(messages),
         next_cursor: cursor,
-        incomplete:
-          cursor !== null ||
-          messages.length === N ||
-          hasClippedNestedArray(messages),
+        incomplete: cursor !== null || messages.length === N || hasClippedNestedArray(messages),
         continuation_unavailable: cursor === null && messages.length === N,
       };
     }
