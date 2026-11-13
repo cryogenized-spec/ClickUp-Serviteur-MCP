@@ -1,3 +1,13 @@
+# 13 November 2026 — genuine ClickUp subtasks source candidate (issue #139)
+
+The **one existing ClickUp Serviteur MCP** now has a source candidate adding three real hierarchy operations: `clickup_create_subtask`, `clickup_list_direct_subtasks` and `clickup_reparent_task`. The implementation uses official ClickUp task `parent` fields, not links/checklists; validates exact parent and same authorized List, cycle ancestry, stale expected title/parent and bounded duplicate preflight, with authoritative GET readback after each mutation. Existing assignee/status/description/due-date/priority draft support is reused for new child tasks. There is no automatic retry after ambiguous writes.
+
+**Source only:** The live receiving-parent and Torcraft task from issue #139 have not been moved. Current worker deployment is unchanged. Official API explicitly documents creating children and moving a subtask to another parent; conversion of a *top-level* task into a subtask via the same PUT is subject to disposable live verification. See `docs/GENUINE_SUBTASKS_2026-11.md`.
+
+**Next:** exact-head CI/CodeQL review, merge only if green; protected internal staging deployment, separate owner-approved disposable live test and manual company promotion. Keep issue #139 open until true live parent-child readback and existing-history preservation are verified.
+
+---
+
 # 13 November 2026 SAST — issue #135 read-only internal staging acceptance extension (PR candidate)
 
 The unified ClickUp Serviteur MCP source now includes P0 verified private Chat and P1 message/reaction lifecycle features (merged PRs #136 and #137). Live company Worker and the older staging Worker have **not** been promoted to this source.
