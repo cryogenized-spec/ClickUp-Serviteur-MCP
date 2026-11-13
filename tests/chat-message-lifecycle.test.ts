@@ -20,12 +20,14 @@ const grant: ReadGrant = {
   },
 };
 
-function mockLifecycle(options: {
-  otherAuthor?: boolean;
-  readbackCursor?: boolean;
-  omitReplyId?: boolean;
-  malformedChannel?: boolean;
-} = {}) {
+function mockLifecycle(
+  options: {
+    otherAuthor?: boolean;
+    readbackCursor?: boolean;
+    omitReplyId?: boolean;
+    malformedChannel?: boolean;
+  } = {},
+) {
   const calls: Array<{ method: string; path: string; body: Record<string, unknown> | null }> = [];
   let content = "Original";
   let deleted = false;
@@ -47,18 +49,25 @@ function mockLifecycle(options: {
       });
     if (method === "GET" && address.pathname.endsWith("/chat/channels/chan-1/messages"))
       return Response.json({
-        data: deleted ? [] : [
-          {
-            id: "msg-1",
-            channel_id: "chan-1",
-            user: { id: options.otherAuthor ? "808" : "707" },
-            content,
-          },
-        ],
+        data: deleted
+          ? []
+          : [
+              {
+                id: "msg-1",
+                channel_id: "chan-1",
+                user: { id: options.otherAuthor ? "808" : "707" },
+                content,
+              },
+            ],
         next_cursor: deleted && options.readbackCursor ? "older" : null,
       });
     if (method === "POST" && address.pathname.endsWith("/chat/messages/msg-1/replies")) {
-      reply = { id: "reply-1", user: { id: "707" }, channel_id: "chan-1", content: body?.["content"] };
+      reply = {
+        id: "reply-1",
+        user: { id: "707" },
+        channel_id: "chan-1",
+        content: body?.["content"],
+      };
       return Response.json(options.omitReplyId ? {} : { id: "reply-1" }, { status: 201 });
     }
     if (method === "GET" && address.pathname.endsWith("/chat/messages/msg-1/replies"))
@@ -78,7 +87,10 @@ function mockLifecycle(options: {
         return Response.json({ id: "reaction-1" }, { status: 201 });
       }
     }
-    if (method === "DELETE" && address.pathname.endsWith("/chat/messages/msg-1/reactions/thumbsup")) {
+    if (
+      method === "DELETE" &&
+      address.pathname.endsWith("/chat/messages/msg-1/reactions/thumbsup")
+    ) {
       reactions = reactions.filter((item) => String(item["reaction"]) !== "thumbsup");
       return new Response(null, { status: 204 });
     }
@@ -98,8 +110,9 @@ describe("Chat message lifecycle: owner identity, replies and reactions (#135 P1
     expect(() => chatMessageAuthorId({ user_id: "707", author: { id: "808" } })).toThrow(
       "CLICKUP_CHAT_AUTHOR_UNVERIFIED",
     );
-    expect(() => requireOwnChatMessage({ author: { id: "808" }, content: "text" }, "707"))
-      .toThrow("CLICKUP_CHAT_AUTHOR_MISMATCH");
+    expect(() => requireOwnChatMessage({ author: { id: "808" }, content: "text" }, "707")).toThrow(
+      "CLICKUP_CHAT_AUTHOR_MISMATCH",
+    );
   });
 
   it("creates one reply only after verifying its parent in the Workspace channel", async () => {
@@ -271,7 +284,12 @@ describe("Chat message lifecycle: owner identity, replies and reactions (#135 P1
       "clickup_remove_own_chat_reaction",
     ]) {
       await expect(
-        runCatalogOperation(operation, base, { ...grant, resourceScope: "list" }, api.fetcher as typeof fetch),
+        runCatalogOperation(
+          operation,
+          base,
+          { ...grant, resourceScope: "list" },
+          api.fetcher as typeof fetch,
+        ),
       ).rejects.toThrow("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
     }
     expect(api.calls).toHaveLength(0);
