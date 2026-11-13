@@ -4,6 +4,13 @@ import { readGoalDetails, readSprintTaskSnapshot, readWorkspaceGoals } from "./r
 import { compileClickUpRichSegments, compareRichCommentReadback } from "./comment-rich.js";
 import { verifySharedListWorkspace } from "./operations.js";
 import {
+  chatMessageAuthorId,
+  chatReactionName,
+  chatReactionOwned,
+  requireOwnChatMessage,
+  requiredChatText,
+} from "./chat-lifecycle.js";
+import {
   chatChannelType,
   chatCollection,
   chatCursor,
@@ -894,6 +901,86 @@ async function verifiedRecipientIds(
   const eligible = await members(grant, fetcher);
   if (requested.some((memberId) => !eligible.some((member) => String(member["id"]) === memberId)))
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+}
+
+/** Resolve one message only after the parent channel and (for DMs) recipients
+ * are verified. Opaque cursors are caller-supplied continuation, not authority. */
+async function verifiedChatMessage(
+  grant: ReadGrant,
+  fetcher: typeof fetch,
+  arguments_: Json,
+): Promise<Json> {
+  const channelId = id(arguments_["channel_id"]);
+  const messageId = id(arguments_["message_id"]);
+  const channel = await verifiedChatChannel(grant, fetcher, arguments_["channel_id"]);
+  const kind = chatChannelType(channel);
+  if (kind === "DM" || kind === "GROUP_DM") {
+    const requested = validateRequestedRecipients(arguments_["user_ids"], arguments_["self_dm"]);
+    await verifiedRecipientIds(grant, fetcher, requested);
+    const actual = await verifiedChannelMembers(grant, fetcher, arguments_["channel_id"]);
+    validateDirectMessageRecipients(channel, actual, grant.clickupUserId, requested);
+  } else if (
+    kind !== "CHANNEL" ||
+    arguments_["user_ids"] !== undefined ||
+    arguments_["self_dm"] !== undefined
+  ) {
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  }
+  const prefix = "workspaces/" + id(grant.workspaceId) + "/chat/";
+  const params = new URLSearchParams({ limit: "50", content_format: "text/plain" });
+  if (arguments_["chat_cursor"] !== undefined)
+    params.set("cursor", boundedV3Cursor(arguments_["chat_cursor"]));
+  const parentPage = await send(
+    grant,
+    fetcher,
+    "GET",
+    v3(prefix + "channels/" + channelId + "/messages?" + params),
+  );
+  const parents = chatCollection(parentPage, "messages", 50);
+  let entries = parents;
+  if (arguments_["parent_message_id"] !== undefined) {
+    const parentId = id(arguments_["parent_message_id"]);
+    if (!parents.some((entry) => String(entry["id"]) === String(arguments_["parent_message_id"])))
+      throw new ReadFailure("CLICKUP_CHAT_MESSAGE_NOT_VERIFIED");
+    const replyParams = new URLSearchParams({ limit: "50", content_format: "text/plain" });
+    if (arguments_["reply_cursor"] !== undefined)
+      replyParams.set("cursor", boundedV3Cursor(arguments_["reply_cursor"]));
+    const page = await send(
+      grant,
+      fetcher,
+      "GET",
+      v3(prefix + "messages/" + parentId + "/replies?" + replyParams),
+    );
+    entries = chatCollection(page, "messages", 50);
+  }
+  const message = entries.find((entry) => String(entry["id"]) === String(arguments_["message_id"]));
+  if (!message) throw new ReadFailure("CLICKUP_CHAT_MESSAGE_NOT_VERIFIED");
+  if (
+    message["channel_id"] !== undefined &&
+    String(message["channel_id"]) !== String(arguments_["channel_id"])
+  )
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  return message;
+}
+
+async function scopedChatReactions(
+  grant: ReadGrant,
+  fetcher: typeof fetch,
+  messageId: unknown,
+  cursor?: unknown,
+): Promise<{ reactions: Json[]; nextCursor: string | null }> {
+  const params = new URLSearchParams({ limit: "50" });
+  if (cursor !== undefined) params.set("cursor", boundedV3Cursor(cursor));
+  const response = await send(
+    grant,
+    fetcher,
+    "GET",
+    v3("workspaces/" + id(grant.workspaceId) + "/chat/messages/" + id(messageId) + "/reactions?" + params),
+  );
+  return {
+    reactions: chatCollection(response, "reactions", 50),
+    nextCursor: nextV3Cursor(response),
+  };
 }
 
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
