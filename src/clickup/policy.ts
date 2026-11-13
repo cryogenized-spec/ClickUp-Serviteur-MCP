@@ -175,6 +175,7 @@ export const COMPANY_SAFE_WRITE_OPERATIONS: ReadonlySet<string> = new Set([
   "clickup_create_folder",
   "clickup_update_folder",
   "clickup_send_chat_message",
+  "clickup_open_direct_message",
   "clickup_create_document",
   "clickup_create_document_page",
 ]);
