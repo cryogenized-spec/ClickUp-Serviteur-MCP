@@ -67,8 +67,7 @@ export function chatMemberId(member: Json): string {
 export function chatMemberIds(response: Json): { memberIds: string[]; complete: boolean } {
   const members = chatCollection(response, "members", 50);
   const memberIds = members.map(chatMemberId);
-  if (new Set(memberIds).size !== memberIds.length)
-    throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+  if (new Set(memberIds).size !== memberIds.length) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
   const next = chatCursor(response);
   return { memberIds, complete: next === null && members.length < 50 };
 }
@@ -118,7 +117,6 @@ export function validateRequestedRecipients(value: unknown, selfDm: unknown): st
   )
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   const ids = value as string[];
-  if (new Set(ids).size !== ids.length)
-    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  if (new Set(ids).size !== ids.length) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   return ids;
 }
