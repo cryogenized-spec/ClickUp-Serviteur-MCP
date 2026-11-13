@@ -57,6 +57,12 @@ jobs:
         if: steps.stage.outputs.application == 'true'
         run: npm ci --ignore-scripts --no-audit --no-fund
 
+      - name: Show final test formatter diff (temporary)
+        if: steps.stage.outputs.application == 'true'
+        run: |
+          ./node_modules/.bin/prettier tests/subtasks-genuine.test.ts > /tmp/test-formatter-target
+          diff -u tests/subtasks-genuine.test.ts /tmp/test-formatter-target || test $? -eq 1
+
       - name: Enforce formatting
         if: steps.stage.outputs.application == 'true'
         run: npm run format:check
