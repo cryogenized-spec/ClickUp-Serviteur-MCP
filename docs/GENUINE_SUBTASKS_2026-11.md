@@ -1,6 +1,6 @@
 # Genuine ClickUp subtasks — issue #139 (13 November 2026)
 
-ClickUp Serviteur maintains **one user-facing MCP connection and one unified catalogue**. This is a source-only addition pending review and deployment; it does not modify any existing NeonSales task.
+ClickUp Serviteur maintains **one user-facing MCP connection and one unified catalogue**. This is a source-only addition pending review and deployment; it does not modify any existing company task.
 
 ## Official API behaviour
 
