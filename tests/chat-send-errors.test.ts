@@ -28,7 +28,7 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
   it("keeps the documented POST body and accepts a 201 acknowledgement", async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, options?: RequestInit) => {
       if (options?.method === "GET")
-        return Response.json({ channel: { id: "test-channel", workspace_id: "555" } });
+        return Response.json({ channel: { id: "test-channel", workspace_id: "555", type: "CHANNEL" } });
       expect(options?.method).toBe("POST");
       expect(JSON.parse(String(options?.body))).toEqual({
         type: "message",
@@ -55,7 +55,7 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
     async (status) => {
       const fetcher = vi.fn(async (_input: RequestInfo | URL, options?: RequestInit) =>
         options?.method === "GET"
-          ? Response.json({ id: "test-channel", workspace_id: "555" })
+          ? Response.json({ id: "test-channel", workspace_id: "555", type: "CHANNEL" })
           : status === 204 || status === 205
             ? new Response(null, { status })
             : Response.json({ id: "synthetic-msg-id" }, { status }),
@@ -85,7 +85,7 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
   ])("does not claim delivery for 201 with %s (%s)", async (payload, _reason) => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, options?: RequestInit) =>
       options?.method === "GET"
-        ? Response.json({ id: "test-channel", workspace_id: "555" })
+        ? Response.json({ id: "test-channel", workspace_id: "555", type: "CHANNEL" })
         : Response.json(payload, { status: 201 }),
     );
     let failure: ReadFailure | undefined;
@@ -110,7 +110,7 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
   ])("keeps sanitized unknown outcome for 201 %s", async (_case, mimeType, payload) => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, options?: RequestInit) =>
       options?.method === "GET"
-        ? Response.json({ id: "test-channel", workspace_id: "555" })
+        ? Response.json({ id: "test-channel", workspace_id: "555", type: "CHANNEL" })
         : new Response(payload, { status: 201, headers: { "Content-Type": mimeType } }),
     );
     let failure: ReadFailure | undefined;
@@ -145,7 +145,7 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
     async (status, code, outcome) => {
       const fetcher = vi.fn(async (_input: RequestInfo | URL, options?: RequestInit) =>
         options?.method === "GET"
-          ? Response.json({ id: "test-channel", workspace_id: "555" })
+          ? Response.json({ id: "test-channel", workspace_id: "555", type: "CHANNEL" })
           : Response.json(
               {
                 error: "private channel test-user@example.com",
@@ -179,7 +179,7 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
   it("treats a lost response after POST as unknown, without a blind second send", async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, options?: RequestInit) => {
       if (options?.method === "GET")
-        return Response.json({ id: "test-channel", workspace_id: "555" });
+        return Response.json({ id: "test-channel", workspace_id: "555", type: "CHANNEL" });
       throw new Error("The upstream may have delivered private contents");
     });
     let failure: ReadFailure | undefined;
