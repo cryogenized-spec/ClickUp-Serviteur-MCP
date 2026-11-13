@@ -29,7 +29,11 @@ function mock() {
       url.pathname.startsWith("/api/v3/workspaces/555/chat/channels/") &&
       url.pathname.split("/").length === 8
     )
-      return Response.json({ id: url.pathname.split("/").at(-1), workspace_id: "555", type: "CHANNEL" });
+      return Response.json({
+        id: url.pathname.split("/").at(-1),
+        workspace_id: "555",
+        type: "CHANNEL",
+      });
     if (method === "POST" && url.pathname.endsWith("/chat/channels/chan-123/messages"))
       return Response.json({ id: "synthetic-1" }, { status: 201 });
     return Response.json({ id: "synthetic-1", name: "test" });
