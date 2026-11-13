@@ -14,6 +14,23 @@ const STAGING_HOST = "clickup-serviteur-staging.cryogenized.workers.dev";
 const SHA = /^[a-f0-9]{40}$/i;
 const NUMERIC_ID = /^[1-9][0-9]{0,23}$/;
 const GOAL_ID = /^[a-zA-Z0-9_-]{1,80}$/;
+// All operations belong to the SAME Serviteur MCP, not a second ChatGPT connection.
+const CHAT_CATALOG_EFFECTS = Object.freeze({
+  clickup_get_chat_channels: "read",
+  clickup_get_chat_channel_details: "read",
+  clickup_get_chat_channel_members: "read",
+  clickup_verify_chat_recipients: "read",
+  clickup_get_chat_channel_messages: "read",
+  clickup_get_chat_message_replies: "read",
+  clickup_get_chat_message_reactions: "read",
+  clickup_open_direct_message: "write",
+  clickup_send_chat_message: "write",
+  clickup_create_chat_reply: "write",
+  clickup_edit_own_chat_message: "write",
+  clickup_add_chat_reaction: "write",
+  clickup_delete_own_chat_message: "destructive",
+  clickup_remove_own_chat_reaction: "destructive",
+});
 const REQUIRED_READ_TOOLS = Object.freeze([
   "service_info",
   "get_clickup_connection_status",
@@ -61,6 +78,9 @@ export function stagingConfig(env) {
   const workspaceId = env.STAGING_EXPECTED_WORKSPACE_ID;
   const listId = env.STAGING_EXPECTED_LIST_ID;
   const goalId = env.STAGING_GOAL_ID;
+  const chatCatalog = env.STAGING_VERIFY_CHAT_CATALOG === "true";
+  const chatChannelId = env.STAGING_CHAT_SELF_DM_CHANNEL_ID;
+  const chatMessageId = env.STAGING_CHAT_MESSAGE_ID;
   if (
     typeof token !== "string" ||
     token.length < 12 ||
@@ -72,11 +92,20 @@ export function stagingConfig(env) {
     !NUMERIC_ID.test(workspaceId) ||
     typeof listId !== "string" ||
     !NUMERIC_ID.test(listId) ||
-    (goalId !== undefined && (typeof goalId !== "string" || !GOAL_ID.test(goalId)))
+    (goalId !== undefined && (typeof goalId !== "string" || !GOAL_ID.test(goalId))) ||
+    (env.STAGING_VERIFY_CHAT_CATALOG !== undefined &&
+      !["true", "false"].includes(env.STAGING_VERIFY_CHAT_CATALOG)) ||
+    (chatChannelId !== undefined &&
+      (!chatCatalog || typeof chatChannelId !== "string" || !GOAL_ID.test(chatChannelId))) ||
+    (chatMessageId !== undefined &&
+      (!chatChannelId || typeof chatMessageId !== "string" || !GOAL_ID.test(chatMessageId)))
   )
     throw new StagingAcceptanceError("configuration");
 
-  return { endpoint, token, buildSha, workspaceId, listId, goalId };
+  return {
+    endpoint, token, buildSha, workspaceId, listId, goalId,
+    chatCatalog, chatChannelId, chatMessageId,
+  };
 }
 
 export function sameOriginAuthorizedFetch(endpoint, token, fetcher) {
@@ -113,6 +142,18 @@ export async function verifyStagingReadOnly(client, config, report = () => {}) {
     const entry = tools.find((tool) => tool?.name === name);
     if (!entry || entry.annotations?.readOnlyHint !== true)
       throw new StagingAcceptanceError("discovery");
+  }
+  if (config.chatCatalog) {
+    for (const [name, effect] of Object.entries(CHAT_CATALOG_EFFECTS)) {
+      const entry = tools.find((tool) => tool?.name === name);
+      if (
+        !entry ||
+        entry.annotations?.readOnlyHint !== (effect === "read") ||
+        entry.annotations?.destructiveHint !== (effect === "destructive")
+      )
+        throw new StagingAcceptanceError("chat_catalog");
+    }
+    report("chat_catalog");
   }
   report("discovery");
 
@@ -202,6 +243,82 @@ export async function verifyStagingReadOnly(client, config, report = () => {}) {
   )
     throw new StagingAcceptanceError("sprint_snapshot");
   report("sprint_snapshot");
+
+  if (config.chatChannelId) {
+    const channel = await read(
+      "clickup_get_chat_channel_details",
+      { channel_id: config.chatChannelId },
+      "chat_channel",
+    );
+    if (
+      channel.channel_id !== config.chatChannelId ||
+      channel.source !== "clickup-api-v3" ||
+      channel.recipient_identity_verified !== false ||
+      !["DM", "GROUP_DM"].includes(
+        requireShape(channel.channel, "chat_channel").type ??
+          requireShape(channel.channel, "chat_channel").channel_type,
+      )
+    )
+      throw new StagingAcceptanceError("chat_channel");
+    report("chat_channel");
+
+    const recipients = await read(
+      "clickup_verify_chat_recipients",
+      { channel_id: config.chatChannelId, self_dm: true },
+      "chat_recipients",
+    );
+    if (
+      recipients.source !== "clickup-api-v3" ||
+      recipients.channel_id !== config.chatChannelId ||
+      recipients.exact_recipients_verified !== true ||
+      recipients.message_sent !== false ||
+      !Array.isArray(recipients.verified_recipient_ids) ||
+      recipients.verified_recipient_ids.length !== 0 ||
+      !Array.isArray(recipients.participant_ids) ||
+      recipients.participant_ids.length !== 1
+    )
+      throw new StagingAcceptanceError("chat_recipients");
+    report("chat_recipients");
+
+    const messages = await read(
+      "clickup_get_chat_channel_messages",
+      { channel_id: config.chatChannelId, max_results: 5, content_format: "text/plain" },
+      "chat_messages",
+    );
+    if (
+      messages.source !== "clickup-api-v3" ||
+      messages.channel_id !== config.chatChannelId ||
+      !Array.isArray(messages.messages) ||
+      messages.messages.length > 5 ||
+      messages.messages.some((message) =>
+        !message ||
+        typeof message.id !== "string" ||
+        (message.channel_id !== undefined && message.channel_id !== config.chatChannelId)
+      )
+    )
+      throw new StagingAcceptanceError("chat_messages");
+    report("chat_messages");
+
+    if (config.chatMessageId) {
+      const reactions = await read(
+        "clickup_get_chat_message_reactions",
+        {
+          channel_id: config.chatChannelId,
+          message_id: config.chatMessageId,
+          max_results: 5,
+        },
+        "chat_reactions",
+      );
+      if (
+        reactions.source !== "clickup-api-v3" ||
+        reactions.message_id !== config.chatMessageId ||
+        !Array.isArray(reactions.reactions) ||
+        reactions.reactions.length > 5
+      )
+        throw new StagingAcceptanceError("chat_reactions");
+      report("chat_reactions");
+    }
+  }
   return true;
 }
 
