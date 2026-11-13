@@ -2905,6 +2905,72 @@ export async function runCatalogOperation(
         }),
       };
     }
+    case "clickup_get_chat_channel_details": {
+      const channel = await verifiedChatChannel(g, f, a["channel_id"]);
+      return {
+        source: "clickup-api-v3",
+        channel_id: String(channel["id"]),
+        channel: clip(channel),
+        recipient_identity_verified: false,
+      };
+    }
+    case "clickup_get_chat_channel_members": {
+      await verifiedChatChannel(g, f, a["channel_id"]);
+      const params = new URLSearchParams({ limit: String(N) });
+      if (a["chat_cursor"] !== undefined) params.set("cursor", boundedV3Cursor(a["chat_cursor"]));
+      const result = await call(
+        "GET",
+        v3("workspaces/" + W + "/chat/channels/" + val(a, "channel_id") + "/members?" + params),
+      );
+      const entries = chatCollection(result, "members", N);
+      const cursor = nextV3Cursor(result);
+      return {
+        source: "clickup-api-v3",
+        channel_id: a["channel_id"],
+        members: clip(entries),
+        next_cursor: cursor,
+        incomplete: cursor !== null || entries.length === N,
+      };
+    }
+    case "clickup_verify_chat_recipients": {
+      const requested = validateRequestedRecipients(a["user_ids"], a["self_dm"]);
+      const channel = await verifiedChatChannel(g, f, a["channel_id"]);
+      await verifiedRecipientIds(g, f, requested);
+      const actual = await verifiedChannelMembers(g, f, a["channel_id"]);
+      validateDirectMessageRecipients(channel, actual, g.clickupUserId, requested);
+      return {
+        source: "clickup-api-v3",
+        channel_id: a["channel_id"],
+        channel_type: chatChannelType(channel),
+        verified_recipient_ids: requested,
+        participant_ids: actual.memberIds,
+        exact_recipients_verified: true,
+        message_sent: false,
+      };
+    }
+    case "clickup_open_direct_message": {
+      const requested = validateRequestedRecipients(a["user_ids"], a["self_dm"]);
+      await verifiedRecipientIds(g, f, requested);
+      // Opening a DM is separate from sending a message: no message body here.
+      const response = await call(
+        "POST",
+        v3("workspaces/" + W + "/chat/channels/direct_message"),
+        { user_ids: requested },
+      );
+      const opened = chatEntity(response, "channel");
+      const channel = await verifiedChatChannel(g, f, opened["id"]);
+      const actual = await verifiedChannelMembers(g, f, opened["id"]);
+      validateDirectMessageRecipients(channel, actual, g.clickupUserId, requested);
+      return {
+        source: "clickup-api-v3",
+        channel_id: String(channel["id"]),
+        channel_type: chatChannelType(channel),
+        verified_recipient_ids: requested,
+        participant_ids: actual.memberIds,
+        exact_recipients_verified: true,
+        message_sent: false,
+      };
+    }
     case "clickup_get_chat_channel_messages":
     case "clickup_get_chat_message_replies": {
       const channelId = val(a, "channel_id");
@@ -2926,13 +2992,8 @@ export async function runCatalogOperation(
           "GET",
           v3(prefix + "channels/" + channelId + "/messages?" + parent.toString()),
         );
-        if (
-          !Array.isArray(page["messages"]) ||
-          page["messages"].length > 50 ||
-          page["messages"].some((entry) => !obj(entry))
-        )
-          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-        const claimed = page["messages"]
+        const parentMessages = chatCollection(page, "messages", 50);
+        const claimed = parentMessages
           .map(obj)
           .find((msg) => String(msg?.["id"]) === String(a["message_id"]));
         if (
@@ -2947,52 +3008,45 @@ export async function runCatalogOperation(
           "GET",
           v3(prefix + "messages/" + val(a, "message_id") + "/replies?" + params.toString()),
         );
-        if (
-          !Array.isArray(result["messages"]) ||
-          result["messages"].length > N ||
-          result["messages"].some((entry) => !obj(entry))
-        )
-          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        const replies = chatCollection(result, "messages", N);
         const cursor = nextV3Cursor(result);
         return {
           source: "clickup-api-v3",
           channel_id: a["channel_id"],
           parent_message_id: a["message_id"],
-          messages: clip(result["messages"]),
+          messages: clip(replies),
           next_cursor: cursor,
           incomplete:
             cursor !== null ||
-            result["messages"].length === N ||
-            hasClippedNestedArray(result["messages"]),
-          continuation_unavailable: cursor === null && result["messages"].length === N,
+            replies.length === N ||
+            hasClippedNestedArray(replies),
+          continuation_unavailable: cursor === null && replies.length === N,
         };
       }
       const result = await call(
         "GET",
         v3(prefix + "channels/" + channelId + "/messages?" + params.toString()),
       );
+      const messages = chatCollection(result, "messages", N);
       if (
-        !Array.isArray(result["messages"]) ||
-        result["messages"].length > N ||
-        result["messages"].some(
+        messages.some(
           (entry) =>
-            !obj(entry) ||
-            (obj(entry)?.["channel_id"] !== undefined &&
-              String(obj(entry)?.["channel_id"]) !== String(a["channel_id"])),
+            entry["channel_id"] !== undefined &&
+            String(entry["channel_id"]) !== String(a["channel_id"]),
         )
       )
-        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       const cursor = nextV3Cursor(result);
       return {
         source: "clickup-api-v3",
         channel_id: a["channel_id"],
-        messages: clip(result["messages"]),
+        messages: clip(messages),
         next_cursor: cursor,
         incomplete:
           cursor !== null ||
-          result["messages"].length === N ||
-          hasClippedNestedArray(result["messages"]),
-        continuation_unavailable: cursor === null && result["messages"].length === N,
+          messages.length === N ||
+          hasClippedNestedArray(messages),
+        continuation_unavailable: cursor === null && messages.length === N,
       };
     }
     case "clickup_search_documents": {
@@ -3040,11 +3094,20 @@ export async function runCatalogOperation(
         continuation_unavailable: cursor === null && result["docs"].length === Number(limit),
       };
     }
-    case "clickup_get_chat_channels":
-      return short(
-        await call("GET", v3("workspaces/" + W + "/chat/channels?limit=" + Math.min(N, 50))),
-        N,
+    case "clickup_get_chat_channels": {
+      const result = await call(
+        "GET",
+        v3("workspaces/" + W + "/chat/channels?limit=" + Math.min(N, 50)),
       );
+      const channels = chatCollection(result, "channels", N);
+      const cursor = nextV3Cursor(result);
+      return {
+        source: "clickup-api-v3",
+        channels: clip(channels),
+        next_cursor: cursor,
+        incomplete: cursor !== null || channels.length === N,
+      };
+    }
     case "clickup_send_chat_message": {
       if (a["text"] !== undefined && a["content"] !== undefined)
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
@@ -3054,7 +3117,14 @@ export async function runCatalogOperation(
       const contentFormat = validatedContentFormat(a);
       // A supplied channel ID is never sufficient authority to post.
       // Reuse the same OAuth-bound Workspace/channel verification as Chat reads.
-      await verifiedChatChannel(g, f, a["channel_id"]);
+      const channel = await verifiedChatChannel(g, f, a["channel_id"]);
+      const kind = chatChannelType(channel);
+      if (kind === "DM" || kind === "GROUP_DM") {
+        const requested = validateRequestedRecipients(a["user_ids"], a["self_dm"]);
+        await verifiedRecipientIds(g, f, requested);
+        const actual = await verifiedChannelMembers(g, f, a["channel_id"]);
+        validateDirectMessageRecipients(channel, actual, g.clickupUserId, requested);
+      }
       return call("POST", v3("workspaces/" + W + "/chat/channels/" + channelId + "/messages"), {
         type: "message",
         content,
