@@ -30,7 +30,7 @@ const fixture = (path: string) => {
   if (path === "/api/v2/team/555/space") return { spaces: [{ id: "777", name: "Operations" }] };
   if (path === "/api/v2/task/abc123") return { id: "abc123", list: { id: "12345" }, name: "Order" };
   if (path.startsWith("/api/v3/workspaces/555/chat/channels/") && path.split("/").length === 8)
-    return { id: path.split("/").at(-1), workspace_id: "555" };
+    return { id: path.split("/").at(-1), workspace_id: "555", type: "CHANNEL" };
   return { id: "new123", name: "Test" };
 };
 const fakeApi = () =>
@@ -43,8 +43,8 @@ const fakeApi = () =>
 
 describe("Phase 7 individual OAuth and native catalogue - adversarial tests", () => {
   it("registers all 50 REST backed capabilities including the read-only PDF job-card tool", () => {
-    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(74);
-    expect(new Set(OPERATIONAL_CATALOG_NAMES).size).toBe(74);
+    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(78);
+    expect(new Set(OPERATIONAL_CATALOG_NAMES).size).toBe(78);
     expect(
       OPERATIONAL_CATALOG_NAMES.every((n) => CLICKUP_MODEL_TOOL_CATALOG.some((s) => s.name === n)),
     ).toBe(true);
@@ -1063,7 +1063,8 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
 
   it("uses a real v3 ClickUp Chat API message endpoint with the employee token", async () => {
     const f = vi.fn(async (_req: RequestInfo | URL, init?: RequestInit) => {
-      if (init?.method === "GET") return reply({ id: "chan-123", workspace_id: "555" });
+      if (init?.method === "GET")
+        return reply({ id: "chan-123", workspace_id: "555", type: "CHANNEL" });
       return reply({ id: "message-1" }, 201);
     });
     const result = await runCatalogOperation(
@@ -1093,7 +1094,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
   it("reports HTTP 429 without further retries and does not make the write falsely successful", async () => {
     const fetcher = vi.fn(async (_req: RequestInfo | URL, init?: RequestInit) =>
       init?.method === "GET"
-        ? reply({ id: "chan-123", workspace_id: "555" })
+        ? reply({ id: "chan-123", workspace_id: "555", type: "CHANNEL" })
         : reply({ error: "rate limit" }, 429),
     );
     await expect(
@@ -2147,7 +2148,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       ).rejects.toThrow("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
     }
     expect(f).not.toHaveBeenCalled();
-    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(74);
+    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(78);
   });
 
   it("permits cross-List moves in the explicitly authorised Workspace", async () => {

@@ -153,7 +153,7 @@ describe("ClickUp v3 scoped Chat history and Docs discovery", () => {
         grant(),
         api.fetcher as typeof fetch,
       ),
-    ).rejects.toThrow("CLICKUP_BAD_RESPONSE");
+    ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   });
 
   it("checks parent ownership before requesting replies by message ID", async () => {
