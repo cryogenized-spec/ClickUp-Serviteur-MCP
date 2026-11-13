@@ -57,6 +57,14 @@ jobs:
         if: steps.stage.outputs.application == 'true'
         run: npm ci --ignore-scripts --no-audit --no-fund
 
+      - name: Show exact Prettier diff (temporary diagnostic)
+        if: steps.stage.outputs.application == 'true'
+        run: |
+          for f in src/clickup/catalog-runtime.ts tests/subtasks-genuine.test.ts; do
+            ./node_modules/.bin/prettier "$f" > /tmp/serviteur-formatter-target
+            diff -u "$f" /tmp/serviteur-formatter-target || test $? -eq 1
+          done
+
       - name: Enforce formatting
         if: steps.stage.outputs.application == 'true'
         run: npm run format:check
