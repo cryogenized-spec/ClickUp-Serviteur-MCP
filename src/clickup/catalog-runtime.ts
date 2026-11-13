@@ -3091,11 +3091,11 @@ export async function runCatalogOperation(
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
       }
       const check = new URLSearchParams({ limit: "50", content_format: "text/plain" });
-      const readback = await call(
-        "GET",
-        v3("workspaces/" + W + "/chat/messages/" + val(a, "message_id") + "/replies?" + check),
-      );
       try {
+        const readback = await call(
+          "GET",
+          v3("workspaces/" + W + "/chat/messages/" + val(a, "message_id") + "/replies?" + check),
+        );
         const sent = chatCollection(readback, "messages", 50).find(
           (item) => String(item["id"]) === String(created["id"]),
         );
