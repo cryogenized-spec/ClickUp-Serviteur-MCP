@@ -28,7 +28,9 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
   it("keeps the documented POST body and accepts a 201 acknowledgement", async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, options?: RequestInit) => {
       if (options?.method === "GET")
-        return Response.json({ channel: { id: "test-channel", workspace_id: "555", type: "CHANNEL" } });
+        return Response.json({
+          channel: { id: "test-channel", workspace_id: "555", type: "CHANNEL" },
+        });
       expect(options?.method).toBe("POST");
       expect(JSON.parse(String(options?.body))).toEqual({
         type: "message",
