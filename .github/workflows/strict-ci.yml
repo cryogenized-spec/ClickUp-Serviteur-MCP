@@ -57,6 +57,14 @@ jobs:
         if: steps.stage.outputs.application == 'true'
         run: npm ci --ignore-scripts --no-audit --no-fund
 
+      - name: Report exact lifecycle formatting diff (temporary)
+        if: steps.stage.outputs.application == 'true'
+        run: |
+          for f in src/clickup/catalog-runtime.ts src/clickup/chat-lifecycle.ts src/mcp/tool-catalog.ts tests/chat-message-lifecycle.test.ts; do
+            ./node_modules/.bin/prettier "$f" > /tmp/serviteur-format-target
+            diff -u "$f" /tmp/serviteur-format-target || test $? -eq 1
+          done
+
       - name: Enforce formatting
         if: steps.stage.outputs.application == 'true'
         run: npm run format:check
