@@ -275,7 +275,9 @@ export async function verifyStagingReadOnly(client, config, report = () => {}) {
       !Array.isArray(recipients.verified_recipient_ids) ||
       recipients.verified_recipient_ids.length !== 0 ||
       !Array.isArray(recipients.participant_ids) ||
-      recipients.participant_ids.length !== 1
+      recipients.participant_ids.length !== 1 ||
+      !NUMERIC_ID.test(String(connection.clickup_user_id ?? "")) ||
+      String(recipients.participant_ids[0]) !== String(connection.clickup_user_id)
     )
       throw new StagingAcceptanceError("chat_recipients");
     report("chat_recipients");
