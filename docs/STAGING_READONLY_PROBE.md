@@ -40,6 +40,25 @@ This CLI sends an authorization bearer token only to the exact permitted staging
 
 If token export is unavailable or inconvenient, use an already authorized staging MCP client to call the same four read-only tools individually. Compare `service_info.build_sha`, `get_clickup_connection_status`, `clickup_get_workspace_goals`, and `clickup_get_sprint_task_snapshot`, with the same staging-only identifiers and no data copied to public issues.
 
+## Optional issue #135 Chat read-only acceptance
+
+This additional gate stays **inside the same staging MCP client and token**. It neither creates a second ChatGPT plugin nor opens/sends/edits/deletes any Chat message. Use an isolated disposable staging self-DM created beforehand using the staging test account's own ClickUp UI. Keep identities and channel/message IDs private.
+
+Set `STAGING_VERIFY_CHAT_CATALOG=true` to require all **14** existing and new Chat tool names in the same Serviteur catalogue, with the correct `readOnlyHint` and `destructiveHint` annotations. This checks **registration only**, not that mutations work. Without a channel ID, it performs no Chat data reads.
+
+For a known staging **self-DM**, supply `STAGING_CHAT_SELF_DM_CHANNEL_ID` (along with the catalogue flag). The probe will then perform read-only checks for an authorized channel's metadata, `clickup_verify_chat_recipients` with `self_dm:true`, and at most five recent message records. It requires a complete exact **one-person self-DM participant set** and refuses foreign channel rows. If a recent disposable message is already present, optionally set `STAGING_CHAT_MESSAGE_ID` to read a bounded reaction page. The message must be discoverable by the existing server-side bounded page verification; do not send a message to make this test pass.
+
+```bash
+export STAGING_VERIFY_CHAT_CATALOG=true
+# Optional existing self-DM read-only checks:
+# export STAGING_CHAT_SELF_DM_CHANNEL_ID="<existing staging self-DM channel ID>"
+# export STAGING_CHAT_MESSAGE_ID="<existing recent staging self-DM message ID>"
+```
+
+Run the original `node scripts/staging-readonly-acceptance.mjs` command with the same short-lived **staging-only** token. It prints fixed PASS/FAIL stage names and **never prints identities, message contents or response bodies**. A failure does not trigger a fallback write.
+
+Even full success **does not prove** DM creation, replies, delivery, editing, reactions or deletion. These actions require a **separately approved live staging send/readback** in [the private Chat acceptance guide](CHAT_STAGING_ACCEPTANCE_2026-11.md) before issue [#135](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/issues/135) can be closed.
+
 ## Evidence and completion
 
 - Record only the **staging reviewed/deployed SHA**, date and the names of stages that passed/failed in the private operator's notes. The code must never log private IDs, user accounts, task records or OAuth secrets.
