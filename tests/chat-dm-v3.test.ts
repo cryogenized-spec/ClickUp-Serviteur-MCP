@@ -22,13 +22,15 @@ const grant: ReadGrant = {
   },
 };
 
-function mockChat(opts: {
-  channelType?: "DM" | "GROUP_DM" | "CHANNEL";
-  participants?: string[];
-  wrongWorkspace?: boolean;
-  incorrectChannel?: boolean;
-  nextCursor?: string | null;
-} = {}) {
+function mockChat(
+  opts: {
+    channelType?: "DM" | "GROUP_DM" | "CHANNEL";
+    participants?: string[];
+    wrongWorkspace?: boolean;
+    incorrectChannel?: boolean;
+    nextCursor?: string | null;
+  } = {},
+) {
   const calls: Array<{ path: string; method: string; body: Record<string, unknown> | null }> = [];
   const participants = opts.participants ?? ["707", "808"];
   const channel = {
@@ -44,11 +46,16 @@ function mockChat(opts: {
     if (url.hostname !== "api.clickup.com") throw Error("foreign host");
     if (url.pathname === "/api/v2/team")
       return Response.json({
-        teams: [{ id: "555", members: [
-          { user: { id: 707, username: "Caller" } },
-          { user: { id: 808, username: "Coworker" } },
-          { user: { id: 909, username: "Another member" } },
-        ] }],
+        teams: [
+          {
+            id: "555",
+            members: [
+              { user: { id: 707, username: "Caller" } },
+              { user: { id: 808, username: "Coworker" } },
+              { user: { id: 909, username: "Another member" } },
+            ],
+          },
+        ],
       });
     if (url.pathname.endsWith("/chat/channels/direct_message") && method === "POST")
       return Response.json({ data: { id: "chan-123", type: "DM" } }, { status: 200 });
