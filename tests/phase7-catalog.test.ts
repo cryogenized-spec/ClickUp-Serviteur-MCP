@@ -43,8 +43,8 @@ const fakeApi = () =>
 
 describe("Phase 7 individual OAuth and native catalogue - adversarial tests", () => {
   it("registers all 50 REST backed capabilities including the read-only PDF job-card tool", () => {
-    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(84);
-    expect(new Set(OPERATIONAL_CATALOG_NAMES).size).toBe(84);
+    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(87);
+    expect(new Set(OPERATIONAL_CATALOG_NAMES).size).toBe(87);
     expect(
       OPERATIONAL_CATALOG_NAMES.every((n) => CLICKUP_MODEL_TOOL_CATALOG.some((s) => s.name === n)),
     ).toBe(true);
@@ -2148,7 +2148,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       ).rejects.toThrow("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
     }
     expect(f).not.toHaveBeenCalled();
-    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(84);
+    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(87);
   });
 
   it("permits cross-List moves in the explicitly authorised Workspace", async () => {
