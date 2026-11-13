@@ -44,8 +44,8 @@ const mockApi = (
     child1: task("child1", null, "12345", "Torcraft Cases"),
     sub1: task("sub1", "parent1", "12345", "Existing child"),
   };
-  if (options.missingParent) delete (state.parent1 as unknown as Record<string, unknown>).parent;
-  if (options.duplicate) state.duplicate = task("duplicate", "parent1", "12345", "New subtask");
+  if (options.missingParent) delete (state["parent1"] as unknown as Record<string, unknown>).parent;
+  if (options.duplicate) state["duplicate"] = task("duplicate", "parent1", "12345", "New subtask");
   const calls: Array<{ path: string; query: URLSearchParams; method: string; body: unknown }> = [];
   const fetcher = vi.fn(async (req: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(req));
@@ -85,14 +85,14 @@ const mockApi = (
       return Response.json({ tasks: filtered });
     }
     if (url.pathname === "/api/v2/list/12345/task" && method === "POST") {
-      state["new-child"] = task("new-child", String(body?.parent), "12345", String(body?.name));
+      state["new-child"] = task("new-child", String(body?.["parent"]), "12345", String(body?.["name"]));
       if (options.unknownWrite) throw Error("uncertain delivery");
       return Response.json({ id: "new-child" }, { status: 200 });
     }
     if (url.pathname === "/api/v2/task/child1" && method === "PUT") {
-      state.child1 = { ...state.child1!, parent: String(body?.parent) };
+      state["child1"] = { ...state["child1"]!, parent: String(body?.["parent"]) };
       if (options.unknownWrite) throw Error("uncertain PUT");
-      return Response.json(state.child1);
+      return Response.json(state["child1"]);
     }
     throw Error("unexpected path: " + method + " " + url.pathname);
   });
@@ -249,7 +249,7 @@ describe("Issue #139 — genuine ClickUp subtask relations", () => {
 
   it("supports idempotent no-write reparent when already under the requested parent", async () => {
     const api = mockApi();
-    api.state.child1!.parent = "parent2";
+    api.state["child1"]!.parent = "parent2";
     const result = await runCatalogOperation(
       "clickup_reparent_task",
       {
