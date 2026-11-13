@@ -57,14 +57,6 @@ jobs:
         if: steps.stage.outputs.application == 'true'
         run: npm ci --ignore-scripts --no-audit --no-fund
 
-      - name: Report expected formatting changes (temporary diagnostic)
-        if: steps.stage.outputs.application == 'true'
-        run: |
-          for f in tests/chat-send-errors.test.ts tests/phase7-catalog.test.ts tests/phase7-long-markdown.test.ts; do
-            ./node_modules/.bin/prettier "$f" > /tmp/serviteur-format-target
-            diff -u "$f" /tmp/serviteur-format-target || test $? -eq 1
-          done
-
       - name: Enforce formatting
         if: steps.stage.outputs.application == 'true'
         run: npm run format:check
