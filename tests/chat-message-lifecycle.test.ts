@@ -25,6 +25,7 @@ function mockLifecycle(
     otherAuthor?: boolean;
     readbackCursor?: boolean;
     omitReplyId?: boolean;
+  failReplyReadback?: boolean;
     malformedChannel?: boolean;
   } = {},
 ) {
@@ -70,8 +71,10 @@ function mockLifecycle(
       };
       return Response.json(options.omitReplyId ? {} : { id: "reply-1" }, { status: 201 });
     }
-    if (method === "GET" && address.pathname.endsWith("/chat/messages/msg-1/replies"))
+    if (method === "GET" && address.pathname.endsWith("/chat/messages/msg-1/replies")) {
+      if (options.failReplyReadback) throw Error("private upstream error");
       return Response.json({ data: reply ? [reply] : [], next_cursor: null });
+    }
     if (method === "PATCH" && address.pathname.endsWith("/chat/messages/msg-1")) {
       content = String(body?.["content"] ?? "");
       return Response.json({ id: "msg-1" });
@@ -144,6 +147,19 @@ describe("Chat message lifecycle: owner identity, replies and reactions (#135 P1
       runCatalogOperation(
         "clickup_create_chat_reply",
         { ...base, content: "Reply" },
+        grant,
+        api.fetcher as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    expect(api.calls.filter((call) => call.method === "POST")).toHaveLength(1);
+  });
+
+  it("treats post-send reply readback failure as unknown without a second POST", async () => {
+    const api = mockLifecycle({ failReplyReadback: true });
+    await expect(
+      runCatalogOperation(
+        "clickup_create_chat_reply",
+        { ...base, content: "A single reply" },
         grant,
         api.fetcher as typeof fetch,
       ),
