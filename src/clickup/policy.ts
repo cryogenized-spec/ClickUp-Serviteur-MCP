@@ -176,6 +176,9 @@ export const COMPANY_SAFE_WRITE_OPERATIONS: ReadonlySet<string> = new Set([
   "clickup_update_folder",
   "clickup_send_chat_message",
   "clickup_open_direct_message",
+  "clickup_create_chat_reply",
+  "clickup_edit_own_chat_message",
+  "clickup_add_chat_reaction",
   "clickup_create_document",
   "clickup_create_document_page",
 ]);
@@ -225,6 +228,8 @@ export const COMPANY_OWNER_CLEANUP_OPERATIONS: ReadonlySet<string> = new Set([
   "clickup_remove_tag_from_task",
   "clickup_remove_task_link",
   "clickup_remove_dependency",
+  "clickup_delete_own_chat_message",
+  "clickup_remove_own_chat_reaction",
 ]);
 
 export function isCompanyOwnerCleanupOperation(name: string): boolean {

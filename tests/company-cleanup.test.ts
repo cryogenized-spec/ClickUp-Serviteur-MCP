@@ -69,12 +69,22 @@ function mockApi(options: MockOptions = {}) {
 describe("sole-owner ClickUp cleanup", () => {
   it("registers explicit cleanup operations and confirms destructive metadata", () => {
     expect([...COMPANY_OWNER_CLEANUP_OPERATIONS].sort()).toEqual([
+      "clickup_delete_own_chat_message",
       "clickup_delete_task",
       "clickup_delete_task_comment",
       "clickup_remove_dependency",
+      "clickup_remove_own_chat_reaction",
       "clickup_remove_tag_from_task",
       "clickup_remove_task_link",
     ]);
+    for (const name of ["clickup_delete_own_chat_message", "clickup_remove_own_chat_reaction"]) {
+      const spec = CLICKUP_MODEL_TOOL_CATALOG.find((item) => item.name === name);
+      expect(spec?.effect).toBe("destructive");
+    }
+    expect(
+      CLICKUP_MODEL_TOOL_CATALOG.find((item) => item.name === "clickup_delete_own_chat_message")
+        ?.inputSchema.properties["confirm_delete"]?.type,
+    ).toBe("boolean");
     for (const name of ["clickup_delete_task", "clickup_delete_task_comment"]) {
       const spec = CLICKUP_MODEL_TOOL_CATALOG.find((item) => item.name === name);
       expect(spec?.effect).toBe("destructive");

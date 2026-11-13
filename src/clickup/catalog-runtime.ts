@@ -4,6 +4,13 @@ import { readGoalDetails, readSprintTaskSnapshot, readWorkspaceGoals } from "./r
 import { compileClickUpRichSegments, compareRichCommentReadback } from "./comment-rich.js";
 import { verifySharedListWorkspace } from "./operations.js";
 import {
+  chatMessageAuthorId,
+  chatReactionName,
+  chatReactionOwned,
+  requireOwnChatMessage,
+  requiredChatText,
+} from "./chat-lifecycle.js";
+import {
   chatChannelType,
   chatCollection,
   chatCursor,
@@ -218,8 +225,8 @@ async function send(
   const chatSend =
     method === "POST" &&
     path.startsWith("api/v3/workspaces/") &&
-    path.includes("/chat/channels/") &&
-    path.endsWith("/messages");
+    ((path.includes("/chat/channels/") && path.endsWith("/messages")) ||
+      /\/chat\/messages\/[^/]+\/replies$/.test(path));
   const chatDiagnostic = (outcome: "rejected" | "unknown", status?: number) =>
     chatSend
       ? {
@@ -896,6 +903,93 @@ async function verifiedRecipientIds(
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
 }
 
+/** Resolve one message only after the parent channel and (for DMs) recipients
+ * are verified. Opaque cursors are caller-supplied continuation, not authority. */
+async function verifiedChatMessage(
+  grant: ReadGrant,
+  fetcher: typeof fetch,
+  arguments_: Json,
+): Promise<Json> {
+  const channelId = id(arguments_["channel_id"]);
+  const messageId = id(arguments_["message_id"]);
+  const channel = await verifiedChatChannel(grant, fetcher, arguments_["channel_id"]);
+  const kind = chatChannelType(channel);
+  if (kind === "DM" || kind === "GROUP_DM") {
+    const requested = validateRequestedRecipients(arguments_["user_ids"], arguments_["self_dm"]);
+    await verifiedRecipientIds(grant, fetcher, requested);
+    const actual = await verifiedChannelMembers(grant, fetcher, arguments_["channel_id"]);
+    validateDirectMessageRecipients(channel, actual, grant.clickupUserId, requested);
+  } else if (
+    kind !== "CHANNEL" ||
+    arguments_["user_ids"] !== undefined ||
+    arguments_["self_dm"] !== undefined
+  ) {
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  }
+  const prefix = "workspaces/" + id(grant.workspaceId) + "/chat/";
+  const params = new URLSearchParams({ limit: "50", content_format: "text/plain" });
+  if (arguments_["chat_cursor"] !== undefined)
+    params.set("cursor", boundedV3Cursor(arguments_["chat_cursor"]));
+  const parentPage = await send(
+    grant,
+    fetcher,
+    "GET",
+    v3(prefix + "channels/" + channelId + "/messages?" + params),
+  );
+  const parents = chatCollection(parentPage, "messages", 50);
+  let entries = parents;
+  if (arguments_["parent_message_id"] !== undefined) {
+    const parentId = id(arguments_["parent_message_id"]);
+    if (!parents.some((entry) => String(entry["id"]) === String(arguments_["parent_message_id"])))
+      throw new ReadFailure("CLICKUP_CHAT_MESSAGE_NOT_VERIFIED");
+    const replyParams = new URLSearchParams({ limit: "50", content_format: "text/plain" });
+    if (arguments_["reply_cursor"] !== undefined)
+      replyParams.set("cursor", boundedV3Cursor(arguments_["reply_cursor"]));
+    const page = await send(
+      grant,
+      fetcher,
+      "GET",
+      v3(prefix + "messages/" + parentId + "/replies?" + replyParams),
+    );
+    entries = chatCollection(page, "messages", 50);
+  }
+  const message = entries.find((entry) => String(entry["id"]) === messageId);
+  if (!message) throw new ReadFailure("CLICKUP_CHAT_MESSAGE_NOT_VERIFIED");
+  if (
+    message["channel_id"] !== undefined &&
+    String(message["channel_id"]) !== String(arguments_["channel_id"])
+  )
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  return message;
+}
+
+async function scopedChatReactions(
+  grant: ReadGrant,
+  fetcher: typeof fetch,
+  messageId: unknown,
+  cursor?: unknown,
+): Promise<{ reactions: Json[]; nextCursor: string | null }> {
+  const params = new URLSearchParams({ limit: "50" });
+  if (cursor !== undefined) params.set("cursor", boundedV3Cursor(cursor));
+  const response = await send(
+    grant,
+    fetcher,
+    "GET",
+    v3(
+      "workspaces/" +
+        id(grant.workspaceId) +
+        "/chat/messages/" +
+        id(messageId) +
+        "/reactions?" +
+        params,
+    ),
+  );
+  return {
+    reactions: chatCollection(response, "reactions", 50),
+    nextCursor: nextV3Cursor(response),
+  };
+}
+
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_get_workspace_goals",
   "clickup_get_goal_details",
@@ -966,6 +1060,12 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_verify_chat_recipients",
   "clickup_get_chat_channel_messages",
   "clickup_get_chat_message_replies",
+  "clickup_create_chat_reply",
+  "clickup_edit_own_chat_message",
+  "clickup_delete_own_chat_message",
+  "clickup_get_chat_message_reactions",
+  "clickup_add_chat_reaction",
+  "clickup_remove_own_chat_reaction",
   "clickup_search_documents",
   "clickup_send_chat_message",
   "clickup_create_document",
@@ -1002,6 +1102,12 @@ const WORKSPACE_SCOPE_OPERATIONS = new Set([
   "clickup_verify_chat_recipients",
   "clickup_get_chat_channel_messages",
   "clickup_get_chat_message_replies",
+  "clickup_create_chat_reply",
+  "clickup_edit_own_chat_message",
+  "clickup_delete_own_chat_message",
+  "clickup_get_chat_message_reactions",
+  "clickup_add_chat_reaction",
+  "clickup_remove_own_chat_reaction",
   "clickup_search_documents",
   "clickup_send_chat_message",
   "clickup_create_document",
@@ -2968,6 +3074,179 @@ export async function runCatalogOperation(
         participant_ids: actual.memberIds,
         exact_recipients_verified: true,
         message_sent: false,
+      };
+    }
+    case "clickup_create_chat_reply": {
+      const content = requiredChatText(a["content"]);
+      await verifiedChatMessage(g, f, a);
+      const response = await call(
+        "POST",
+        v3("workspaces/" + W + "/chat/messages/" + val(a, "message_id") + "/replies"),
+        { type: "message", content, content_format: validatedContentFormat(a) },
+      );
+      let created: Json;
+      try {
+        created = chatEntity(response, "message");
+      } catch {
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
+      const check = new URLSearchParams({ limit: "50", content_format: "text/plain" });
+      try {
+        const readback = await call(
+          "GET",
+          v3("workspaces/" + W + "/chat/messages/" + val(a, "message_id") + "/replies?" + check),
+        );
+        const sent = chatCollection(readback, "messages", 50).find(
+          (item) => String(item["id"]) === String(created["id"]),
+        );
+        if (!sent || sent["content"] !== content || chatMessageAuthorId(sent) !== g.clickupUserId)
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      } catch {
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
+      return { source: "clickup-api-v3", id: created["id"], verified_by_readback: true };
+    }
+    case "clickup_edit_own_chat_message": {
+      const wanted = requiredChatText(a["content"]);
+      const expected = requiredChatText(a["expected_content"]);
+      const before = await verifiedChatMessage(g, f, a);
+      requireOwnChatMessage(before, g.clickupUserId, expected);
+      try {
+        await call("PATCH", v3("workspaces/" + W + "/chat/messages/" + val(a, "message_id")), {
+          content: wanted,
+          content_format: validatedContentFormat(a),
+        });
+      } catch (error) {
+        if (!(error instanceof ReadFailure) || error.code !== "CLICKUP_WRITE_OUTCOME_UNKNOWN")
+          throw error;
+      }
+      let after: Json;
+      try {
+        after = await verifiedChatMessage(g, f, a);
+      } catch {
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
+      try {
+        if (after["content"] !== wanted || chatMessageAuthorId(after) !== g.clickupUserId)
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      } catch {
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
+      return { source: "clickup-api-v3", id: a["message_id"], verified_by_readback: true };
+    }
+    case "clickup_delete_own_chat_message": {
+      if (a["confirm_delete"] !== true) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const expected = requiredChatText(a["expected_content"]);
+      const before = await verifiedChatMessage(g, f, a);
+      requireOwnChatMessage(before, g.clickupUserId, expected);
+      await call("DELETE", v3("workspaces/" + W + "/chat/messages/" + val(a, "message_id")));
+      // Only a complete post-delete page supports an absence conclusion.
+      // For reply deletions, the parent must be independently verified again.
+      const channelId = val(a, "channel_id");
+      let path = "workspaces/" + W + "/chat/channels/" + channelId + "/messages";
+      const params = new URLSearchParams({ limit: "50", content_format: "text/plain" });
+      if (a["parent_message_id"] !== undefined) {
+        path = "workspaces/" + W + "/chat/messages/" + val(a, "parent_message_id") + "/replies";
+        if (a["reply_cursor"] !== undefined)
+          params.set("cursor", boundedV3Cursor(a["reply_cursor"]));
+      } else if (a["chat_cursor"] !== undefined) {
+        params.set("cursor", boundedV3Cursor(a["chat_cursor"]));
+      }
+      let page: Json;
+      try {
+        page = await call("GET", v3(path + "?" + params));
+      } catch {
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
+      const messages = chatCollection(page, "messages", 50);
+      if (
+        nextV3Cursor(page) !== null ||
+        messages.length >= 50 ||
+        messages.some((item) => String(item["id"]) === String(a["message_id"]))
+      )
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return {
+        source: "clickup-api-v3",
+        id: a["message_id"],
+        deleted: true,
+        verified_by_readback: true,
+      };
+    }
+    case "clickup_get_chat_message_reactions": {
+      await verifiedChatMessage(g, f, a);
+      const result = await scopedChatReactions(g, f, a["message_id"], a["reaction_cursor"]);
+      return {
+        source: "clickup-api-v3",
+        message_id: a["message_id"],
+        reactions: clip(result.reactions),
+        next_cursor: result.nextCursor,
+        incomplete: result.nextCursor !== null || result.reactions.length === 50,
+      };
+    }
+    case "clickup_add_chat_reaction": {
+      await verifiedChatMessage(g, f, a);
+      const name = chatReactionName(a["reaction_name"]);
+      const existing = await scopedChatReactions(g, f, a["message_id"]);
+      if (
+        existing.nextCursor !== null ||
+        existing.reactions.length >= 50 ||
+        existing.reactions.some((r) => chatReactionOwned(r, g.clickupUserId, name))
+      )
+        throw new ReadFailure("CLICKUP_CHAT_REACTION_NOT_VERIFIED");
+      try {
+        await call(
+          "POST",
+          v3("workspaces/" + W + "/chat/messages/" + val(a, "message_id") + "/reactions"),
+          { reaction: name },
+          "empty-write-ack",
+        );
+      } catch (error) {
+        if (!(error instanceof ReadFailure) || error.code !== "CLICKUP_WRITE_OUTCOME_UNKNOWN")
+          throw error;
+      }
+      let after: { reactions: Json[]; nextCursor: string | null };
+      try {
+        after = await scopedChatReactions(g, f, a["message_id"]);
+      } catch {
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
+      if (!after.reactions.some((r) => chatReactionOwned(r, g.clickupUserId, name)))
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return {
+        source: "clickup-api-v3",
+        message_id: a["message_id"],
+        reaction: name,
+        verified_by_readback: true,
+      };
+    }
+    case "clickup_remove_own_chat_reaction": {
+      await verifiedChatMessage(g, f, a);
+      const name = chatReactionName(a["reaction_name"]);
+      const existing = await scopedChatReactions(g, f, a["message_id"]);
+      if (!existing.reactions.some((r) => chatReactionOwned(r, g.clickupUserId, name)))
+        throw new ReadFailure("CLICKUP_CHAT_REACTION_NOT_VERIFIED");
+      await call(
+        "DELETE",
+        v3("workspaces/" + W + "/chat/messages/" + val(a, "message_id") + "/reactions/" + name),
+      );
+      let after: { reactions: Json[]; nextCursor: string | null };
+      try {
+        after = await scopedChatReactions(g, f, a["message_id"]);
+      } catch {
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
+      if (
+        after.nextCursor !== null ||
+        after.reactions.length >= 50 ||
+        after.reactions.some((r) => chatReactionOwned(r, g.clickupUserId, name))
+      )
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return {
+        source: "clickup-api-v3",
+        message_id: a["message_id"],
+        reaction: name,
+        removed: true,
+        verified_by_readback: true,
       };
     }
     case "clickup_get_chat_channel_messages":
