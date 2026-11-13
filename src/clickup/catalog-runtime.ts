@@ -3,6 +3,15 @@ import { getMyAttentionItems } from "./attention-items.js";
 import { readGoalDetails, readSprintTaskSnapshot, readWorkspaceGoals } from "./reporting-reads.js";
 import { compileClickUpRichSegments, compareRichCommentReadback } from "./comment-rich.js";
 import { verifySharedListWorkspace } from "./operations.js";
+import {
+  chatChannelType,
+  chatCollection,
+  chatCursor,
+  chatEntity,
+  chatMemberIds,
+  validateDirectMessageRecipients,
+  validateRequestedRecipients,
+} from "./chat-v3.js";
 import { COMPANY_LIST_TASK_OPERATIONS, ReadFailure, type ReadGrant } from "./policy.js";
 
 /** REST-backed ClickUp tool catalogue. No extra approval controls, state journal,
@@ -826,11 +835,7 @@ function boundedV3Cursor(value: unknown): string {
   return value;
 }
 function nextV3Cursor(response: Json): string | null {
-  const candidate = response["next_cursor"] ?? obj(response["pagination"])?.["next_cursor"];
-  if (candidate === null || candidate === undefined) return null;
-  if (typeof candidate !== "string" || !/^[a-zA-Z0-9_~+/=:.%-]{1,500}$/.test(candidate))
-    throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-  return candidate;
+  return chatCursor(response);
 }
 /** A Chat channel must be resolved through the OAuth-bound Workspace path. */
 async function verifiedChatChannel(
@@ -845,7 +850,7 @@ async function verifiedChatChannel(
     "GET",
     v3("workspaces/" + id(grant.workspaceId) + "/chat/channels/" + key),
   );
-  const channel = obj(response["channel"]) ?? response;
+  const channel = chatEntity(response, "channel");
   if (String(channel["id"]) !== String(channelId))
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   if (
@@ -856,6 +861,38 @@ async function verifiedChatChannel(
   )
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   return channel;
+}
+
+/** Never infer members from a channel name or the person who created a DM. */
+async function verifiedChannelMembers(
+  grant: ReadGrant,
+  fetcher: typeof fetch,
+  channelId: unknown,
+): Promise<{ memberIds: string[]; complete: boolean }> {
+  const raw = await send(
+    grant,
+    fetcher,
+    "GET",
+    v3("workspaces/" + id(grant.workspaceId) + "/chat/channels/" + id(channelId) + "/members?limit=50"),
+  );
+  return chatMemberIds(raw);
+}
+
+async function verifiedRecipientIds(
+  grant: ReadGrant,
+  fetcher: typeof fetch,
+  requested: readonly string[],
+): Promise<void> {
+  if (requested.includes(grant.clickupUserId))
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  if (requested.length === 0) return;
+  const eligible = await members(grant, fetcher);
+  if (
+    requested.some(
+      (memberId) => !eligible.some((member) => String(member["id"]) === memberId),
+    )
+  )
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
 }
 
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
@@ -922,6 +959,10 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_find_member_by_name",
   "clickup_resolve_assignees",
   "clickup_get_chat_channels",
+  "clickup_get_chat_channel_details",
+  "clickup_get_chat_channel_members",
+  "clickup_open_direct_message",
+  "clickup_verify_chat_recipients",
   "clickup_get_chat_channel_messages",
   "clickup_get_chat_message_replies",
   "clickup_search_documents",
@@ -954,6 +995,10 @@ const WORKSPACE_SCOPE_OPERATIONS = new Set([
   "clickup_create_folder",
   "clickup_update_folder",
   "clickup_get_chat_channels",
+  "clickup_get_chat_channel_details",
+  "clickup_get_chat_channel_members",
+  "clickup_open_direct_message",
+  "clickup_verify_chat_recipients",
   "clickup_get_chat_channel_messages",
   "clickup_get_chat_message_replies",
   "clickup_search_documents",
