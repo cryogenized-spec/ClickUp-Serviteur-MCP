@@ -1,3 +1,13 @@
+# 13 November 2026 SAST — issue #135 P0 verified DM identity source candidate
+
+**Single MCP architecture:** One operational ClickUp Serviteur Company MCP with one unified catalogue, separate staging Worker strictly for internal QA. No second ChatGPT connector.
+
+**P0 source candidate:** Four Chat tools add read-only channel details, channel-member pages and exact recipient preview plus a separately approved DM open-or-find action without posting text. Normalize both ClickUp v3 `data` envelopes and legacy response shapes for current Chat channel/message/reply reads, rejecting malformed or cross-Workspace responses. A private DM send now requires complete exact member verification, including authenticated owner, before POST. See `docs/CHAT_DM_P0_2026-11.md`, issue [#135](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/issues/135). **Source only:** no live staff messages or deployments.
+
+**Acceptance next:** Exact-head Strict CI + CodeQL + human source/security review before merge. Separately complete internal staged self-DM and provider payload validation. P1 reply/edit/reaction/delete, #120 DM send verification and actual deployment are not yet done; do not close issue #135 prematurely.
+
+---
+
 # 12 November 2026 SAST — M4 Chat acknowledgement integrity candidate
 
 **Owner direction:** Continue in the existing **one ClickUp Serviteur MCP** (D-026); the isolated staging Worker is internal validation infrastructure only.
