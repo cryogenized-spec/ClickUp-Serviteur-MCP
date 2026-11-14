@@ -2374,20 +2374,18 @@ export async function runCatalogOperation(
           a["expected_task_name"] !== title
         )
           throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-        // Verify immediately before deletion that the task still belongs to
-        // this exact authorized List and has no child tasks to delete.
-        const before = await call(
-          "GET",
-          v2("task/" + val(a, "task_id") + "?include_subtasks=true"),
-        );
+        // Verify task identity again before deleting, then independently enumerate
+        // direct children. ClickUp may omit "subtasks" on GET even when there are none;
+        // absence of that field must not be mistaken for an authorization failure.
+        const before = await taskInWorkspace(g, f, val(a, "task_id"));
         if (
           String(before["id"]) !== String(existing["id"]) ||
           String(obj(before["list"])?.["id"]) !== String(obj(existing["list"])?.["id"]) ||
-          before["name"] !== title ||
-          !Array.isArray(before["subtasks"]) ||
-          before["subtasks"].length !== 0
+          before["name"] !== title
         )
           throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+        const children = await directSubtasksPage(before, 0);
+        if (children.length !== 0) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       }
       await call("DELETE", v2("task/" + val(a, "task_id")));
       return {
