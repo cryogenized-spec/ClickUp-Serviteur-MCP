@@ -112,12 +112,14 @@ describe("sole-owner ClickUp cleanup", () => {
       "GET /api/v2/list/12345",
       "GET /api/v2/team/555/space",
       "GET /api/v2/task/abc123",
+      "GET /api/v2/list/12345",
+      "GET /api/v2/team/555/space",
       "GET /api/v2/team/555/task",
       "DELETE /api/v2/task/abc123",
     ]);
-    expect(api.requests[4]?.query).toContain("parent=abc123");
-    expect(api.requests[4]?.query).toContain("subtasks=true");
-    expect(api.requests[4]?.query).toContain("list_ids%5B%5D=12345");
+    expect(api.requests[6]?.query).toContain("parent=abc123");
+    expect(api.requests[6]?.query).toContain("subtasks=true");
+    expect(api.requests[6]?.query).toContain("list_ids%5B%5D=12345");
   });
 
   it("rejects stale titles, missing confirmation and nonempty subtasks before deleting", async () => {
