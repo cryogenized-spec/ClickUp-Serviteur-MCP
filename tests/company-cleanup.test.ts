@@ -37,12 +37,14 @@ function mockApi(options: MockOptions = {}) {
         id: "abc123",
         name: options.taskName ?? "Markdown formatting test",
         list: { id: "12345" },
-        subtasks: options.subtasks ?? [],
+        // ClickUp may omit the subtasks property entirely for a leaf task.
       });
     if (url.pathname === "/api/v2/list/12345" && method === "GET")
       return Response.json({ id: "12345", space: { id: "777" } });
     if (url.pathname === "/api/v2/team/555/space" && method === "GET")
       return Response.json({ spaces: [{ id: "777" }] });
+    if (url.pathname === "/api/v2/team/555/task" && method === "GET")
+      return Response.json({ tasks: options.subtasks ?? [] });
     if (url.pathname === "/api/v2/task/abc123/comment" && method === "GET")
       return Response.json({
         comments: [
@@ -110,15 +112,23 @@ describe("sole-owner ClickUp cleanup", () => {
       "GET /api/v2/list/12345",
       "GET /api/v2/team/555/space",
       "GET /api/v2/task/abc123",
+      "GET /api/v2/team/555/task",
       "DELETE /api/v2/task/abc123",
     ]);
-    expect(api.requests[3]?.query).toContain("include_subtasks=true");
+    expect(api.requests[4]?.query).toContain("parent=abc123");
+    expect(api.requests[4]?.query).toContain("subtasks=true");
+    expect(api.requests[4]?.query).toContain("list_ids%5B%5D=12345");
   });
 
   it("rejects stale titles, missing confirmation and nonempty subtasks before deleting", async () => {
     const cases = [
       { options: { taskName: "Existing repair task" }, args: { confirm_delete: true } },
-      { options: { subtasks: [{ id: "child-1" }] }, args: { confirm_delete: true } },
+      {
+        options: {
+          subtasks: [{ id: "child-1", parent: "abc123", list: { id: "12345" } }],
+        },
+        args: { confirm_delete: true },
+      },
       { options: {}, args: { confirm_delete: false } },
       { options: {}, args: { confirm_delete: true, expected_task_name: "Wrong title" } },
     ];
