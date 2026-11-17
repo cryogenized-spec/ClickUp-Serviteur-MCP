@@ -37,6 +37,7 @@ function mockApi(
     postStatus?: number;
     expectedComment?: unknown[];
     readbackComment?: unknown[];
+    readbackStatus?: number;
   } = {},
 ) {
   const expectedParts = options.expectedComment ?? expected;
@@ -75,6 +76,8 @@ function mockApi(
         created = true;
         return Response.json({ id: "456" });
       }
+      if (options.readbackStatus)
+        return Response.json({ message: "synthetic readback failure" }, { status: options.readbackStatus });
       let readbackParts = options.readbackComment ?? expectedParts;
       if (options.dropTag) readbackParts = expectedParts.slice(0, 3);
       return Response.json({
@@ -167,14 +170,26 @@ describe("genuine ClickUp task comment @mentions (#88)", () => {
       const readbackComment: unknown[] = [...expected];
       readbackComment[1] = badTag;
       const api = mockApi({ readbackComment });
-      await expect(
-        runCatalogOperation(
-          "clickup_create_task_comment",
-          { task_id: "abc123", mention_segments: segments },
-          grant(),
-          api.fetcher as typeof fetch,
-        ),
-      ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      const result = await runCatalogOperation(
+        "clickup_create_task_comment",
+        { task_id: "abc123", mention_segments: segments },
+        grant(),
+        api.fetcher as typeof fetch,
+      );
+      expect(result).toMatchObject({
+        id: "456",
+        comment_id: "456",
+        write_acknowledged: true,
+        write_outcome: "unknown",
+        readback_status: "inconclusive",
+        verified_by_readback: false,
+        retry_safe: false,
+        reconciliation: {
+          tool: "clickup_get_task_comments",
+          task_id: "abc123",
+          comment_id: "456",
+        },
+      });
       expect(api.postCount).toBe(1);
     }
   });
@@ -244,17 +259,66 @@ describe("genuine ClickUp task comment @mentions (#88)", () => {
     "does not certify a missing/foreign-owned tag in readback and never retries",
     async (options) => {
       const api = mockApi(options);
-      await expect(
-        runCatalogOperation(
-          "clickup_create_task_comment",
-          { task_id: "abc123", mention_segments: segments },
-          grant(),
-          api.fetcher as typeof fetch,
-        ),
-      ).rejects.toThrow("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      const result = await runCatalogOperation(
+        "clickup_create_task_comment",
+        { task_id: "abc123", mention_segments: segments },
+        grant(),
+        api.fetcher as typeof fetch,
+      );
+      expect(result).toMatchObject({
+        write_outcome: "unknown",
+        readback_status: "inconclusive",
+        verified_by_readback: false,
+        retry_safe: false,
+      });
       expect(api.postCount).toBe(1);
     },
   );
+
+  it("returns a reconciliation handle when ClickUp moves mentions to the end", async () => {
+    const api = mockApi({
+      readbackComment: [
+        { text: "Hi 👋\nPlease check https://example.invalid/qa with , then send to . Thank you!\n" },
+        { type: "tag" },
+        { type: "tag" },
+      ],
+    });
+    const result = await runCatalogOperation(
+      "clickup_create_task_comment",
+      { task_id: "abc123", mention_segments: segments },
+      grant(),
+      api.fetcher as typeof fetch,
+    );
+    expect(result).toMatchObject({
+      id: "456",
+      comment_id: "456",
+      write_acknowledged: true,
+      write_outcome: "unknown",
+      readback_status: "inconclusive",
+      mention_identity_verified_by_readback: false,
+      retry_safe: false,
+    });
+    expect(api.postCount).toBe(1);
+  });
+
+  it("does not re-POST when readback fails after successful POST", async () => {
+    const api = mockApi({ readbackStatus: 503 });
+    const result = await runCatalogOperation(
+      "clickup_create_task_comment",
+      { task_id: "abc123", mention_segments: segments },
+      grant(),
+      api.fetcher as typeof fetch,
+    );
+    expect(result).toMatchObject({
+      comment_id: "456",
+      write_acknowledged: true,
+      write_outcome: "unknown",
+      readback_status: "inconclusive",
+      reconciliation: { task_id: "abc123", comment_id: "456" },
+      retry_safe: false,
+    });
+    expect(api.postCount).toBe(1);
+  });
 
   it("does not repost a rejected rich comment", async () => {
     const api = mockApi({ postStatus: 400 });
