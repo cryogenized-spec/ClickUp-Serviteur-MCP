@@ -2705,8 +2705,30 @@ export async function runCatalogOperation(
           )
             throw Error("Comment assignment did not persist");
         } catch {
-          // The POST may have succeeded; never post again after uncertain readback.
-          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+          // An HTTP-successful POST returned this ID. A subsequent GET can be
+          // incomplete, unavailable, or normalized by ClickUp. Never turn that
+          // into INVALID_ARGUMENT or retry a possibly persisted comment.
+          return {
+            ...posted,
+            comment_id: String(commentId),
+            write_acknowledged: true,
+            write_outcome: "unknown",
+            readback_status: "inconclusive",
+            verified_by_readback: false,
+            native_rich_structure_verified_by_readback: false,
+            verified_tag_structure_by_readback: false,
+            mention_identity_verified_by_readback: false,
+            requested_mention_user_ids: requestedIds,
+            notification_delivery_unverified: true,
+            retry_safe: false,
+            reconciliation: {
+              tool: "clickup_get_task_comments",
+              task_id: taskId,
+              comment_id: String(commentId),
+            },
+            warning:
+              "ClickUp acknowledged the POST, but readback was inconclusive. Inspect this comment ID before attempting any new write; do not automatically repost.",
+          };
         }
         return {
           ...posted,
