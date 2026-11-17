@@ -35,6 +35,7 @@ function mockApi(
     author?: number;
     dropTag?: boolean;
     postStatus?: number;
+    postMissingId?: boolean;
     expectedComment?: unknown[];
     readbackComment?: unknown[];
     readbackStatus?: number;
@@ -74,10 +75,13 @@ function mockApi(
         if (options.postStatus)
           return Response.json({ err: "failure" }, { status: options.postStatus });
         created = true;
-        return Response.json({ id: "456" });
+        return Response.json(options.postMissingId ? {} : { id: "456" });
       }
       if (options.readbackStatus)
-        return Response.json({ message: "synthetic readback failure" }, { status: options.readbackStatus });
+        return Response.json(
+          { message: "synthetic readback failure" },
+          { status: options.readbackStatus },
+        );
       let readbackParts = options.readbackComment ?? expectedParts;
       if (options.dropTag) readbackParts = expectedParts.slice(0, 3);
       return Response.json({
@@ -278,7 +282,9 @@ describe("genuine ClickUp task comment @mentions (#88)", () => {
   it("returns a reconciliation handle when ClickUp moves mentions to the end", async () => {
     const api = mockApi({
       readbackComment: [
-        { text: "Hi 👋\nPlease check https://example.invalid/qa with , then send to . Thank you!\n" },
+        {
+          text: "Hi 👋\nPlease check https://example.invalid/qa with , then send to . Thank you!\n",
+        },
         { type: "tag" },
         { type: "tag" },
       ],
@@ -317,6 +323,43 @@ describe("genuine ClickUp task comment @mentions (#88)", () => {
       reconciliation: { task_id: "abc123", comment_id: "456" },
       retry_safe: false,
     });
+    expect(api.postCount).toBe(1);
+  });
+
+  it("keeps an uncertain POST-503 outcome as data, without a second write", async () => {
+    const api = mockApi({ postStatus: 503 });
+    const result = await runCatalogOperation(
+      "clickup_create_task_comment",
+      { task_id: "abc123", mention_segments: segments },
+      grant(),
+      api.fetcher as typeof fetch,
+    );
+    expect(result).toMatchObject({
+      write_acknowledged: false,
+      write_outcome: "unknown",
+      readback_status: "inconclusive",
+      retry_safe: false,
+      reconciliation: { tool: "clickup_get_task_comments", task_id: "abc123" },
+    });
+    expect(result).not.toHaveProperty("comment_id");
+    expect(api.postCount).toBe(1);
+  });
+
+  it("retains a reconciliation path when POST omits a usable comment ID", async () => {
+    const api = mockApi({ postMissingId: true });
+    const result = await runCatalogOperation(
+      "clickup_create_task_comment",
+      { task_id: "abc123", mention_segments: segments },
+      grant(),
+      api.fetcher as typeof fetch,
+    );
+    expect(result).toMatchObject({
+      write_acknowledged: false,
+      write_outcome: "unknown",
+      retry_safe: false,
+      reconciliation: { task_id: "abc123" },
+    });
+    expect(result).not.toHaveProperty("comment_id");
     expect(api.postCount).toBe(1);
   });
 
