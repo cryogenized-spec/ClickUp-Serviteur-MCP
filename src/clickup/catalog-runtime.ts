@@ -2670,17 +2670,47 @@ export async function runCatalogOperation(
           if (requestedIds.length === 0) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
         }
         const taskId = val(a, "task_id");
-        const posted = await call("POST", v2("task/" + taskId + "/comment"), {
-          comment: rich,
-          notify_all: false,
-          ...(assignee === null ? {} : { assignee }),
+        // Unknown upstream outcomes must become *data*, not an MCP transport
+        // error that a caller might interpret as permission to repeat the POST.
+        // In particular a timed-out/5xx POST may already have been committed.
+        const uncertain = (commentId?: string) => ({
+          ...(commentId === undefined ? {} : { id: commentId, comment_id: commentId }),
+          write_acknowledged: commentId !== undefined,
+          write_outcome: "unknown",
+          readback_status: "inconclusive",
+          verified_by_readback: false,
+          native_rich_structure_verified_by_readback: false,
+          verified_tag_structure_by_readback: false,
+          mention_identity_verified_by_readback: false,
+          requested_mention_user_ids: requestedIds,
+          notification_delivery_unverified: true,
+          retry_safe: false,
+          reconciliation: {
+            tool: "clickup_get_task_comments",
+            task_id: taskId,
+            ...(commentId === undefined ? {} : { comment_id: commentId }),
+          },
+          warning:
+            "The comment write could not be fully verified. Inspect existing task comments before any new write; do not automatically repost.",
         });
+        let posted: Json;
+        try {
+          posted = await call("POST", v2("task/" + taskId + "/comment"), {
+            comment: rich,
+            notify_all: false,
+            ...(assignee === null ? {} : { assignee }),
+          });
+        } catch (error) {
+          if (error instanceof ReadFailure && error.code === "CLICKUP_WRITE_OUTCOME_UNKNOWN")
+            return uncertain();
+          throw error;
+        }
         const commentId = posted["id"];
         if (
           (typeof commentId !== "number" && typeof commentId !== "string") ||
           !/^[0-9]{1,24}$/.test(String(commentId))
         )
-          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+          return uncertain();
         let mentionIdsVerified: boolean;
         try {
           const after = await call("GET", v2("task/" + taskId + "/comment"));
@@ -2705,8 +2735,8 @@ export async function runCatalogOperation(
           )
             throw Error("Comment assignment did not persist");
         } catch {
-          // The POST may have succeeded; never post again after uncertain readback.
-          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+          // The POST returned a valid ID, but readback could not verify it.
+          return uncertain(String(commentId));
         }
         return {
           ...posted,
