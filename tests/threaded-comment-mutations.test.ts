@@ -39,7 +39,12 @@ function fixture(options: FixtureOptions = {}) {
     if (method === "GET" && path === "/api/v2/task/task1/comment")
       return Response.json({
         comments: [
-          { id: "parent-1", date: "1795084000000", reply_count: deleted ? 0 : 1, user: { id: 708 } },
+          {
+            id: "parent-1",
+            date: "1795084000000",
+            reply_count: deleted ? 0 : 1,
+            user: { id: 708 },
+          },
           { id: "parent-2", date: "1795083000000", reply_count: 0, user: { id: 708 } },
         ],
       });
@@ -87,7 +92,7 @@ function fixture(options: FixtureOptions = {}) {
 }
 
 describe("task comment threaded-reply mutations (#145, #146)", () => {
-  it("edits an own reply in place and verifies the updated text under its original parent", async () => {
+  it("edits an own reply and verifies the content under its original parent", async () => {
     const { api, calls } = fixture();
     const response = await runCatalogOperation(
       "clickup_edit_task_comment",
@@ -106,7 +111,7 @@ describe("task comment threaded-reply mutations (#145, #146)", () => {
     expect(calls.filter((x) => x.path === "/api/v2/comment/parent-1/reply")).toHaveLength(2);
   });
 
-  it("deletes a confirmed own leaf reply, not its parent, and verifies absence from the thread", async () => {
+  it("deletes an own leaf reply, preserving its parent and verifying removal", async () => {
     const { api, calls } = fixture();
     const response = await runCatalogOperation(
       "clickup_delete_task_comment",
@@ -134,9 +139,9 @@ describe("task comment threaded-reply mutations (#145, #146)", () => {
         operation === "clickup_edit_task_comment"
           ? { task_id: "task1", comment_id: "child-1", text: "Corrected" }
           : { task_id: "task1", comment_id: "child-1", confirm_delete: true };
-      await expect(runCatalogOperation(operation, args, grant, api as typeof fetch)).rejects.toThrow(
-        "CLICKUP_SCOPE_OR_SCHEMA_REJECTED",
-      );
+      await expect(
+        runCatalogOperation(operation, args, grant, api as typeof fetch),
+      ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       expect(calls.every((x) => x.method === "GET")).toBe(true);
     },
   );
