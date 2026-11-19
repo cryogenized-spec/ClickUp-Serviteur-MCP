@@ -666,6 +666,96 @@ async function taskCommentPage(
   return result["comments"] as Json[];
 }
 
+type MutableCommentTarget = Readonly<{ comment: Json; parentCommentId: string | null }>;
+
+/** ClickUp does not include threaded children in GET /task/{id}/comment.
+ * Read child comments only below a parent independently verified on that task.
+ * Do not trust a free-standing comment ID as evidence of task membership. */
+async function taskCommentReplies(
+  read: (path: string) => Promise<Json>,
+  parentCommentId: string,
+): Promise<Json[]> {
+  const payload = await read(v2("comment/" + id(parentCommentId) + "/reply"));
+  const rows = Array.isArray(payload["comments"])
+    ? payload["comments"]
+    : Array.isArray(payload["replies"])
+      ? payload["replies"]
+      : null;
+  if (
+    !rows ||
+    rows.length > 100 ||
+    rows.some((entry: unknown) => {
+      const item = obj(entry);
+      return !item || typeof item["id"] !== "string";
+    })
+  )
+    throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+  return rows as Json[];
+}
+
+/** Resolve only a top-level comment or a child of a verified task comment.
+ * An optional exact parent makes older threads cheap to find. Without one,
+ * scan at most 10 task-comment pages and 30 nonempty reply threads. */
+async function mutableTaskComment(
+  read: (path: string) => Promise<Json>,
+  taskId: string,
+  commentId: string,
+  expectedParentId?: string,
+): Promise<MutableCommentTarget> {
+  let cursor: CommentCursor | null = null;
+  const seen = new Set<string>();
+  let queriedThreads = 0;
+  for (let pageIndex = 0; pageIndex < 10; pageIndex++) {
+    const page = await taskCommentPage(read, taskId, cursor);
+    for (const parent of page) {
+      const parentId = String(parent["id"]);
+      if (seen.has(parentId)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      seen.add(parentId);
+      if (parentId === commentId) {
+        if (expectedParentId !== undefined)
+          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+        return { comment: parent, parentCommentId: null };
+      }
+      if (expectedParentId !== undefined && parentId !== expectedParentId) continue;
+      const rawCount = parent["reply_count"];
+      const replyCount =
+        rawCount === undefined
+          ? undefined
+          : typeof rawCount === "number"
+            ? rawCount
+            : typeof rawCount === "string" && /^\d+$/.test(rawCount)
+              ? Number(rawCount)
+              : NaN;
+      if (
+        replyCount !== undefined &&
+        (!Number.isSafeInteger(replyCount) || replyCount < 0)
+      )
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      if (replyCount === 0) {
+        if (expectedParentId === parentId)
+          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+        continue;
+      }
+      if (replyCount === undefined && expectedParentId === undefined) continue;
+      if (queriedThreads++ >= 30)
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const children = await taskCommentReplies(read, parentId);
+      const matches = children.filter((child) => String(child["id"]) === commentId);
+      if (matches.length > 1) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      if (matches.length === 1)
+        return { comment: matches[0]!, parentCommentId: parentId };
+      if (expectedParentId === parentId)
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    }
+    if (page.length < 25) break;
+    const next = commentCursorFrom(page[page.length - 1]!);
+    if (!next || (cursor && cursor.start === next.start && cursor.startId === next.startId))
+      throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+    cursor = next;
+  }
+  throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+}
+
 /** REST adapters use individual OAuth. Base64 attachment uploads are capped
  * at 500 KiB because MCP tool args are text; no remote file URLs are fetched. */
 async function uploadAttachment(
@@ -2860,41 +2950,56 @@ export async function runCatalogOperation(
       await task("task_id");
       const taskId = val(a, "task_id");
       const commentId = val(a, "comment_id");
-      const comments = await call("GET", v2("task/" + taskId + "/comment"));
-      if (!Array.isArray(comments["comments"]) || comments["comments"].length > 25)
-        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      const matched = comments["comments"]
-        .map(obj)
-        .find((entry) => String(entry?.["id"]) === commentId);
-      // A comment without a verified zero reply count is not safe to delete.
-      // Missing, null, negative and malformed values must fail closed.
-      const rawReplies = matched?.["reply_count"];
+      const read = (path: string) => call("GET", path);
+      const requestedParent =
+        a["parent_comment_id"] === undefined ? undefined : val(a, "parent_comment_id");
+      const target = await mutableTaskComment(read, taskId, commentId, requestedParent);
+      const matched = target.comment;
+      if (String(obj(matched["user"])?.["id"]) !== g.clickupUserId)
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      // A comment with replies must never be deleted. Some ClickUp threaded
+      // children omit reply_count, so independently inspect that child's
+      // reply endpoint before treating it as a leaf.
+      const rawReplies = matched["reply_count"];
       const replies =
         typeof rawReplies === "number"
           ? rawReplies
           : typeof rawReplies === "string" && /^[0-9]+$/.test(rawReplies)
             ? Number(rawReplies)
             : NaN;
-      if (
-        !matched ||
-        String(obj(matched["user"])?.["id"]) !== g.clickupUserId ||
-        !Number.isSafeInteger(replies) ||
-        replies !== 0
-      )
+      if (Number.isSafeInteger(replies)) {
+        if (replies !== 0) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      } else if (target.parentCommentId !== null && rawReplies === undefined) {
+        const children = await taskCommentReplies(read, commentId);
+        if (children.length !== 0) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      } else {
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      // A specific own comment on a verified task; never delete someone else's
-      // comment or a threaded conversation with replies.
+      }
       await call("DELETE", v2("comment/" + commentId));
+      // A successful DELETE response alone does not prove that a child reply
+      // has disappeared. Check the verified parent thread after the write.
+      if (target.parentCommentId !== null) {
+        let after: Json[];
+        try {
+          after = await taskCommentReplies(read, target.parentCommentId);
+        } catch {
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+        }
+        if (after.some((item) => String(item["id"]) === commentId))
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
       return {
         success: true,
         source: "clickup-api-v2",
         task_id: taskId,
         comment_id: commentId,
         action: "deleted_own_comment",
+        ...(target.parentCommentId === null ? {} : { verified_by_readback: true }),
       };
     }
     case "clickup_edit_task_comment": {
-      // A comment ID alone does not prove either task membership or authorship.
+      // Verify the task first, then locate a root comment or an own reply
+      // beneath a parent independently verified on the same task.
       await task("task_id");
       const taskId = val(a, "task_id");
       const commentId = val(a, "comment_id");
@@ -2902,14 +3007,12 @@ export async function runCatalogOperation(
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       if (a["resolved"] !== undefined && typeof a["resolved"] !== "boolean")
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-      const before = await call("GET", v2("task/" + taskId + "/comment"));
-      if (!Array.isArray(before["comments"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      const original = before["comments"]
-        .map(obj)
-        .find((item) => String(item?.["id"]) === String(a["comment_id"]));
-      // The first task-comment page must positively establish ownership.
-      // Never let a caller edit another person's comment or an older unseen one.
-      if (!original || String(obj(original["user"])?.["id"]) !== g.clickupUserId)
+      const read = (path: string) => call("GET", path);
+      const requestedParent =
+        a["parent_comment_id"] === undefined ? undefined : val(a, "parent_comment_id");
+      const target = await mutableTaskComment(read, taskId, commentId, requestedParent);
+      const original = target.comment;
+      if (String(obj(original["user"])?.["id"]) !== g.clickupUserId)
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       // Assignment-only updates must not flatten rich comments or replace images.
       // Preserve only a verified plain-text comment body, not an inferred string.
@@ -2947,21 +3050,24 @@ export async function runCatalogOperation(
         { comment_text: replacement, assignee, resolved },
         "empty-write-ack",
       );
-      // Check the actual task's comments after the mutation. A transport success
-      // without the requested text is not sufficient evidence of a completed edit.
-      let after: Json;
+      // Verify from the same bounded, authorized task/thread after the write.
+      // If the provider accepted the PUT but the read fails, the outcome is
+      // unknown and the caller must not repeat the write blindly.
+      let edited: Json;
       try {
-        after = await call("GET", v2("task/" + taskId + "/comment"));
+        const after = await mutableTaskComment(
+          read,
+          taskId,
+          commentId,
+          target.parentCommentId ?? undefined,
+        );
+        if (after.parentCommentId !== target.parentCommentId)
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+        edited = after.comment;
       } catch {
-        // The PUT may already have committed; never present this as a
-        // recoverable read error that could encourage a blind repeat.
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
       }
-      if (!Array.isArray(after["comments"])) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
-      const edited = after["comments"]
-        .map(obj)
-        .find((item) => String(item?.["id"]) === String(a["comment_id"]));
-      if (!edited || edited["comment_text"] !== replacement)
+      if (edited["comment_text"] !== replacement)
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
       const actualAssignee =
         edited["assignee"] === null ? 0 : (obj(edited["assignee"])?.["id"] ?? edited["assignee"]);
@@ -2975,8 +3081,8 @@ export async function runCatalogOperation(
       return {
         success: true,
         source: "clickup-api-v2",
-        task_id: String(a["task_id"]),
-        comment_id: String(a["comment_id"]),
+        task_id: taskId,
+        comment_id: commentId,
         verified_by_readback: true,
       };
     }
