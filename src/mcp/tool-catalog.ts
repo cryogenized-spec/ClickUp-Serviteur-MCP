@@ -177,7 +177,7 @@ const F = {
   ),
   attachment_id: str("Exact PDF attachment ID from the verified task; never supply a URL.", 100),
   parent_comment_id: str(
-    "Verified parent comment ID on the same authorized task; create a threaded reply.",
+    "Verified parent task-comment ID for creating or modifying a reply; optional for edit/delete.",
     100,
   ),
   document_id: str("Exact ClickUp Document ID.", 100),
@@ -820,9 +820,10 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Delete Own Task Comment",
     "comments",
     "destructive",
-    "Delete the exact comment only when it belongs to the authenticated user on an independently verified authorized task. Confirmation is mandatory; no bulk or third-party comment deletions.",
+    "Delete an exact own task comment or own leaf threaded reply after verifying the authorized task and parent thread. Confirmation is mandatory; no bulk or third-party deletion.",
     "Remove my own accidental QA formatting comment after verifying its task and ID.",
     ["task_id", "comment_id", "confirm_delete"],
+    ["parent_comment_id"],
   ),
 
   tool(
@@ -830,10 +831,10 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Edit Own Task Comment",
     "comments",
     "write",
-    "Edit text, reassign or resolve an existing plain-text comment authored by YOUR authenticated ClickUp account on a verified task. Supply at least one of text, assignee_id or resolved. Requires explicit approval.",
+    "Edit text, reassign or resolve an own plain-text task comment or threaded reply on a verified task. Optional parent_comment_id speeds up verified reply lookup. Supply text, assignee_id or resolved; requires explicit approval.",
     "Assign my existing supplier enquiry comment without editing the parent task.",
     ["task_id", "comment_id"],
-    ["text", "assignee_id", "resolved"],
+    ["text", "assignee_id", "resolved", "parent_comment_id"],
   ),
 
   // EXISTING SPACE TAG DISCOVERY
