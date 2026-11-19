@@ -1,3 +1,19 @@
+# 19 November 2026 SAST — own threaded task-comment edit/delete correction (PR #147)
+
+**Observed live failure:** The company MCP successfully created and read a direct reply, but both `clickup_edit_task_comment` and `clickup_delete_task_comment` rejected the authenticated owner's exact child reply ID with `CLICKUP_SCOPE_OR_SCHEMA_REJECTED` before writing. The original preflight checked only `GET /task/{task_id}/comment`, which excludes child replies. See issues [#145](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/issues/145) and [#146](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/issues/146).
+
+**Source candidate:** [PR #147](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/147) adds bounded resolution of child replies beneath parent comments independently verified on the authorized task, with an optional exact `parent_comment_id` for older threads. Existing own-comment ownership and task/List checks remain. Edits read back from the same verified parent; deleting a child requires confirming leaf status and verifying absence from its parent thread. Ambiguous post-write results fail closed. The existing top-level comment workflow and ClickUp Chat operations remain out of scope.
+
+**Synthetic tests:** `tests/threaded-comment-mutations.test.ts` covers successful own-reply edit/delete, parent preservation, foreign author, mismatched parent, child with replies and stale edit readback. The first CI attempts reported formatting differences; source and tests were reformatted, and the temporary formatter diagnostic script was restored to its original strict check.
+
+**Verified source checks:** Strict CI **SUCCESS** on commit `8263fd587556ebf73631f6f4c99096e82d47ee94` (GitHub Actions run `44510656123`), including format, ESLint, strict TypeScript, tests, build, local OAuth/smoke and high-severity dependency audit. CodeQL Advanced **SUCCESS** for the same source SHA (run `44510656135`). This documentation update advances the head and requires fresh exact-HEAD checks.
+
+**Not yet done:** No company Worker deployment or live edit/delete was performed. Synthetic pass does not demonstrate provider acceptance of these operations on real threaded children. Do not close #145/#146 or claim production repair before isolated, separately authorised disposable live acceptance.
+
+**Next exact action:** Verify green Strict CI and CodeQL on the updated PR head, obtain focused security/code review, then separately approve and execute a disposable own threaded reply edit/delete test in staging with readback; merge and promote only through the owner-controlled gates.
+
+---
+
 # 13 November 2026 — genuine ClickUp subtasks source candidate (issue #139)
 
 The **one existing ClickUp Serviteur MCP** now has a source candidate adding three real hierarchy operations: `clickup_create_subtask`, `clickup_list_direct_subtasks` and `clickup_reparent_task`. The implementation uses official ClickUp task `parent` fields, not links/checklists; validates exact parent and same authorized List, cycle ancestry, stale expected title/parent and bounded duplicate preflight, with authoritative GET readback after each mutation. Existing assignee/status/description/due-date/priority draft support is reused for new child tasks. There is no automatic retry after ambiguous writes.
