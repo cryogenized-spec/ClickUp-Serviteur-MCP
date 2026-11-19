@@ -726,10 +726,7 @@ async function mutableTaskComment(
             : typeof rawCount === "string" && /^\d+$/.test(rawCount)
               ? Number(rawCount)
               : NaN;
-      if (
-        replyCount !== undefined &&
-        (!Number.isSafeInteger(replyCount) || replyCount < 0)
-      )
+      if (replyCount !== undefined && (!Number.isSafeInteger(replyCount) || replyCount < 0))
         throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       if (replyCount === 0) {
         if (expectedParentId === parentId)
@@ -737,13 +734,11 @@ async function mutableTaskComment(
         continue;
       }
       if (replyCount === undefined && expectedParentId === undefined) continue;
-      if (queriedThreads++ >= 30)
-        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      if (queriedThreads++ >= 30) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       const children = await taskCommentReplies(read, parentId);
       const matches = children.filter((child) => String(child["id"]) === commentId);
       if (matches.length > 1) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      if (matches.length === 1)
-        return { comment: matches[0]!, parentCommentId: parentId };
+      if (matches.length === 1) return { comment: matches[0]!, parentCommentId: parentId };
       if (expectedParentId === parentId)
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     }
