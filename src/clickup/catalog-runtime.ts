@@ -739,8 +739,7 @@ async function mutableTaskComment(
       const matches = children.filter((child) => String(child["id"]) === commentId);
       if (matches.length > 1) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       if (matches.length === 1) return { comment: matches[0]!, parentCommentId: parentId };
-      if (expectedParentId === parentId)
-        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      if (expectedParentId === parentId) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     }
     if (page.length < 25) break;
     const next = commentCursorFrom(page[page.length - 1]!);
