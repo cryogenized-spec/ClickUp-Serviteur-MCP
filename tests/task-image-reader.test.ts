@@ -30,13 +30,15 @@ const grant = (): ReadGrant => ({
   },
 });
 
-const getApi = (options: {
-  foreign?: boolean;
-  redirect?: boolean;
-  responseType?: string;
-  tooLarge?: boolean;
-  data?: Uint8Array;
-} = {}) => {
+const getApi = (
+  options: {
+    foreign?: boolean;
+    redirect?: boolean;
+    responseType?: string;
+    tooLarge?: boolean;
+    data?: Uint8Array;
+  } = {},
+) => {
   let cdnCalls = 0;
   let cancelled = false;
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -47,7 +49,10 @@ const getApi = (options: {
       expect(init?.redirect).toBe("manual");
       expect(JSON.stringify(init?.headers)).not.toContain("synthetic-personal-oauth-token");
       if (options.redirect)
-        return new Response(null, { status: 302, headers: { location: "http://localhost/private" } });
+        return new Response(null, {
+          status: 302,
+          headers: { location: "http://localhost/private" },
+        });
       if (options.tooLarge)
         return new Response(
           new ReadableStream<Uint8Array>({
