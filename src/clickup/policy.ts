@@ -214,6 +214,7 @@ export const COMPANY_LIST_TASK_OPERATIONS: ReadonlySet<string> = new Set([
   "clickup_create_checklist_item",
   "clickup_update_checklist_item",
   "clickup_read_task_pdf",
+  "clickup_read_task_image",
   "clickup_get_threaded_replies",
   "clickup_get_task_time_entries",
   "clickup_get_task_time_in_status",
