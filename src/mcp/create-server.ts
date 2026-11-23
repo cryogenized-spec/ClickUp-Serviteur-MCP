@@ -462,9 +462,7 @@ export function createServer(deps?: ReadDependencies): McpServer {
               grant,
               dependencies.fetcher ?? fetch,
             );
-            return spec.name === "clickup_read_task_image"
-              ? toolImage(value)
-              : toolSuccess(value);
+            return spec.name === "clickup_read_task_image" ? toolImage(value) : toolSuccess(value);
           } catch (error) {
             return toolError(error);
           }
