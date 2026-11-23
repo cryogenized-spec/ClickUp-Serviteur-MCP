@@ -175,7 +175,7 @@ const F = {
     "Exact currently observed task title; required for company test-task deletion.",
     180,
   ),
-  attachment_id: str("Exact PDF attachment ID from the verified task; never supply a URL.", 100),
+  attachment_id: str("Exact attachment ID from the verified task; never supply a URL.", 100),
   parent_comment_id: str(
     "Verified parent comment ID on the same authorized task; create a threaded reply.",
     100,
@@ -768,6 +768,15 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "read",
     "Read bounded text-layer PDF content from an attachment ID belonging to a verified authorized task. No arbitrary URL input, no upload, no OCR. Never log signed ClickUp download links; large, encrypted and scanned PDFs return explicit errors.",
     "Read the authorized repair job card PDF and identify the model or serial described inside.",
+    ["task_id", "attachment_id"],
+  ),
+  tool(
+    "clickup_read_task_image",
+    "Read Task Image",
+    "attachments",
+    "read",
+    "Read an authorized task's actual PNG, JPEG or WebP bytes as an MCP image block. Requires exact attachment ID; no arbitrary URLs, redirects or OCR. Download size and dimensions are bounded. Useful for screenshots and product photos in ClickUp comments.",
+    "Read the WhatsApp screenshot attached to the WOOX stock task.",
     ["task_id", "attachment_id"],
   ),
 
