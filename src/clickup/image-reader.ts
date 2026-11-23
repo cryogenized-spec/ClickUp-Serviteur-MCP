@@ -24,15 +24,13 @@ function approvedMime(attachment: Record<string, unknown>): ImageMime {
   const extension = String(attachment["extension"] ?? "").toLowerCase();
   const mime = String(attachment["mimetype"] ?? "").toLowerCase();
   if (extension === "png" && mime === "image/png") return "image/png";
-  if ((extension === "jpg" || extension === "jpeg") && mime === "image/jpeg")
-    return "image/jpeg";
+  if ((extension === "jpg" || extension === "jpeg") && mime === "image/jpeg") return "image/jpeg";
   if (extension === "webp" && mime === "image/webp") return "image/webp";
   throw new ReadFailure("CLICKUP_IMAGE_UNSUPPORTED_TYPE");
 }
 
 function approvedUrl(value: unknown, workspaceId: string): URL {
-  if (!/^[1-9]\d{0,19}$/.test(workspaceId))
-    throw new ReadFailure("CLICKUP_IMAGE_HOST_NOT_ALLOWED");
+  if (!/^[1-9]\d{0,19}$/.test(workspaceId)) throw new ReadFailure("CLICKUP_IMAGE_HOST_NOT_ALLOWED");
   if (typeof value !== "string" || value.length > 2_048)
     throw new ReadFailure("CLICKUP_IMAGE_URL_UNAVAILABLE");
   let parsed: URL;
@@ -54,7 +52,11 @@ function approvedUrl(value: unknown, workspaceId: string): URL {
   return parsed;
 }
 
-async function downloadImage(source: URL, mime: ImageMime, fetcher: typeof fetch): Promise<Uint8Array> {
+async function downloadImage(
+  source: URL,
+  mime: ImageMime,
+  fetcher: typeof fetch,
+): Promise<Uint8Array> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
@@ -182,11 +184,7 @@ function imageDimensions(bytes: Uint8Array, mime: ImageMime): { width: number; h
   if (kind === "VP8L" && byte(bytes, 20) === 0x2f) {
     return {
       width: 1 + byte(bytes, 21) + (byte(bytes, 22) & 0x3f) * 256,
-      height:
-        1 +
-        (byte(bytes, 22) >> 6) +
-        byte(bytes, 23) * 4 +
-        (byte(bytes, 24) & 0x0f) * 1024,
+      height: 1 + (byte(bytes, 22) >> 6) + byte(bytes, 23) * 4 + (byte(bytes, 24) & 0x0f) * 1024,
     };
   }
   if (
