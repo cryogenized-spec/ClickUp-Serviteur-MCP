@@ -1027,6 +1027,7 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_update_bulk_tasks",
   "clickup_get_task_comments",
   "clickup_read_task_pdf",
+  "clickup_read_task_image",
   "clickup_get_threaded_replies",
   "clickup_create_task_comment",
   "clickup_delete_task_comment",
@@ -1131,6 +1132,7 @@ const WORKSPACE_SCOPE_OPERATIONS = new Set([
   "clickup_create_checklist_item",
   "clickup_update_checklist_item",
   "clickup_read_task_pdf",
+  "clickup_read_task_image",
   "clickup_get_threaded_replies",
   "clickup_create_task_comment",
   "clickup_delete_task_comment",
@@ -2255,6 +2257,19 @@ export async function runCatalogOperation(
     }
     case "clickup_get_task":
       return short(await task("task_id"));
+    case "clickup_read_task_image": {
+      // Same authoritative Workspace and home-List preflight as task/PDF reads.
+      const verified = await task("task_id");
+      const attachments = verified["attachments"];
+      if (!Array.isArray(attachments) || attachments.length > 200)
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const selected = attachments
+        .map(obj)
+        .find((item) => String(item?.["id"]) === String(a["attachment_id"]));
+      if (!selected) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const { readVerifiedTaskImage } = await import("./image-reader.js");
+      return readVerifiedTaskImage(selected, f, g.workspaceId);
+    }
     case "clickup_read_task_pdf": {
       const verified = await task("task_id");
       const attachments = verified["attachments"];
