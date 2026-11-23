@@ -70,6 +70,28 @@ function toolSuccess(value: Record<string, unknown>) {
   };
 }
 
+/** Keep signed attachment URLs and base64 out of textual MCP output. */
+export function toolImage(value: Record<string, unknown>) {
+  const data = value["image_data_base64"];
+  const mime = value["mime_type"];
+  if (
+    typeof data !== "string" ||
+    data.length < 1 ||
+    (mime !== "image/png" && mime !== "image/jpeg" && mime !== "image/webp")
+  )
+    throw new ReadFailure("CLICKUP_IMAGE_RESULT_INVALID");
+  const metadata = Object.fromEntries(
+    Object.entries(value).filter(([key]) => key !== "image_data_base64"),
+  );
+  return {
+    content: [
+      { type: "text" as const, text: JSON.stringify(metadata) },
+      { type: "image" as const, mimeType: mime, data },
+    ],
+    structuredContent: metadata,
+  };
+}
+
 export function createServer(deps?: ReadDependencies): McpServer {
   const server = new McpServer({ name: "clickup-serviteur-mcp", version: "0.3.0-beta.1" });
 
@@ -434,9 +456,13 @@ export function createServer(deps?: ReadDependencies): McpServer {
             const grant = write
               ? await requireWriteGrant(extra.http?.authInfo, dependencies.bindings, spec.name)
               : await requireReadGrant(extra.http?.authInfo, dependencies.bindings);
-            return toolSuccess(
-              await runCatalogOperation(spec.name, args, grant, dependencies.fetcher ?? fetch),
+            const value = await runCatalogOperation(
+              spec.name,
+              args,
+              grant,
+              dependencies.fetcher ?? fetch,
             );
+            return spec.name === "clickup_read_task_image" ? toolImage(value) : toolSuccess(value);
           } catch (error) {
             return toolError(error);
           }
