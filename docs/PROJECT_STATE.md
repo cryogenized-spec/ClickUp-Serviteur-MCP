@@ -1,3 +1,13 @@
+# 23 November 2026 — read-only task image reader (source candidate)
+
+Owner-approved work on a branch adds one tool, \`clickup_read_task_image\`, to the **existing** unified Serviteur MCP. It verifies the connected user's task home-List/Workspace and exact attachment membership, downloads only the verified Workspace CDN URL without forwarding OAuth credentials, validates size/MIME/file header/dimensions, and returns an MCP image block rather than exposing signed links or base64 in text. PNG/JPEG/WebP are the supported formats. Synthetic acceptance tests and [design/gates](TASK_IMAGE_READER_2026-11.md) accompany the code.
+
+**Evidence:** Source commits on \`feat/read-task-attachment-images\` have been pushed. Tests, CI/security review, internal staging delivery, private signed-URL behavior and client image rendering have **not yet been verified**; no company deployment or live customer image retrieval occurred. Do not claim this tool works in the currently connected company MCP until deployment and readback establish it.
+
+**One next action:** Obtain exact-head strict CI/CodeQL results for the image-reader PR; correct any failures, then run a protected internal staging read with authorized test images before company promotion.
+
+---
+
 # 13 November 2026 — genuine ClickUp subtasks source candidate (issue #139)
 
 The **one existing ClickUp Serviteur MCP** now has a source candidate adding three real hierarchy operations: `clickup_create_subtask`, `clickup_list_direct_subtasks` and `clickup_reparent_task`. The implementation uses official ClickUp task `parent` fields, not links/checklists; validates exact parent and same authorized List, cycle ancestry, stale expected title/parent and bounded duplicate preflight, with authoritative GET readback after each mutation. Existing assignee/status/description/due-date/priority draft support is reused for new child tasks. There is no automatic retry after ambiguous writes.
