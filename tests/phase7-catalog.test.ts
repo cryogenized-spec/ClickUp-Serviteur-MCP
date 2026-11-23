@@ -2149,7 +2149,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       ).rejects.toThrow("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
     }
     expect(f).not.toHaveBeenCalled();
-    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(87);
+    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(88);
   });
 
   it("permits cross-List moves in the explicitly authorised Workspace", async () => {
