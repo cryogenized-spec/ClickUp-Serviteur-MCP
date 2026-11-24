@@ -1,5 +1,5 @@
 import { quotaCall } from "./client.js";
-import { apiDiagnostic, ReadFailure, type ReadGrant } from "./policy.js";
+import { apiDiagnostic, authorizationDiagnostic, ReadFailure, type ReadGrant } from "./policy.js";
 
 /**
  * Minimal native ClickUp REST adapter. ClickUp remains the ONLY task/activity
@@ -35,7 +35,10 @@ async function requestJson(
       signal: controller.signal,
     });
     if (response.status === 401 || response.status === 403)
-      throw new ReadFailure("CLICKUP_UPSTREAM_DENIED", apiDiagnostic(method, response.status));
+      throw new ReadFailure(
+        "CLICKUP_UPSTREAM_DENIED",
+        await authorizationDiagnostic(method, response, path),
+      );
     if (response.status === 429) {
       const reset = response.headers.get("X-RateLimit-Reset");
       const seconds = reset && /^\d{1,12}$/.test(reset) ? Number(reset) : 0;
