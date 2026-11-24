@@ -42,11 +42,13 @@ const stage = {
     bindings: [
       { name: "CLICKUP_QUOTA", class_name: "ClickUpQuota" },
       { name: "CLICKUP_CONNECTIONS", class_name: "ClickUpUserConnection" },
+      { name: "CLICKUP_WEBHOOK_EVENTS", class_name: "ClickUpWebhookEvents" },
     ],
   },
   migrations: [
     { tag: "phase4-v1", new_sqlite_classes: ["ClickUpQuota"] },
     { tag: "phase5-user-oauth", new_sqlite_classes: ["ClickUpUserConnection"] },
+    { tag: "webhook-events-v1", new_sqlite_classes: ["ClickUpWebhookEvents"] },
   ],
 };
 writeFileSync(".wrangler-staging.generated.jsonc", JSON.stringify(stage, null, 2) + "\n", { mode: 0o600 });

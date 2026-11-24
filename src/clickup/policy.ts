@@ -15,6 +15,7 @@ export interface ReadGrant {
   readonly companyCleanupAccess?: boolean;
   readonly workspaceId: string;
   readonly apiToken: string;
+  readonly webhookEvents?: ReadGrant["quota"];
   readonly quota: {
     readonly idFromName: (name: string) => unknown;
     readonly get: (id: never) => { fetch: (request: Request) => Promise<Response> };
@@ -176,7 +177,17 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
       : "list";
   if (effectiveScope === "workspace" && user.workspaceExclusive !== true)
     throw new ReadFailure("CLICKUP_WORKSPACE_RECONSENT_REQUIRED");
+  const eventBinding = record(env["CLICKUP_WEBHOOK_EVENTS"]);
+  const webhookEvents =
+    env["CLICKUP_WEBHOOK_ENABLED"] === "true" &&
+    effectiveScope === "workspace" &&
+    eventBinding &&
+    typeof eventBinding["idFromName"] === "function" &&
+    typeof eventBinding["get"] === "function"
+      ? (eventBinding as unknown as ReadGrant["quota"])
+      : undefined;
   return {
+    ...(webhookEvents ? { webhookEvents } : {}),
     subject,
     clickupUserId: user.clickupUserId,
     // A user's selected List is scoped to the same OAuth Workspace and
@@ -210,6 +221,7 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
  * expansion are deliberately absent. Every name must be reviewed individually.
  */
 export const COMPANY_SAFE_WRITE_OPERATIONS: ReadonlySet<string> = new Set([
+  "clickup_acknowledge_activity",
   "clickup_create_list_from_template",
   "clickup_create_folder_from_template",
   "create_scoped_task",

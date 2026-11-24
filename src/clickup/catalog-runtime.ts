@@ -1081,6 +1081,8 @@ async function scopedChatReactions(
 }
 
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
+  "clickup_get_pending_activity",
+  "clickup_acknowledge_activity",
   "clickup_get_shared_resources",
   "clickup_get_task_attachments",
   "clickup_get_list_templates",
@@ -1185,6 +1187,8 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
 // after a same-Workspace, exact-home-List preflight. Other Workspace-wide
 // operations remain blocked. ClickUp owns task history and enforces its ACL.
 const WORKSPACE_SCOPE_OPERATIONS = new Set([
+  "clickup_get_pending_activity",
+  "clickup_acknowledge_activity",
   "clickup_get_shared_resources",
   "clickup_get_task_attachments",
   "clickup_get_list_templates",
@@ -1508,6 +1512,113 @@ export async function runCatalogOperation(
       // The response acknowledges a native merge; never repeat after uncertainty.
       return { acknowledgement: clip(result), readback_verified: false, retry_safe: false };
     }
+    case "clickup_get_pending_activity":
+    case "clickup_acknowledge_activity": {
+      if (!g.webhookEvents) throw new ReadFailure("CLICKUP_EVENT_STORAGE_UNAVAILABLE");
+      const binding = g.webhookEvents;
+      const stub = binding.get(binding.idFromName(W + ":" + g.subject) as never);
+      const validKey = (key: unknown): key is string =>
+        typeof key === "string" && /^[a-f0-9-]{36}:[a-zA-Z0-9_-]{1,100}$/i.test(key);
+      if (name === "clickup_acknowledge_activity") {
+        const keys = a["event_keys"];
+        if (
+          a["confirm_review"] !== true ||
+          !Array.isArray(keys) ||
+          keys.length < 1 ||
+          keys.length > 50 ||
+          !keys.every(validKey)
+        )
+          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        await taskInWorkspace(g, f, a["task_id"], true);
+        const result = await stub.fetch(
+          new Request("https://internal/acknowledge", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ task_id: a["task_id"], event_keys: keys }),
+          }),
+        );
+        if (!result.ok) throw new ReadFailure("CLICKUP_EVENT_ACKNOWLEDGEMENT_FAILED");
+        const body = obj(await result.json());
+        const expected = [...new Set(keys)];
+        if (
+          !Array.isArray(body?.["acknowledged_event_keys"]) ||
+          JSON.stringify(body["acknowledged_event_keys"]) !== JSON.stringify(expected)
+        )
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+        return { task_id: a["task_id"], acknowledged_event_keys: expected };
+      }
+      const afterTime = a["event_after_time"];
+      const afterKey = a["event_after_key"];
+      if (
+        (afterTime === undefined) !== (afterKey === undefined) ||
+        (afterTime !== undefined &&
+          (typeof afterTime !== "number" || !Number.isSafeInteger(afterTime) || afterTime < 0)) ||
+        (afterKey !== undefined && !validKey(afterKey))
+      )
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const url = new URL("https://internal/pending");
+      if (afterTime !== undefined && typeof afterKey === "string") {
+        url.searchParams.set("after_time", String(afterTime));
+        url.searchParams.set("after_key", afterKey);
+      }
+      const result = await stub.fetch(new Request(url));
+      if (!result.ok) throw new ReadFailure("CLICKUP_EVENT_STORAGE_UNAVAILABLE");
+      const body = obj(await result.json());
+      const events = body?.["events"];
+      if (!Array.isArray(events) || events.length > 10)
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const grouped = new Map<string, Json>();
+      const denied = new Set<string>();
+      let last: Json | null = null;
+      for (const raw of events.slice(0, N)) {
+        const event = obj(raw);
+        if (
+          !event ||
+          !validKey(event["event_key"]) ||
+          typeof event["task_id"] !== "string" ||
+          typeof event["event"] !== "string" ||
+          typeof event["received_at"] !== "number" ||
+          !Number.isSafeInteger(event["received_at"])
+        )
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        last = event;
+        const taskId = event["task_id"];
+        if (denied.has(taskId)) continue;
+        let group = grouped.get(taskId);
+        if (!group) {
+          try {
+            const item = await taskInWorkspace(g, f, taskId, true);
+            group = {
+              task_id: item["id"],
+              name: item["name"],
+              status: clip(item["status"]),
+              url: item["url"],
+              events: [],
+            };
+            grouped.set(taskId, group);
+          } catch (error) {
+            if (!(error instanceof ReadFailure)) throw error;
+            denied.add(taskId);
+            continue;
+          }
+        }
+        (group["events"] as Json[]).push({
+          event_key: event["event_key"],
+          event: event["event"],
+          received_at: event["received_at"],
+        });
+      }
+      const more = body?.["incomplete"] === true || events.length > N;
+      return {
+        tasks: [...grouped.values()],
+        unverified_task_count: denied.size,
+        next_event_after_time: more ? (last?.["received_at"] ?? null) : null,
+        next_event_after_key: more ? (last?.["event_key"] ?? null) : null,
+        incomplete: more || denied.size > 0,
+        read_only: true,
+        note: "Reading does not acknowledge events. Retrieve current comments and context before acknowledging exact reviewed keys.",
+      };
+    }
     case "clickup_get_webhooks": {
       const result = await call("GET", v2("team/" + W + "/webhook"));
       const rows = result["webhooks"];
@@ -1721,8 +1832,8 @@ export async function runCatalogOperation(
         continuation_unavailable: continuationUnavailable,
       };
     }
-    case "clickup_get_my_attention_items":
-      return getMyAttentionItems(
+    case "clickup_get_my_attention_items": {
+      const report = await getMyAttentionItems(
         a,
         g,
         (path) => call("GET", v2(path)),
@@ -1730,6 +1841,53 @@ export async function runCatalogOperation(
           await listInWorkspace(g, f, listId);
         },
       );
+      if (!g.webhookEvents || !workspaceScope || a["list_id"] !== undefined) return report;
+      // Events are only hints. Never disclose an ID or title without a fresh
+      // authorized upstream task read, including individually shared tasks.
+      const verified: Json[] = [];
+      let incomplete: boolean;
+      let scanned = 0;
+      try {
+        const binding = g.webhookEvents;
+        const stub = binding.get(binding.idFromName(W + ":" + g.subject) as never);
+        const result = await stub.fetch(new Request("https://internal/recent"));
+        if (!result.ok) throw new ReadFailure("CLICKUP_EVENT_STORAGE_UNAVAILABLE");
+        const body = obj(await result.json());
+        const candidates = body?.["tasks"];
+        if (!Array.isArray(candidates) || candidates.length > 50)
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        const cap = Math.min(N, 10);
+        incomplete = body?.["incomplete"] === true || candidates.length > cap;
+        for (const row of candidates.slice(0, cap)) {
+          const candidate = obj(row);
+          scanned++;
+          try {
+            const item = await taskInWorkspace(g, f, candidate?.["task_id"], true);
+            verified.push({
+              task_id: item["id"],
+              name: item["name"],
+              status: clip(item["status"]),
+              received_at: candidate?.["received_at"],
+              url: item["url"],
+            });
+          } catch (error) {
+            if (!(error instanceof ReadFailure)) throw error;
+            incomplete = true;
+          }
+        }
+      } catch {
+        incomplete = true;
+      }
+      return {
+        ...report,
+        webhook_activity: {
+          recent_verified_tasks: verified,
+          candidates_scanned: scanned,
+          incomplete,
+          note: "Recent change hints, not Inbox notifications or proof that attention is required.",
+        },
+      };
+    }
     case "clickup_filter_tasks":
     case "clickup_get_my_tasks": {
       const isMine = name === "clickup_get_my_tasks" || a["assigned_to_me"] === true;
