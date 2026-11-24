@@ -138,6 +138,13 @@ const taskDraft = obj(
 );
 
 const F = {
+  webhook_id: str("Exact existing Serviteur webhook UUID from the authorized inventory.", 36),
+  confirm_webhook: flag("True only after explicit approval for this subscription operation."),
+  webhook_status: {
+    type: "string",
+    description: "Requested native webhook health status: active or suspended.",
+    enum: ["active", "suspended"],
+  },
   confirm_clear: flag("True only after explicit approval to clear the exact task field value."),
   event_after_time: integer(
     "Timestamp from the previous pending activity cursor.",
@@ -1504,6 +1511,35 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Mark only the exact reviewed event keys on one freshly authorized task as acknowledged in the private Serviteur register. Does not modify ClickUp or its Inbox. Requires explicit user approval.",
     "Acknowledge these reviewed changes for this task.",
     ["task_id", "event_keys", "confirm_review"],
+  ),
+
+  // MANAGED WEBHOOK LIFECYCLE
+  tool(
+    "clickup_create_activity_webhook",
+    "Create Activity Webhook",
+    "hierarchy",
+    "write",
+    "Register task-change events for this OAuth Workspace at the fixed Serviteur receiver. Stores the signing secret privately; never creates a duplicate known subscription.",
+    "Activate the approved Serviteur activity subscription.",
+    ["confirm_webhook"],
+  ),
+  tool(
+    "clickup_update_activity_webhook",
+    "Update Activity Webhook",
+    "hierarchy",
+    "write",
+    "Reactivate or suspend an existing verified Serviteur subscription owned by the connected user, keeping its destination fixed and its secret private.",
+    "Reactivate this verified activity webhook.",
+    ["webhook_id", "webhook_status", "confirm_webhook"],
+  ),
+  tool(
+    "clickup_delete_activity_webhook",
+    "Delete Activity Webhook",
+    "hierarchy",
+    "destructive",
+    "Remove only an explicitly approved subscription owned by the connected user at the fixed Serviteur destination, with upstream inventory readback.",
+    "Remove this approved Serviteur subscription.",
+    ["webhook_id", "confirm_webhook"],
   ),
 
   // HIGH PRIORITY CUSTOM FIELDS AND ATTACHMENTS
