@@ -71,8 +71,11 @@ function mockApi(options: MockOptions = {}) {
 describe("sole-owner ClickUp cleanup", () => {
   it("registers explicit cleanup operations and confirms destructive metadata", () => {
     expect([...COMPANY_OWNER_CLEANUP_OPERATIONS].sort()).toEqual([
+      "clickup_clear_custom_field",
+      "clickup_delete_checklist_item",
       "clickup_delete_own_chat_message",
       "clickup_delete_task",
+      "clickup_delete_task_checklist",
       "clickup_delete_task_comment",
       "clickup_merge_tasks",
       "clickup_remove_dependency",
