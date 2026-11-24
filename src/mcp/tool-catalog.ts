@@ -138,6 +138,20 @@ const taskDraft = obj(
 );
 
 const F = {
+  event_after_time: integer(
+    "Timestamp from the previous pending activity cursor.",
+    0,
+    9_007_199_254_740_991,
+  ),
+  event_after_key: str("Exact event key from the previous pending activity cursor.", 140),
+  event_keys: arrayOf(
+    "Exact reviewed event keys for the named task.",
+    str("Event key from pending activity.", 140),
+    50,
+  ),
+  confirm_review: flag(
+    "True only after the named events were reviewed and explicitly approved for acknowledgement.",
+  ),
   confirm_merge: flag("True only after explicit approval of the exact irreversible merge preview."),
   expected_merge_fingerprint: str("Fingerprint from the matching task merge preview.", 64),
   resource_offset: integer("Zero-based index in the returned resource collection.", 0, 100000),
@@ -1468,6 +1482,27 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Compare time in QA across repair tasks.",
     ["list_id"],
     ["max_results"],
+  ),
+
+  // PERSISTENT ACTIVITY REGISTER
+  tool(
+    "clickup_get_pending_activity",
+    "Get Pending Activity",
+    "reporting",
+    "read",
+    "Read unacknowledged task change events grouped by freshly authorized task. Follow paired cursor fields. Reading does not acknowledge events; retrieve task comments and context for the briefing.",
+    "What changed since my last reviewed activity briefing?",
+    [],
+    ["max_results", "event_after_time", "event_after_key"],
+  ),
+  tool(
+    "clickup_acknowledge_activity",
+    "Acknowledge Reviewed Activity",
+    "reporting",
+    "write",
+    "Mark only the exact reviewed event keys on one freshly authorized task as acknowledged in the private Serviteur register. Does not modify ClickUp or its Inbox. Requires explicit user approval.",
+    "Acknowledge these reviewed changes for this task.",
+    ["task_id", "event_keys", "confirm_review"],
   ),
 
   // NATIVE API EXPANSION
