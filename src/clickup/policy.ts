@@ -232,6 +232,7 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
  * expansion are deliberately absent. Every name must be reviewed individually.
  */
 export const COMPANY_SAFE_WRITE_OPERATIONS: ReadonlySet<string> = new Set([
+  "clickup_associate_file_field_attachment",
   "clickup_create_activity_webhook",
   "clickup_update_activity_webhook",
   "clickup_clear_custom_field",
