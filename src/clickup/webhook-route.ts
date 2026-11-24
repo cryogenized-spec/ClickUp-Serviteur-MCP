@@ -14,7 +14,6 @@ export async function handleClickUpWebhook(request: Request, env: OAuthEnv): Pro
   const binding = env.CLICKUP_WEBHOOK_EVENTS as EventBinding | undefined;
   if (
     env.CLICKUP_WEBHOOK_ENABLED !== "true" ||
-    !env.CLICKUP_WEBHOOK_REGISTRATIONS ||
     !env.CLICKUP_WORKSPACE_ID ||
     !binding ||
     typeof binding.idFromName !== "function" ||
@@ -25,7 +24,7 @@ export async function handleClickUpWebhook(request: Request, env: OAuthEnv): Pro
   const allowed = parseStaffAllowlist(env.ALLOWED_GITHUB_IDS);
   let registrations: unknown;
   try {
-    registrations = JSON.parse(env.CLICKUP_WEBHOOK_REGISTRATIONS);
+    registrations = JSON.parse(env.CLICKUP_WEBHOOK_REGISTRATIONS ?? "[]");
   } catch {
     return new Response(null, { status: 503 });
   }
@@ -55,7 +54,24 @@ export async function handleClickUpWebhook(request: Request, env: OAuthEnv): Pro
     configured.set(webhookId, { workspaceId, subject, secret });
   }
   return receiveClickUpWebhook(request, {
-    resolve: async (id) => configured.get(id) ?? null,
+    resolve: async (id) => {
+      const manual = configured.get(id);
+      if (manual) return manual;
+      const stub = binding.get(binding.idFromName("registry:" + workspaceId + ":" + id) as never);
+      const response = await stub.fetch(new Request("https://internal/registry"));
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error("REGISTRY_UNAVAILABLE");
+      const row = (await response.json()) as WebhookRegistration;
+      if (
+        row.workspaceId !== workspaceId ||
+        typeof row.subject !== "string" ||
+        !row.subject.startsWith("github:") ||
+        !allowed.has(row.subject.slice(7)) ||
+        typeof row.secret !== "string"
+      )
+        return null;
+      return row;
+    },
     persist: async (registration, hints) => {
       const key = registration.workspaceId + ":" + registration.subject;
       const stub = binding.get(binding.idFromName(key) as never);
