@@ -7,8 +7,7 @@ export async function verifyClickUpWebhookSignature(
   signature: string,
   secret: string,
 ): Promise<boolean> {
-  if (!/^[0-9a-f]{64}$/i.test(signature) || !secret || body.byteLength > 1_000_000)
-    return false;
+  if (!/^[0-9a-f]{64}$/i.test(signature) || !secret || body.byteLength > 1_000_000) return false;
   const signatureBytes = new Uint8Array(32);
   for (let i = 0; i < signatureBytes.length; i++)
     signatureBytes[i] = Number.parseInt(signature.slice(i * 2, i * 2 + 2), 16);
