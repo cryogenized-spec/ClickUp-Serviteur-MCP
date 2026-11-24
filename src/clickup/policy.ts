@@ -16,6 +16,7 @@ export interface ReadGrant {
   readonly workspaceId: string;
   readonly apiToken: string;
   readonly webhookEvents?: ReadGrant["quota"];
+  readonly webhookEndpoint?: string;
   readonly quota: {
     readonly idFromName: (name: string) => unknown;
     readonly get: (id: never) => { fetch: (request: Request) => Promise<Response> };
@@ -186,8 +187,18 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
     typeof eventBinding["get"] === "function"
       ? (eventBinding as unknown as ReadGrant["quota"])
       : undefined;
+  const origin = env["MCP_PUBLIC_ORIGIN"];
+  const webhookEndpoint =
+    webhookEvents &&
+    typeof origin === "string" &&
+    /^https:\/\/[a-zA-Z0-9.-]+(?::[0-9]+)?$/.test(origin) &&
+    typeof env["CLICKUP_TOKEN_KEY"] === "string" &&
+    /^[A-Za-z0-9+/]{43}=$/.test(env["CLICKUP_TOKEN_KEY"])
+      ? origin + "/clickup/webhook"
+      : undefined;
   return {
     ...(webhookEvents ? { webhookEvents } : {}),
+    ...(webhookEndpoint ? { webhookEndpoint } : {}),
     subject,
     clickupUserId: user.clickupUserId,
     // A user's selected List is scoped to the same OAuth Workspace and
