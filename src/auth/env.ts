@@ -28,6 +28,9 @@ export interface OAuthEnv {
   readonly CLICKUP_LIST_ID?: string;
   readonly CLICKUP_READ_GITHUB_IDS?: string;
   readonly CLICKUP_QUOTA?: unknown;
+  readonly CLICKUP_WEBHOOK_ENABLED?: string;
+  readonly CLICKUP_WEBHOOK_REGISTRATIONS?: string;
+  readonly CLICKUP_WEBHOOK_EVENTS?: unknown;
 }
 
 export function validatedOAuthOrigin(env: unknown, request: Request): string | null {
