@@ -210,6 +210,8 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
  * expansion are deliberately absent. Every name must be reviewed individually.
  */
 export const COMPANY_SAFE_WRITE_OPERATIONS: ReadonlySet<string> = new Set([
+  "clickup_create_list_from_template",
+  "clickup_create_folder_from_template",
   "create_scoped_task",
   "clickup_create_task",
   "clickup_create_subtask",
@@ -292,6 +294,7 @@ export function isCompanyNonDestructiveOperation(name: string): boolean {
  * No general delete-List/Folder/Doc privilege is inferred from this grant.
  */
 export const COMPANY_OWNER_CLEANUP_OPERATIONS: ReadonlySet<string> = new Set([
+  "clickup_merge_tasks",
   "clickup_delete_task",
   "clickup_delete_task_comment",
   "clickup_remove_tag_from_task",
