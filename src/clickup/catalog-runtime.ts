@@ -1082,7 +1082,7 @@ async function scopedChatReactions(
 
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_get_shared_resources",
-  "clickup_get_task_attachments_v3",
+  "clickup_get_task_attachments",
   "clickup_get_list_templates",
   "clickup_get_folder_templates",
   "clickup_create_list_from_template",
@@ -1186,7 +1186,7 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
 // operations remain blocked. ClickUp owns task history and enforces its ACL.
 const WORKSPACE_SCOPE_OPERATIONS = new Set([
   "clickup_get_shared_resources",
-  "clickup_get_task_attachments_v3",
+  "clickup_get_task_attachments",
   "clickup_get_list_templates",
   "clickup_get_folder_templates",
   "clickup_create_list_from_template",
@@ -1281,7 +1281,7 @@ export async function runCatalogOperation(
   const call = (method: Method, path: string, body?: Json, responseMode: ResponseMode = "strict") =>
     send(g, f, method, path, body, responseMode);
   const allowSharedTask =
-    name === "clickup_get_task_attachments_v3" ||
+    name === "clickup_get_task_attachments" ||
     name === "clickup_get_task" ||
     name === "clickup_get_task_comments" ||
     name === "clickup_create_task_comment";
@@ -1389,7 +1389,7 @@ export async function runCatalogOperation(
         incomplete: offset + N < rows.length,
       };
     }
-    case "clickup_get_task_attachments_v3": {
+    case "clickup_get_task_attachments": {
       await task("task_id");
       const params = new URLSearchParams({ limit: String(N) });
       if (a["attachment_cursor"] !== undefined)
