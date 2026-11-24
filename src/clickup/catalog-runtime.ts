@@ -1721,8 +1721,8 @@ export async function runCatalogOperation(
         continuation_unavailable: continuationUnavailable,
       };
     }
-    case "clickup_get_my_attention_items":
-      return getMyAttentionItems(
+    case "clickup_get_my_attention_items": {
+      const report = await getMyAttentionItems(
         a,
         g,
         (path) => call("GET", v2(path)),
@@ -1730,6 +1730,53 @@ export async function runCatalogOperation(
           await listInWorkspace(g, f, listId);
         },
       );
+      if (!g.webhookEvents || !workspaceScope || a["list_id"] !== undefined) return report;
+      // Events are only hints. Never disclose an ID or title without a fresh
+      // authorized upstream task read, including individually shared tasks.
+      const verified: Json[] = [];
+      let incomplete = false;
+      let scanned = 0;
+      try {
+        const binding = g.webhookEvents;
+        const stub = binding.get(binding.idFromName(W + ":" + g.subject) as never);
+        const result = await stub.fetch(new Request("https://internal/recent"));
+        if (!result.ok) throw new ReadFailure("CLICKUP_EVENT_STORAGE_UNAVAILABLE");
+        const body = obj(await result.json());
+        const candidates = body?.["tasks"];
+        if (!Array.isArray(candidates) || candidates.length > 50)
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        const cap = Math.min(N, 10);
+        incomplete = body?.["incomplete"] === true || candidates.length > cap;
+        for (const row of candidates.slice(0, cap)) {
+          const candidate = obj(row);
+          scanned++;
+          try {
+            const item = await taskInWorkspace(g, f, candidate?.["task_id"], true);
+            verified.push({
+              task_id: item["id"],
+              name: item["name"],
+              status: clip(item["status"]),
+              received_at: candidate?.["received_at"],
+              url: item["url"],
+            });
+          } catch (error) {
+            if (!(error instanceof ReadFailure)) throw error;
+            incomplete = true;
+          }
+        }
+      } catch {
+        incomplete = true;
+      }
+      return {
+        ...report,
+        webhook_activity: {
+          recent_verified_tasks: verified,
+          candidates_scanned: scanned,
+          incomplete,
+          note: "Recent change hints, not Inbox notifications or proof that attention is required.",
+        },
+      };
+    }
     case "clickup_filter_tasks":
     case "clickup_get_my_tasks": {
       const isMine = name === "clickup_get_my_tasks" || a["assigned_to_me"] === true;
