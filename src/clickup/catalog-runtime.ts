@@ -27,6 +27,7 @@ import {
 } from "./chat-v3.js";
 import {
   apiDiagnostic,
+  authorizationDiagnostic,
   COMPANY_LIST_TASK_OPERATIONS,
   ReadFailure,
   type ReadGrant,
@@ -278,7 +279,7 @@ async function send(
     if (res.status === 401 || res.status === 403)
       throw new ReadFailure(
         "CLICKUP_UPSTREAM_DENIED",
-        chatDiagnostic("rejected", res.status) ?? apiDiagnostic(method, res.status),
+        chatDiagnostic("rejected", res.status) ?? (await authorizationDiagnostic(method, res, path)),
       );
     if (!res.ok) {
       if (chatSend) {
