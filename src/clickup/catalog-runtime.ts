@@ -2924,7 +2924,9 @@ export async function runCatalogOperation(
       const readOwn = async (): Promise<Json> => {
         const result = await call("GET", path);
         if (!Array.isArray(result["comments"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-        const item = result["comments"].map(obj).find((entry) => String(entry?.["id"]) === commentId);
+        const item = result["comments"]
+          .map(obj)
+          .find((entry) => String(entry?.["id"]) === commentId);
         if (!item || String(obj(item["user"])?.["id"]) !== g.clickupUserId)
           throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
         return item;
@@ -2944,11 +2946,13 @@ export async function runCatalogOperation(
       const resolved = original["resolved"] === true;
       const input = a["rich_segments"];
       const wantsMentions =
-        Array.isArray(input) && input.some((segment) => obj(segment)?.["mention_user_id"] !== undefined);
+        Array.isArray(input) &&
+        input.some((segment) => obj(segment)?.["mention_user_id"] !== undefined);
       const eligible = new Set(
         wantsMentions ? (await members(g, f)).map((user) => String(user["id"])) : [],
       );
-      const replacement = input === undefined ? [] : compileClickUpRichSegments(input, eligible).segments;
+      const replacement =
+        input === undefined ? [] : compileClickUpRichSegments(input, eligible).segments;
       const next = patchRichComment(before, a["patch_start"], a["patch_delete_count"], replacement);
       const fingerprint = await commentPatchFingerprint({
         taskId,
@@ -2996,7 +3000,9 @@ export async function runCatalogOperation(
       try {
         const stored = await readOwn();
         const storedAssignee =
-          stored["assignee"] === null ? 0 : Number(obj(stored["assignee"])?.["id"] ?? stored["assignee"]);
+          stored["assignee"] === null
+            ? 0
+            : Number(obj(stored["assignee"])?.["id"] ?? stored["assignee"]);
         const replyCount = original["reply_count"];
         if (
           (await commentPatchFingerprint(canonicalPatchComment(stored["comment"]))) !==
