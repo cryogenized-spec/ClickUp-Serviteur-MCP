@@ -764,6 +764,7 @@ async function uploadAttachment(
   filename: string,
   base64: string,
   mime: string,
+  v3Entity?: { type: "attachments" | "custom_fields"; id: string },
 ): Promise<Json> {
   if (
     !/^[a-zA-Z0-9._ ()-]{1,120}$/.test(filename) ||
@@ -786,7 +787,7 @@ async function uploadAttachment(
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   const data = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) data[i] = binary.charCodeAt(i);
-  return uploadAttachmentBytes(grant, fetcher, taskId, filename, data, mime);
+  return uploadAttachmentBytes(grant, fetcher, taskId, filename, data, mime, v3Entity);
 }
 
 /** Inspect only a tiny rejected-upload response; never buffer unlimited 4xx bodies. */
@@ -833,6 +834,7 @@ export async function uploadAttachmentBytes(
   filename: string,
   data: Uint8Array,
   mime: string,
+  v3Entity?: { type: "attachments" | "custom_fields"; id: string },
 ): Promise<Json> {
   if (
     !/^[a-zA-Z0-9._ ()-]{1,120}$/.test(filename) ||
@@ -845,7 +847,13 @@ export async function uploadAttachmentBytes(
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   // The task home List is validated immediately before every upload POST,
   // including the binary file-aware route and the legacy Base64 route.
-  await taskInWorkspace(grant, fetcher, taskId);
+  const target = await taskInWorkspace(grant, fetcher, taskId, v3Entity?.type === "attachments");
+  if (v3Entity) {
+    if (grant.resourceScope !== "workspace") throw new ReadFailure("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
+    if (v3Entity.type === "attachments" && v3Entity.id !== taskId)
+      throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    if (v3Entity.type === "custom_fields") verifyFileField(target, v3Entity.id);
+  }
   const uploadBytes = new Uint8Array(data.byteLength);
   uploadBytes.set(data);
   const form = new FormData();
@@ -853,11 +861,15 @@ export async function uploadAttachmentBytes(
   // attachment[0] in some single-file uploads despite the array documentation.
   // The production-compatible single-file field is the unindexed "attachment".
   form.append("attachment", new Blob([uploadBytes], { type: mime }), filename);
+  if (v3Entity) form.append("filename", filename);
   await quotaCall(grant, "reserve");
   const abort = new AbortController();
   const timeout = setTimeout(() => abort.abort(), 10000);
   try {
-    const res = await fetcher("https://api.clickup.com/api/v2/task/" + id(taskId) + "/attachment", {
+    const uploadPath = v3Entity
+      ? v3("workspaces/" + id(grant.workspaceId) + "/" + v3Entity.type + "/" + id(v3Entity.id) + "/attachments")
+      : v2("task/" + id(taskId) + "/attachment");
+    const res = await fetcher(pathEncoded(uploadPath), {
       method: "POST",
       redirect: "manual",
       signal: abort.signal,
@@ -888,8 +900,7 @@ export async function uploadAttachmentBytes(
     }
     // Only an authoritative response ID correlates this upload to this request.
     // A matching filename seen later may belong to another concurrent writer.
-    const content = await res.text();
-    if (content.length > 1000000) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    const content = await readBoundedJsonBody(res, "CLICKUP_WRITE_OUTCOME_UNKNOWN");
     let parsed: unknown;
     try {
       parsed = JSON.parse(content);
@@ -899,6 +910,18 @@ export async function uploadAttachmentBytes(
     const attachment = obj(parsed);
     if (!attachment || typeof attachment["id"] !== "string" || !attachment["id"])
       throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    if (v3Entity) {
+      if (String(attachment["parent_id"]) !== v3Entity.id)
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return {
+        attachment_id: attachment["id"],
+        title: attachment["title"],
+        size: attachment["size"],
+        parent_id: attachment["parent_id"],
+        requires_task_association: v3Entity.type === "custom_fields",
+        retry_safe: false,
+      };
+    }
     return clip(attachment) as Json;
   } catch (error) {
     if (error instanceof ReadFailure) throw error;
@@ -907,6 +930,16 @@ export async function uploadAttachmentBytes(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/** File-field access must be present on the authorized task itself. */
+function verifyFileField(task: Json, fieldId: string): Json {
+  const fields = task["custom_fields"];
+  if (!Array.isArray(fields)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+  const field = fields.map(obj).find((candidate) => candidate?.["id"] === fieldId);
+  if (!field || !["attachment", "files"].includes(String(field["type"])))
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  return field;
 }
 
 /** Scope-bound checklist identity. No checklist ID alone grants a write. */
@@ -1407,14 +1440,21 @@ export async function runCatalogOperation(
         incomplete: offset + N < rows.length,
       };
     }
+    case "clickup_get_file_field_attachments":
     case "clickup_get_task_attachments": {
-      await task("task_id");
+      const target = await taskInWorkspace(g, f, a["task_id"], true);
+      const field = name === "clickup_get_file_field_attachments";
+      const entityId = field ? val(a, "field_id") : val(a, "task_id");
+      if (field) verifyFileField(target, entityId);
       const params = new URLSearchParams({ limit: String(N) });
       if (a["attachment_cursor"] !== undefined)
         params.set("cursor", txt(a["attachment_cursor"], 500));
       const result = await call(
         "GET",
-        "api/v3/workspaces/" + W + "/attachments/" + val(a, "task_id") + "/attachments?" + params,
+        v3(
+          "workspaces/" + W + "/" + (field ? "custom_fields" : "attachments") +
+            "/" + entityId + "/attachments?" + params,
+        ),
       );
       // Only expose metadata, not signed download URLs.
       const rows = result["data"];
@@ -2994,7 +3034,15 @@ export async function runCatalogOperation(
         partial: outcome.some((x) => obj(x)?.["success"] === false),
       };
     }
+    case "clickup_upload_task_attachment":
+    case "clickup_upload_file_field_attachment":
     case "clickup_attach_file_to_task": {
+      const v3Entity =
+        name === "clickup_upload_task_attachment"
+          ? { type: "attachments" as const, id: val(a, "task_id") }
+          : name === "clickup_upload_file_field_attachment"
+            ? { type: "custom_fields" as const, id: val(a, "field_id") }
+            : undefined;
       return uploadAttachment(
         g,
         f,
@@ -3002,6 +3050,7 @@ export async function runCatalogOperation(
         txt(a["file_name"], 120),
         txt(a["file_base64"], 700000),
         typeof a["media_type"] === "string" ? a["media_type"] : "application/octet-stream",
+        v3Entity,
       );
     }
     case "clickup_get_task_comments": {
