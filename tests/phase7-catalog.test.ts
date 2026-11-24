@@ -1889,6 +1889,8 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
         throw Error("unexpected extra task page");
       }
       if (u.pathname === "/api/v3/workspaces/555/docs") return reply({ docs: [] });
+      if (u.pathname === "/api/v2/team/555/shared")
+        return reply({ shared: { tasks: [], lists: [], folders: [] } });
       if (u.pathname === "/api/v2/team/555/space") return reply({ spaces: [] });
       throw Error("unexpected endpoint " + u.pathname);
     });
@@ -1944,6 +1946,8 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
         throw Error("unexpected task page");
       }
       if (u.pathname === "/api/v3/workspaces/555/docs") return reply({ docs: [] });
+      if (u.pathname === "/api/v2/team/555/shared")
+        return reply({ shared: { tasks: [], lists: [], folders: [] } });
       if (u.pathname === "/api/v2/team/555/space") return reply({ spaces: [] });
       throw Error("unexpected endpoint " + u.pathname);
     });
@@ -2082,6 +2086,8 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       if (p === "/api/v2/list/12345") return reply(fixture(p));
       if (p === "/api/v2/team/555/task") return reply({ tasks: [] });
       if (p === "/api/v3/workspaces/555/docs") return reply({ docs: [] });
+      if (p === "/api/v2/team/555/shared")
+        return reply({ shared: { tasks: [], lists: [], folders: [] } });
       if (p === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777", name: "Sales" }] });
       if (p === "/api/v2/space/777/folder")
         return reply({ folders: [{ id: "f1", name: "Stocktake Folder" }] });
