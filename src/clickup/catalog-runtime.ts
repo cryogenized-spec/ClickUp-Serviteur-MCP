@@ -2109,8 +2109,9 @@ export async function runCatalogOperation(
       const validId = (value: unknown): value is string =>
         typeof value === "string" && /^[a-f0-9-]{36}$/i.test(value);
       const binding = g.webhookEvents;
-      const registry = (webhookId: string) =>
-        binding.get(binding.idFromName("registry:" + W + ":" + webhookId) as never);
+      const registry = binding.get(binding.idFromName("registry:" + W) as never);
+      const registryUrl = (webhookId: string) =>
+        "https://internal/registry?webhook_id=" + encodeURIComponent(webhookId);
       if (name === "clickup_create_webhook_subscription") {
         if (a["confirm_subscription"] !== true) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
         if (
@@ -2150,8 +2151,8 @@ export async function runCatalogOperation(
           throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
         let saved: Response;
         try {
-          saved = await registry(webhookId).fetch(
-            new Request("https://internal/registry", {
+          saved = await registry.fetch(
+            new Request(registryUrl(webhookId), {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ workspaceId: W, subject: g.subject, secret }),
@@ -2172,8 +2173,7 @@ export async function runCatalogOperation(
       }
       const webhookId = a["webhook_id"];
       if (!validId(webhookId)) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-      const stub = registry(webhookId);
-      const stored = await stub.fetch(new Request("https://internal/registry"));
+      const stored = await registry.fetch(new Request(registryUrl(webhookId)));
       if (!stored.ok) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       const registration = obj(await stored.json());
       if (registration?.["subject"] !== g.subject || registration["workspaceId"] !== W)
@@ -2197,8 +2197,8 @@ export async function runCatalogOperation(
           after["webhooks"].some((row) => obj(row)?.["id"] === webhookId)
         )
           throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
-        const removed = await stub.fetch(
-          new Request("https://internal/registry", { method: "DELETE" }),
+        const removed = await registry.fetch(
+          new Request(registryUrl(webhookId), { method: "DELETE" }),
         );
         return { webhook_id: webhookId, deleted: true, signing_secret_removed: removed.ok };
       }
