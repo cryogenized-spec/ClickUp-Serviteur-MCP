@@ -16,6 +16,7 @@ export interface ReadGrant {
   readonly workspaceId: string;
   readonly apiToken: string;
   readonly webhookEvents?: ReadGrant["quota"];
+  readonly webhookOrigin?: string;
   readonly quota: {
     readonly idFromName: (name: string) => unknown;
     readonly get: (id: never) => { fetch: (request: Request) => Promise<Response> };
@@ -188,6 +189,9 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
       : undefined;
   return {
     ...(webhookEvents ? { webhookEvents } : {}),
+    ...(webhookEvents && typeof env["MCP_PUBLIC_ORIGIN"] === "string"
+      ? { webhookOrigin: env["MCP_PUBLIC_ORIGIN"] }
+      : {}),
     subject,
     clickupUserId: user.clickupUserId,
     // A user's selected List is scoped to the same OAuth Workspace and
@@ -221,6 +225,8 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
  * expansion are deliberately absent. Every name must be reviewed individually.
  */
 export const COMPANY_SAFE_WRITE_OPERATIONS: ReadonlySet<string> = new Set([
+  "clickup_create_webhook_subscription",
+  "clickup_update_webhook_subscription",
   "clickup_update_task_checklist",
   "clickup_create_list_comment",
   "clickup_create_subfolder",
@@ -313,6 +319,7 @@ export function isCompanyNonDestructiveOperation(name: string): boolean {
  * No general delete-List/Folder/Doc privilege is inferred from this grant.
  */
 export const COMPANY_OWNER_CLEANUP_OPERATIONS: ReadonlySet<string> = new Set([
+  "clickup_delete_webhook_subscription",
   "clickup_clear_custom_field",
   "clickup_delete_task_checklist",
   "clickup_delete_checklist_item",
