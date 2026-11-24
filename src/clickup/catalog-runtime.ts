@@ -1114,6 +1114,9 @@ async function scopedChatReactions(
 }
 
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
+  "clickup_create_activity_webhook",
+  "clickup_update_activity_webhook",
+  "clickup_delete_activity_webhook",
   "clickup_get_workspace_custom_fields",
   "clickup_get_space_custom_fields",
   "clickup_get_folder_custom_fields",
@@ -1227,6 +1230,10 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
 // after a same-Workspace, exact-home-List preflight. Other Workspace-wide
 // operations remain blocked. ClickUp owns task history and enforces its ACL.
 const WORKSPACE_SCOPE_OPERATIONS = new Set([
+  "clickup_create_activity_webhook",
+  "clickup_update_activity_webhook",
+  "clickup_delete_activity_webhook",
+  "clickup_merge_tasks",
   "clickup_get_workspace_custom_fields",
   "clickup_get_space_custom_fields",
   "clickup_get_folder_custom_fields",
@@ -1671,6 +1678,111 @@ export async function runCatalogOperation(
         incomplete: more || denied.size > 0,
         read_only: true,
         note: "Reading does not acknowledge events. Retrieve current comments and context before acknowledging exact reviewed keys.",
+      };
+    }
+    case "clickup_create_activity_webhook":
+    case "clickup_update_activity_webhook":
+    case "clickup_delete_activity_webhook": {
+      if (!g.webhookEndpoint || !g.webhookEvents)
+        throw new ReadFailure("CLICKUP_EVENT_STORAGE_UNAVAILABLE");
+      if (a["confirm_webhook"] !== true) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const endpoint = g.webhookEndpoint;
+      const events = [
+        "taskCreated",
+        "taskUpdated",
+        "taskDeleted",
+        "taskPriorityUpdated",
+        "taskStatusUpdated",
+        "taskAssigneeUpdated",
+        "taskDueDateUpdated",
+        "taskTagUpdated",
+        "taskMoved",
+        "taskCommentPosted",
+        "taskCommentUpdated",
+        "taskTimeEstimateUpdated",
+        "taskTimeTrackedUpdated",
+      ];
+      const binding = g.webhookEvents;
+      const stub = binding.get(binding.idFromName(W + ":" + g.subject) as never);
+      const inventory = await call("GET", v2("team/" + W + "/webhook"));
+      const rows = inventory["webhooks"];
+      if (!Array.isArray(rows)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const owned = rows
+        .map(obj)
+        .filter(
+          (row) =>
+            row?.["endpoint"] === endpoint &&
+            String(row["userid"]) === g.clickupUserId &&
+            String(row["team_id"]) === W,
+        );
+      const create = name === "clickup_create_activity_webhook";
+      const deleting = name === "clickup_delete_activity_webhook";
+      if (create && owned.length)
+        return {
+          created: false,
+          existing_webhook_ids: owned.map((row) => row?.["id"]),
+          note: "Existing subscription found. Inspect or update it instead of creating a duplicate.",
+        };
+      const webhookId = create ? undefined : val(a, "webhook_id");
+      if (!create && (!webhookId || !owned.some((row) => row?.["id"] === webhookId)))
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      if (deleting) {
+        await call("DELETE", v2("webhook/" + webhookId), undefined, "empty-write-ack");
+        const local = await stub.fetch(
+          new Request("https://internal/registration?id=" + webhookId, { method: "DELETE" }),
+        );
+        if (!local.ok) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+        const after = await call("GET", v2("team/" + W + "/webhook"));
+        if (
+          !Array.isArray(after["webhooks"]) ||
+          after["webhooks"].some((row) => obj(row)?.["id"] === webhookId)
+        )
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+        return { webhook_id: webhookId, deleted: true };
+      }
+      if (!create && a["webhook_status"] !== "active" && a["webhook_status"] !== "suspended")
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const response = create
+        ? await call("POST", v2("team/" + W + "/webhook"), { endpoint, events })
+        : await call("PUT", v2("webhook/" + webhookId), {
+            endpoint,
+            events,
+            status: a["webhook_status"],
+          });
+      const hook = obj(response["webhook"]);
+      const createdId = response["id"];
+      const secret = hook?.["secret"];
+      if (
+        typeof createdId !== "string" ||
+        !/^[a-f0-9-]{36}$/i.test(createdId) ||
+        (!create && createdId !== webhookId) ||
+        hook?.["id"] !== createdId ||
+        String(hook["userid"]) !== g.clickupUserId ||
+        String(hook["team_id"]) !== W ||
+        hook["endpoint"] !== endpoint ||
+        typeof secret !== "string" ||
+        !secret ||
+        secret.length > 512
+      )
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      // Never expose the upstream response: it contains the signing secret.
+      const saved = await stub.fetch(
+        new Request("https://internal/registration?id=" + createdId, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ secret, clickup_user_id: g.clickupUserId }),
+        }),
+      );
+      return {
+        webhook_id: createdId,
+        created: create,
+        signing_secret_stored: saved.ok,
+        status: obj(hook["health"])?.["status"],
+        delivery_verified: false,
+        retry_safe: false,
+        ...(saved.ok
+          ? {}
+          : { note: "Upstream subscription exists; repair registration before retrying." }),
       };
     }
     case "clickup_get_webhooks": {
