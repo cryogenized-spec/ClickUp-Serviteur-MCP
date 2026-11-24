@@ -138,6 +138,8 @@ const taskDraft = obj(
 );
 
 const F = {
+  confirm_merge: flag("True only after explicit approval of the exact irreversible merge preview."),
+  expected_merge_fingerprint: str("Fingerprint from the matching task merge preview.", 64),
   resource_offset: integer("Zero-based index in the returned resource collection.", 0, 100000),
   attachment_cursor: str("Opaque cursor returned by the previous attachment page.", 500),
   hierarchy_template_id: str("Exact List or Folder template ID including its t- prefix.", 80),
@@ -675,6 +677,16 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Inspect existing webhook registrations.",
     [],
     ["max_results", "resource_offset"],
+  ),
+
+  tool(
+    "clickup_merge_tasks",
+    "Merge Tasks",
+    "tasks",
+    "destructive",
+    "Irreversibly merge verified source tasks into a target using the native API. Requires the exact fresh preview fingerprint and explicit confirmation. Never retry uncertain writes.",
+    "Merge the explicitly approved duplicate tasks into the target.",
+    ["task_id", "task_ids", "confirm_merge", "expected_merge_fingerprint"],
   ),
 
   // WORKSPACE TASK TEMPLATES (2)
