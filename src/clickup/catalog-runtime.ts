@@ -1081,6 +1081,12 @@ async function scopedChatReactions(
 }
 
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
+  "clickup_update_own_time_entry",
+  "clickup_delete_own_time_entry",
+  "clickup_get_saved_view",
+  "clickup_duplicate_saved_view",
+  "clickup_rename_saved_view",
+  "clickup_delete_saved_view",
   "clickup_create_webhook_subscription",
   "clickup_update_webhook_subscription",
   "clickup_delete_webhook_subscription",
@@ -1211,6 +1217,12 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
 // after a same-Workspace, exact-home-List preflight. Other Workspace-wide
 // operations remain blocked. ClickUp owns task history and enforces its ACL.
 const WORKSPACE_SCOPE_OPERATIONS = new Set([
+  "clickup_update_own_time_entry",
+  "clickup_delete_own_time_entry",
+  "clickup_get_saved_view",
+  "clickup_duplicate_saved_view",
+  "clickup_rename_saved_view",
+  "clickup_delete_saved_view",
   "clickup_create_webhook_subscription",
   "clickup_update_webhook_subscription",
   "clickup_delete_webhook_subscription",
@@ -1832,7 +1844,9 @@ export async function runCatalogOperation(
       return { success: true, verified_by_readback: true, folder: clip(after) };
     }
     case "clickup_get_time_entry":
-    case "clickup_get_time_entry_history": {
+    case "clickup_get_time_entry_history":
+    case "clickup_update_own_time_entry":
+    case "clickup_delete_own_time_entry": {
       const path = v2("team/" + W + "/time_entries/" + val(a, "timer_id"));
       const result = await call("GET", path);
       const entry = obj(result["data"]);
@@ -1844,7 +1858,51 @@ export async function runCatalogOperation(
       else if (String(obj(entry["user"])?.["id"]) !== g.clickupUserId)
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       if (name === "clickup_get_time_entry") return short(result, N);
-      return short(await call("GET", path + "/history"), N);
+      if (name === "clickup_get_time_entry_history")
+        return short(await call("GET", path + "/history"), N);
+      if (String(obj(entry["user"])?.["id"]) !== g.clickupUserId || Number(entry["duration"]) < 0)
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      if (name === "clickup_delete_own_time_entry") {
+        if (a["confirm_delete"] !== true) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        await call("DELETE", path, undefined, "empty-write-ack");
+        return { timer_id: a["timer_id"], deletion_acknowledged: true, retry_safe: false };
+      }
+      const patch: Json = {};
+      if (a["description"] !== undefined) patch["description"] = txt(a["description"], 8000);
+      if (a["billable"] !== undefined) {
+        if (typeof a["billable"] !== "boolean") throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        patch["billable"] = a["billable"];
+      }
+      if (a["start_ms"] !== undefined || a["end_ms"] !== undefined) {
+        const start = a["start_ms"];
+        const end = a["end_ms"];
+        if (
+          typeof start !== "number" ||
+          typeof end !== "number" ||
+          !Number.isSafeInteger(start) ||
+          !Number.isSafeInteger(end) ||
+          start <= 0 ||
+          end <= start ||
+          end > Date.now()
+        )
+          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        patch["start"] = start;
+        patch["end"] = end;
+      }
+      if (!Object.keys(patch).length) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      await call("PUT", path, patch, "empty-write-ack");
+      const after = obj((await call("GET", path))["data"]);
+      if (
+        !after ||
+        String(after["id"]) !== String(a["timer_id"]) ||
+        Object.entries(patch).some(([key, value]) =>
+          key === "start" || key === "end"
+            ? Number(after[key]) !== value
+            : after[key] !== value,
+        )
+      )
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return { timer_id: a["timer_id"], updated: true, verified_by_readback: true };
     }
     case "clickup_get_time_entry_tags":
       return short(await call("GET", v2("team/" + W + "/time_entries/tags")), N);
@@ -1866,6 +1924,94 @@ export async function runCatalogOperation(
         next_cursor: cursor,
         incomplete: cursor !== null || entries.length === N,
       };
+    }
+    case "clickup_get_saved_view":
+    case "clickup_duplicate_saved_view":
+    case "clickup_rename_saved_view":
+    case "clickup_delete_saved_view": {
+      const parentType = a["view_parent_type"];
+      const parentId = val(a, "view_parent_id");
+      let route: string;
+      let type: number;
+      switch (parentType) {
+        case "workspace":
+          if (parentId !== W) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+          route = "team";
+          type = 7;
+          break;
+        case "space":
+          await inWorkspace(g, f, parentId);
+          route = "space";
+          type = 4;
+          break;
+        case "folder":
+          await folderInWorkspace(g, f, parentId);
+          route = "folder";
+          type = 5;
+          break;
+        case "list":
+          await listInWorkspace(g, f, parentId);
+          route = "list";
+          type = 6;
+          break;
+        default:
+          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      }
+      const viewId = val(a, "view_id");
+      const path = v2("view/" + viewId);
+      const read = async (target: string, expected: string) => {
+        const response = await call("GET", target);
+        const view = obj(response["view"]) ?? response;
+        const parent = obj(view["parent"]);
+        if (
+          String(view["id"]) !== expected ||
+          String(parent?.["id"]) !== parentId ||
+          Number(parent?.["type"]) !== type
+        )
+          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+        return view;
+      };
+      const view = await read(path, viewId);
+      if (name === "clickup_get_saved_view") return short(view);
+      const title = txt(a["name"], 180);
+      if (name === "clickup_delete_saved_view") {
+        if (a["confirm_delete"] !== true || view["name"] !== title)
+          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        await call("DELETE", path, undefined, "empty-write-ack");
+        return { view_id: viewId, deletion_acknowledged: true, retry_safe: false };
+      }
+      const configuration: Json = { name: title, type: view["type"] };
+      if (typeof view["type"] !== "string") throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      for (const key of [
+        "grouping",
+        "divide",
+        "sorting",
+        "filters",
+        "columns",
+        "team_sidebar",
+        "settings",
+      ]) {
+        const value = obj(view[key]);
+        if (!value) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        configuration[key] = value;
+      }
+      if (name === "clickup_duplicate_saved_view") {
+        const created = await call("POST", v2(route + "/" + parentId + "/view"), configuration);
+        const newId = id((obj(created["view"]) ?? created)["id"]);
+        const verified = await read(v2("view/" + newId), newId);
+        if (verified["name"] !== title || newId === viewId)
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+        return { view: clip(verified), verified_by_readback: true };
+      }
+      await call(
+        "PUT",
+        path,
+        { ...configuration, parent: { id: parentId, type } },
+        "empty-write-ack",
+      );
+      const verified = await read(path, viewId);
+      if (verified["name"] !== title) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return { view: clip(verified), verified_by_readback: true };
     }
     case "clickup_get_space_views":
     case "clickup_get_folder_views": {
