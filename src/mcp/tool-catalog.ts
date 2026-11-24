@@ -169,7 +169,11 @@ const F = {
   ),
   comment_id: str("Exact ClickUp comment identifier.", 100),
   patch_start: integer("Zero-based index of the first native segment to patch.", 0, 100),
-  patch_delete_count: integer("Number of contiguous native segments to remove; zero inserts.", 0, 100),
+  patch_delete_count: integer(
+    "Number of contiguous native segments to remove; zero inserts.",
+    0,
+    100,
+  ),
   confirm_patch: flag("True only after explicit approval of the exact preview."),
   expected_patch_fingerprint: str("SHA-256 fingerprint from the matching patch preview.", 64),
   confirm_delete: flag(
