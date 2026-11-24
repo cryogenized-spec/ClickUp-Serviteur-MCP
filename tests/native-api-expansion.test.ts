@@ -74,7 +74,7 @@ describe("native API expansion", () => {
   it("uses the v3 data envelope and keeps signed attachment URLs out of metadata", async () => {
     const f = fixture();
     const result = await runCatalogOperation(
-      "clickup_get_task_attachments_v3",
+      "clickup_get_task_attachments",
       { task_id: "abc123" },
       grant,
       f,
