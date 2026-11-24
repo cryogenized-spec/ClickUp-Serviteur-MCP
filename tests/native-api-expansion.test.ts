@@ -152,6 +152,36 @@ describe("native API expansion", () => {
     expect(JSON.stringify(result["webhook_activity"])).not.toContain("denied");
   });
 
+  it("does not acknowledge on read and requires exact confirmed keys", async () => {
+    const f = fixture();
+    const key = "7689a169-a000-4985-8676-6902b96d6627:history1";
+    const requests = vi.fn(async (request: Request) => {
+      if (request.method === "GET")
+        return Response.json({
+          events: [{ event_key: key, task_id: "abc123", event: "taskUpdated", received_at: 1234 }],
+          incomplete: false,
+        });
+      expect(await request.json()).toEqual({ task_id: "abc123", event_keys: [key] });
+      return Response.json({ acknowledged_event_keys: [key] });
+    });
+    const g = {
+      ...grant,
+      webhookEvents: { idFromName: (name: string) => name, get: () => ({ fetch: requests }) },
+    };
+    const pending = await runCatalogOperation("clickup_get_pending_activity", {}, g, f);
+    expect(pending).toMatchObject({
+      tasks: [{ task_id: "abc123", events: [{ event_key: key }] }],
+      read_only: true,
+    });
+    const args = { task_id: "abc123", event_keys: [key] };
+    await expect(runCatalogOperation("clickup_acknowledge_activity", args, g, f)).rejects.toThrow();
+    expect(requests).toHaveBeenCalledTimes(1);
+    await expect(
+      runCatalogOperation("clickup_acknowledge_activity", { ...args, confirm_review: true }, g, f),
+    ).resolves.toMatchObject({ acknowledged_event_keys: [key] });
+    expect(requests).toHaveBeenCalledTimes(2);
+  });
+
   it("returns webhook inventory without secrets or private destinations", async () => {
     const result = await runCatalogOperation("clickup_get_webhooks", {}, grant, fixture());
     expect(result["webhooks"]).toEqual([{ id: "hook" }]);
