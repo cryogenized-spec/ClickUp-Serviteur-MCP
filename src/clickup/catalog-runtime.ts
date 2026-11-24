@@ -1760,8 +1760,7 @@ export async function runCatalogOperation(
         await call("DELETE", targetPath, undefined, "empty-write-ack");
       }
       const after = await task("task_id");
-      if (!Array.isArray(after["checklists"]))
-        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      if (!Array.isArray(after["checklists"])) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
       const next = after["checklists"].map(obj).find((x) => x?.["id"] === a["checklist_id"]);
       const verified =
         name === "clickup_delete_task_checklist"
@@ -1857,8 +1856,7 @@ export async function runCatalogOperation(
       if (!entry || String(entry["id"]) !== String(a["timer_id"]))
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       const linkedTask = obj(entry["task"])?.["id"];
-      if (linkedTask !== undefined && linkedTask !== null)
-        await taskInWorkspace(g, f, linkedTask);
+      if (linkedTask !== undefined && linkedTask !== null) await taskInWorkspace(g, f, linkedTask);
       else if (String(obj(entry["user"])?.["id"]) !== g.clickupUserId)
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       if (name === "clickup_get_time_entry") return short(result, N);
@@ -2023,7 +2021,10 @@ export async function runCatalogOperation(
       const key = isSpace ? "space_id" : "folder_id";
       if (isSpace) await inWorkspace(g, f, a[key]);
       else await folder(key);
-      const result = await call("GET", v2((isSpace ? "space/" : "folder/") + val(a, key) + "/view"));
+      const result = await call(
+        "GET",
+        v2((isSpace ? "space/" : "folder/") + val(a, key) + "/view"),
+      );
       if (!Array.isArray(result["views"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       return {
         views: clip(result["views"].slice(0, N)),
@@ -2064,7 +2065,8 @@ export async function runCatalogOperation(
       const resultId = val(a, "key_result_id");
       if (!Array.isArray(targets) || !targets.some((x) => obj(x)?.["id"] === resultId))
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      if (!Number.isSafeInteger(a["steps_current"])) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (!Number.isSafeInteger(a["steps_current"]))
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       await call(
         "PUT",
         v2("key_result/" + resultId),
@@ -2146,12 +2148,7 @@ export async function runCatalogOperation(
         const webhook = obj(response["webhook"]) ?? response;
         const webhookId = webhook["id"] ?? response["id"];
         const secret = webhook["secret"] ?? response["secret"];
-        if (
-          !validId(webhookId) ||
-          typeof secret !== "string" ||
-          !secret ||
-          secret.length > 512
-        )
+        if (!validId(webhookId) || typeof secret !== "string" || !secret || secret.length > 512)
           throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
         let saved: Response;
         try {
