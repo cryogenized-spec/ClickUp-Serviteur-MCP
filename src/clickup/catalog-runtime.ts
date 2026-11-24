@@ -867,7 +867,15 @@ export async function uploadAttachmentBytes(
   const timeout = setTimeout(() => abort.abort(), 10000);
   try {
     const uploadPath = v3Entity
-      ? v3("workspaces/" + id(grant.workspaceId) + "/" + v3Entity.type + "/" + id(v3Entity.id) + "/attachments")
+      ? v3(
+          "workspaces/" +
+            id(grant.workspaceId) +
+            "/" +
+            v3Entity.type +
+            "/" +
+            id(v3Entity.id) +
+            "/attachments",
+        )
       : v2("task/" + id(taskId) + "/attachment");
     const res = await fetcher(pathEncoded(uploadPath), {
       method: "POST",
@@ -1450,8 +1458,7 @@ export async function runCatalogOperation(
       };
     }
     case "clickup_associate_file_field_attachment": {
-      if (a["confirm_file_association"] !== true)
-        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (a["confirm_file_association"] !== true) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       const target = await task("task_id");
       const fieldId = val(a, "field_id");
       const definition = verifyFileField(target, fieldId);
@@ -1503,8 +1510,14 @@ export async function runCatalogOperation(
       const result = await call(
         "GET",
         v3(
-          "workspaces/" + W + "/" + (field ? "custom_fields" : "attachments") +
-            "/" + entityId + "/attachments?" + params,
+          "workspaces/" +
+            W +
+            "/" +
+            (field ? "custom_fields" : "attachments") +
+            "/" +
+            entityId +
+            "/attachments?" +
+            params,
         ),
       );
       // Only expose metadata, not signed download URLs.
