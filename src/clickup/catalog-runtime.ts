@@ -2118,9 +2118,34 @@ export async function runCatalogOperation(
           foundLists.push(...childLists["lists"]);
         }
       }
+      // Search direct shares independently of normal task-page pagination.
+      // Keep a distinct collection so these results never consume task cursors.
+      let sharedResources: Json[] = [];
+      let sharedDiscoveryUnavailable = false;
+      try {
+        const result = await call("GET", v2("team/" + W + "/shared"));
+        const shared = obj(result["shared"]);
+        if (!shared) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        for (const kind of ["tasks", "lists", "folders"]) {
+          const entries = shared[kind];
+          if (!Array.isArray(entries)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+          for (const entry of entries) {
+            const item = obj(entry);
+            if (!item || item["id"] === undefined) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+            if (match(item))
+              sharedResources.push({ kind, id: item["id"], name: item["name"] ?? null });
+          }
+        }
+      } catch (error) {
+        if (!(error instanceof ReadFailure)) throw error;
+        sharedResources = [];
+        sharedDiscoveryUnavailable = true;
+      }
       return {
         source: "clickup-api",
         scope: "workspace",
+        shared_resources: clip(sharedResources.slice(0, N)),
+        shared_discovery_unavailable: sharedDiscoveryUnavailable,
         tasks: clip(matchingTasks.slice(0, N)),
         pages_scanned: pagesScanned,
         next_task_page: nextTaskPage,
@@ -2130,6 +2155,8 @@ export async function runCatalogOperation(
         folders: clip(foundFolders.filter(match).slice(0, N)),
         incomplete:
           taskPageTruncated ||
+          sharedDiscoveryUnavailable ||
+          sharedResources.length > N ||
           matchingTasks.length > N ||
           d.length >= 50 ||
           hierarchySpaces.length > 5 ||
