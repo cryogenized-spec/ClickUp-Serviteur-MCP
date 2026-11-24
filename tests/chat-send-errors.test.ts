@@ -267,7 +267,7 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
     });
   });
 
-  it("does not change error classification of other ClickUp reads", async () => {
+  it("preserves the error code and adds safe status diagnostics for other ClickUp reads", async () => {
     const fetcher = vi.fn(async () => Response.json({ reason: "private" }, { status: 404 }));
     let failure: ReadFailure | undefined;
     try {
@@ -277,6 +277,9 @@ describe("private Chat v3 delivery error classification (issue #120)", () => {
       else throw error;
     }
     expect(failure?.code).toBe("CLICKUP_UPSTREAM_UNAVAILABLE");
-    expect(failure?.diagnostic).toBeUndefined();
+    expect(failure?.diagnostic).toEqual({
+      endpoint_category: "clickup_api_read",
+      http_status: 404,
+    });
   });
 });
