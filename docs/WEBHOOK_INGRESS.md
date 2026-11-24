@@ -7,3 +7,7 @@ The receiver verifies the native X-Signature HMAC on the exact request bytes, th
 The Worker has no public event-listing route. The Workspace attention report optionally includes up to ten recently changed tasks, verified through fresh upstream task reads with the caller's OAuth token. It reports incomplete coverage on denied tasks and storage errors. It does not label these changes as actual Inbox items, and explicit List-scoped reports do not receive Workspace hints. Subscription creation, rotation and deletion via MCP remain subsequent work. No live webhook registration or secret configuration has been performed.
 
 References: https://developer.clickup.com/docs/webhooks, https://developer.clickup.com/docs/webhooksignature, https://developer.clickup.com/docs/webhookhealth.
+
+## Review checkpoints
+
+Use clickup_get_pending_activity to retrieve unacknowledged changes, grouped by freshly verified task. Continue with the paired event cursor. Fetch task details and comment history for context, then present a briefing. Only after user approval call clickup_acknowledge_activity with the exact reviewed event keys for each task. Reading is non-consuming, acknowledgement is idempotent within retention, and new events arriving during a briefing remain pending. Neither operation changes ClickUp Inbox state. Expired or inaccessible events cannot be acknowledged through a task-scoped tool; coverage is explicitly incomplete. Storage retains a maximum of 5000 hints for up to seven days, not an indefinite delivery guarantee.
