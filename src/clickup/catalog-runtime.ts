@@ -1081,6 +1081,27 @@ async function scopedChatReactions(
 }
 
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
+  "clickup_get_workspace_custom_fields",
+  "clickup_get_space_custom_fields",
+  "clickup_get_folder_custom_fields",
+  "clickup_clear_custom_field",
+  "clickup_update_task_checklist",
+  "clickup_delete_task_checklist",
+  "clickup_delete_checklist_item",
+  "clickup_create_list_comment",
+  "clickup_get_space",
+  "clickup_create_subfolder",
+  "clickup_move_folder",
+  "clickup_get_time_entry",
+  "clickup_get_time_entry_history",
+  "clickup_get_time_entry_tags",
+  "clickup_get_user_groups",
+  "clickup_get_chat_channel_followers",
+  "clickup_get_space_views",
+  "clickup_get_folder_views",
+  "clickup_create_chat_channel",
+  "clickup_update_goal_name",
+  "clickup_update_key_result_progress",
   "clickup_get_pending_activity",
   "clickup_acknowledge_activity",
   "clickup_get_shared_resources",
@@ -1187,6 +1208,27 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
 // after a same-Workspace, exact-home-List preflight. Other Workspace-wide
 // operations remain blocked. ClickUp owns task history and enforces its ACL.
 const WORKSPACE_SCOPE_OPERATIONS = new Set([
+  "clickup_get_workspace_custom_fields",
+  "clickup_get_space_custom_fields",
+  "clickup_get_folder_custom_fields",
+  "clickup_clear_custom_field",
+  "clickup_update_task_checklist",
+  "clickup_delete_task_checklist",
+  "clickup_delete_checklist_item",
+  "clickup_create_list_comment",
+  "clickup_get_space",
+  "clickup_create_subfolder",
+  "clickup_move_folder",
+  "clickup_get_time_entry",
+  "clickup_get_time_entry_history",
+  "clickup_get_time_entry_tags",
+  "clickup_get_user_groups",
+  "clickup_get_chat_channel_followers",
+  "clickup_get_space_views",
+  "clickup_get_folder_views",
+  "clickup_create_chat_channel",
+  "clickup_update_goal_name",
+  "clickup_update_key_result_progress",
   "clickup_get_pending_activity",
   "clickup_acknowledge_activity",
   "clickup_get_shared_resources",
@@ -1618,6 +1660,269 @@ export async function runCatalogOperation(
         read_only: true,
         note: "Reading does not acknowledge events. Retrieve current comments and context before acknowledging exact reviewed keys.",
       };
+    }
+    case "clickup_get_workspace_custom_fields":
+    case "clickup_get_space_custom_fields":
+    case "clickup_get_folder_custom_fields": {
+      let parent = "team/" + W;
+      if (name === "clickup_get_space_custom_fields") {
+        await inWorkspace(g, f, a["space_id"]);
+        parent = "space/" + val(a, "space_id");
+      } else if (name === "clickup_get_folder_custom_fields") {
+        await folder("folder_id");
+        parent = "folder/" + val(a, "folder_id");
+      }
+      const result = await call(
+        "GET",
+        v2(parent + "/field?include_applied_objects=" + (a["include_applied_objects"] !== false)),
+      );
+      if (!Array.isArray(result["fields"]) || result["fields"].some((x) => !obj(x)))
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const fields = result["fields"].slice(0, N);
+      return {
+        source: "clickup-api-v2",
+        fields: clip(fields),
+        fields_in_response: result["fields"].length,
+        incomplete:
+          result["fields"].length > N || hasClippedNestedArray(fields) || hasClippedText(fields),
+      };
+    }
+    case "clickup_clear_custom_field": {
+      const target = await task("task_id");
+      const fields = target["custom_fields"];
+      if (
+        a["confirm_delete"] !== true ||
+        !Array.isArray(fields) ||
+        !fields.some((field) => String(obj(field)?.["id"]) === String(a["field_id"]))
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      await call(
+        "DELETE",
+        v2("task/" + val(a, "task_id") + "/field/" + val(a, "field_id")),
+        undefined,
+        "empty-write-ack",
+      );
+      const after = await task("task_id");
+      const updated = Array.isArray(after["custom_fields"])
+        ? after["custom_fields"].map(obj).find((x) => String(x?.["id"]) === String(a["field_id"]))
+        : null;
+      if (!updated || (updated["value"] !== undefined && updated["value"] !== null))
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return { success: true, task_id: a["task_id"], field_id: a["field_id"], verified: true };
+    }
+    case "clickup_update_task_checklist":
+    case "clickup_delete_task_checklist":
+    case "clickup_delete_checklist_item": {
+      const target = await task("task_id");
+      const checklist = authorizedTaskChecklist(target, a["checklist_id"]);
+      const path = v2("checklist/" + checklistId(a["checklist_id"]));
+      const patch: Json = {};
+      let targetPath = path;
+      if (name === "clickup_delete_checklist_item") {
+        const items = checklist["items"];
+        if (!Array.isArray(items) || !items.some((x) => obj(x)?.["id"] === a["checklist_item_id"]))
+          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+        targetPath += "/checklist_item/" + checklistId(a["checklist_item_id"]);
+      }
+      if (name === "clickup_update_task_checklist") {
+        if (a["name"] !== undefined) patch["name"] = txt(a["name"], 180);
+        if (a["position"] !== undefined) {
+          if (!Number.isSafeInteger(a["position"]) || Number(a["position"]) < 0)
+            throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+          patch["position"] = a["position"];
+        }
+        if (!Object.keys(patch).length) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        await call("PUT", path, patch, "empty-write-ack");
+      } else {
+        if (a["confirm_delete"] !== true) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        await call("DELETE", targetPath, undefined, "empty-write-ack");
+      }
+      const after = await task("task_id");
+      if (!Array.isArray(after["checklists"]))
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      const next = after["checklists"].map(obj).find((x) => x?.["id"] === a["checklist_id"]);
+      const verified =
+        name === "clickup_delete_task_checklist"
+          ? !next
+          : name === "clickup_delete_checklist_item"
+            ? !!next &&
+              Array.isArray(next["items"]) &&
+              !next["items"].some((x) => obj(x)?.["id"] === a["checklist_item_id"])
+            : !!next &&
+              (patch["name"] === undefined || next["name"] === patch["name"]) &&
+              (patch["position"] === undefined || next["position"] === patch["position"]);
+      if (!verified) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return {
+        success: true,
+        verified_by_readback: true,
+        task_id: a["task_id"],
+        checklist_id: a["checklist_id"],
+        ...(a["checklist_item_id"] !== undefined
+          ? { checklist_item_id: a["checklist_item_id"] }
+          : {}),
+      };
+    }
+    case "clickup_create_list_comment": {
+      await list("list_id");
+      const assignee =
+        a["assignee_id"] === undefined
+          ? null
+          : await verifiedCommentAssignee(a["assignee_id"], g, f);
+      return short(
+        await call("POST", v2("list/" + val(a, "list_id") + "/comment"), {
+          comment_text: txt(a["text"], 6000),
+          assignee,
+          notify_all: false,
+        }),
+      );
+    }
+    case "clickup_get_space": {
+      await inWorkspace(g, f, a["space_id"]);
+      const result = await call("GET", v2("space/" + val(a, "space_id")));
+      if (String(result["id"]) !== String(a["space_id"]))
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      return short(result);
+    }
+    case "clickup_create_subfolder": {
+      const parent = await folder("folder_id");
+      const spaceId = id(obj(parent["space"])?.["id"]);
+      return short(
+        await call("POST", v2("space/" + spaceId + "/folder"), {
+          name: txt(a["name"], 180),
+          parent_folder_id: a["folder_id"],
+        }),
+      );
+    }
+    case "clickup_move_folder": {
+      await folder("folder_id");
+      const destinationFolder = a["destination_folder_id"];
+      const destinationSpace = a["space_id"];
+      if ((destinationFolder === undefined) === (destinationSpace === undefined))
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (destinationFolder !== undefined) {
+        if (String(destinationFolder) === String(a["folder_id"]))
+          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        await folder("destination_folder_id");
+      } else await inWorkspace(g, f, destinationSpace);
+      const body: Json =
+        destinationFolder !== undefined
+          ? { parent_folder_id: destinationFolder }
+          : { space_id: destinationSpace };
+      if (a["position"] !== undefined) {
+        if (!Number.isSafeInteger(a["position"]) || Number(a["position"]) < 0)
+          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        body["position"] = a["position"];
+      }
+      await call("PUT", v2("folder/" + val(a, "folder_id") + "/position"), body, "empty-write-ack");
+      const after = await folder("folder_id");
+      const actualParent = obj(after["parent_folder"])?.["id"] ?? after["parent_folder"];
+      if (
+        destinationFolder !== undefined
+          ? String(actualParent) !== String(destinationFolder)
+          : String(obj(after["space"])?.["id"]) !== String(destinationSpace) ||
+            (actualParent !== undefined && actualParent !== null)
+      )
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return { success: true, verified_by_readback: true, folder: clip(after) };
+    }
+    case "clickup_get_time_entry":
+    case "clickup_get_time_entry_history": {
+      const path = v2("team/" + W + "/time_entries/" + val(a, "timer_id"));
+      const result = await call("GET", path);
+      const entry = obj(result["data"]);
+      if (!entry || String(entry["id"]) !== String(a["timer_id"]))
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const linkedTask = obj(entry["task"])?.["id"];
+      if (linkedTask !== undefined && linkedTask !== null)
+        await taskInWorkspace(g, f, linkedTask);
+      else if (String(obj(entry["user"])?.["id"]) !== g.clickupUserId)
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      if (name === "clickup_get_time_entry") return short(result, N);
+      return short(await call("GET", path + "/history"), N);
+    }
+    case "clickup_get_time_entry_tags":
+      return short(await call("GET", v2("team/" + W + "/time_entries/tags")), N);
+    case "clickup_get_user_groups":
+      return short(await call("GET", v2("group?team_id=" + W)), N);
+    case "clickup_get_chat_channel_followers": {
+      await verifiedChatChannel(g, f, a["channel_id"]);
+      const params = new URLSearchParams({ limit: String(N) });
+      if (a["chat_cursor"] !== undefined) params.set("cursor", boundedV3Cursor(a["chat_cursor"]));
+      const result = await call(
+        "GET",
+        v3("workspaces/" + W + "/chat/channels/" + val(a, "channel_id") + "/followers?" + params),
+      );
+      const entries = chatCollection(result, "followers", N);
+      const cursor = nextV3Cursor(result);
+      return {
+        source: "clickup-api-v3",
+        followers: clip(entries),
+        next_cursor: cursor,
+        incomplete: cursor !== null || entries.length === N,
+      };
+    }
+    case "clickup_get_space_views":
+    case "clickup_get_folder_views": {
+      const isSpace = name === "clickup_get_space_views";
+      const key = isSpace ? "space_id" : "folder_id";
+      if (isSpace) await inWorkspace(g, f, a[key]);
+      else await folder(key);
+      const result = await call("GET", v2((isSpace ? "space/" : "folder/") + val(a, key) + "/view"));
+      if (!Array.isArray(result["views"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      return {
+        views: clip(result["views"].slice(0, N)),
+        incomplete: result["views"].length > N,
+      };
+    }
+    case "clickup_create_chat_channel": {
+      const visibility = a["channel_visibility"];
+      if (visibility !== "PUBLIC" && visibility !== "PRIVATE")
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const users = a["user_ids"] ?? [];
+      if (!Array.isArray(users) || users.length > 15 || users.some((x) => typeof x !== "string"))
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      await verifiedRecipientIds(g, f, users as string[]);
+      const result = await call("POST", v3("workspaces/" + W + "/chat/channels"), {
+        name: txt(a["name"], 180),
+        visibility,
+        user_ids: users,
+        ...(a["description"] !== undefined ? { description: txt(a["description"], 8000) } : {}),
+      });
+      const channel = chatEntity(result, "channel");
+      const verified = await verifiedChatChannel(g, f, channel["id"]);
+      return { channel: clip(verified), created_or_existing: true };
+    }
+    case "clickup_update_goal_name":
+    case "clickup_update_key_result_progress": {
+      const goalId = val(a, "goal_id");
+      const before = await readGoalDetails(W, goalId, 1000, (path) => call("GET", path));
+      if (name === "clickup_update_goal_name") {
+        const title = txt(a["name"], 180);
+        await call("PUT", v2("goal/" + goalId), { name: title }, "empty-write-ack");
+        const after = await readGoalDetails(W, goalId, 1000, (path) => call("GET", path));
+        if (obj(after["goal"])?.["name"] !== title)
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+        return { success: true, goal_id: goalId, verified_by_readback: true };
+      }
+      const targets = obj(before["goal"])?.["key_results"];
+      const resultId = val(a, "key_result_id");
+      if (!Array.isArray(targets) || !targets.some((x) => obj(x)?.["id"] === resultId))
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      if (!Number.isSafeInteger(a["steps_current"])) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      await call(
+        "PUT",
+        v2("key_result/" + resultId),
+        { steps_current: a["steps_current"], note: txt(a["text"], 6000) },
+        "empty-write-ack",
+      );
+      const after = await readGoalDetails(W, goalId, 1000, (path) => call("GET", path));
+      const updated = obj(after["goal"])?.["key_results"];
+      const target = Array.isArray(updated)
+        ? updated.map(obj).find((x) => x?.["id"] === resultId)
+        : null;
+      if (!target || Number(target["steps_current"]) !== a["steps_current"])
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return { success: true, key_result_id: resultId, verified_by_readback: true };
     }
     case "clickup_get_webhooks": {
       const result = await call("GET", v2("team/" + W + "/webhook"));
