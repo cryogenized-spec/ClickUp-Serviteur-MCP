@@ -458,8 +458,7 @@ async function verifySharedTaskWorkspace(
       v2("team/" + id(grant.workspaceId) + "/task?" + params),
     );
     const rows = result["tasks"];
-    if (!Array.isArray(rows) || rows.length > 100)
-      throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+    if (!Array.isArray(rows) || rows.length > 100) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
     if (
       rows.some((entry) => {
         const item = obj(entry);
