@@ -168,6 +168,14 @@ const F = {
     24,
   ),
   comment_id: str("Exact ClickUp comment identifier.", 100),
+  patch_start: integer("Zero-based index of the first native segment to patch.", 0, 100),
+  patch_delete_count: integer(
+    "Number of contiguous native segments to remove; zero inserts.",
+    0,
+    100,
+  ),
+  confirm_patch: flag("True only after explicit approval of the exact preview."),
+  expected_patch_fingerprint: str("SHA-256 fingerprint from the matching patch preview.", 64),
   confirm_delete: flag(
     "Must be true for company cleanup; confirms deletion of the exact verified item.",
   ),
@@ -818,7 +826,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Create Task Comment",
     "comments",
     "write",
-    "Create plain text, legacy mention_segments, or full ClickUp-native rich_segments (bold/italic/code/hyperlinks/lists/checklists/toggles/code blocks/emoji/verified @mentions). Choose one content mode. Markdown syntax in a text span remains literal; explicit divider produces a Unicode fallback. Rich editing and threaded rich replies not supported.",
+    "Create plain text, legacy mention_segments, or full ClickUp-native rich_segments (bold/italic/code/hyperlinks/lists/checklists/toggles/code blocks/emoji/verified @mentions). Choose one content mode. Markdown syntax in a text span remains literal; explicit divider produces a Unicode fallback. Use the separate patch tool for targeted rich edits; threaded rich replies are not supported.",
     "Post an approved new comment with text before and after a verified colleague mention.",
     ["task_id"],
     ["text", "mention_segments", "rich_segments", "parent_comment_id", "assignee_id"],
@@ -832,6 +840,17 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Delete the exact comment only when it belongs to the authenticated user on an independently verified authorized task. Confirmation is mandatory; no bulk or third-party comment deletions.",
     "Remove my own accidental QA formatting comment after verifying its task and ID.",
     ["task_id", "comment_id", "confirm_delete"],
+  ),
+
+  tool(
+    "clickup_patch_task_comment",
+    "Patch Own Rich Task Comment",
+    "comments",
+    "write",
+    "Preview or apply a contiguous segment removal, replacement or insertion on your own verified task comment. Retain the comment ID and untouched native spans. First preview with confirm_patch omitted; then use the same arguments, exact preview fingerprint and confirm_patch=true after approval. Reject unsupported nodes and stale previews.",
+    "Preview removal of an unwanted sketch, then apply only the approved range without deleting the comment.",
+    ["task_id", "comment_id", "patch_start", "patch_delete_count"],
+    ["rich_segments", "confirm_patch", "expected_patch_fingerprint"],
   ),
 
   tool(
