@@ -23,9 +23,19 @@ export interface ReadGrant {
 
 /** Only fixed, non-sensitive categories and HTTP statuses may cross the MCP error boundary. */
 export interface UpstreamDiagnostic {
-  readonly endpoint_category: "chat_message_send";
+  readonly endpoint_category: "chat_message_send" | "clickup_api_read" | "clickup_api_write";
   readonly http_status?: number;
-  readonly write_outcome: "rejected" | "unknown";
+  readonly write_outcome?: "rejected" | "unknown";
+}
+
+/** Status-only diagnostic; deliberately never consumes or forwards error bodies. */
+export function apiDiagnostic(method: string, status: number): UpstreamDiagnostic {
+  if (method === "GET") return { endpoint_category: "clickup_api_read", http_status: status };
+  return {
+    endpoint_category: "clickup_api_write",
+    http_status: status,
+    write_outcome: status >= 500 || status === 408 || status === 425 ? "unknown" : "rejected",
+  };
 }
 
 export class ReadFailure extends Error {

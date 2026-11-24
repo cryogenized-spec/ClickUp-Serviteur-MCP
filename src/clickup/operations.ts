@@ -1,5 +1,5 @@
 import { quotaCall } from "./client.js";
-import { ReadFailure, type ReadGrant } from "./policy.js";
+import { apiDiagnostic, ReadFailure, type ReadGrant } from "./policy.js";
 
 /**
  * Minimal native ClickUp REST adapter. ClickUp remains the ONLY task/activity
@@ -35,20 +35,23 @@ async function requestJson(
       signal: controller.signal,
     });
     if (response.status === 401 || response.status === 403)
-      throw new ReadFailure("CLICKUP_UPSTREAM_DENIED");
+      throw new ReadFailure("CLICKUP_UPSTREAM_DENIED", apiDiagnostic(method, response.status));
     if (response.status === 429) {
       const reset = response.headers.get("X-RateLimit-Reset");
       const seconds = reset && /^\d{1,12}$/.test(reset) ? Number(reset) : 0;
       if (Number.isSafeInteger(seconds) && seconds > Date.now() / 1000) {
         await quotaCall(grant, "cooldown", seconds * 1000);
       }
-      throw new ReadFailure("CLICKUP_RATE_LIMITED");
+      throw new ReadFailure("CLICKUP_RATE_LIMITED", apiDiagnostic(method, 429));
     }
     if (!response.ok) {
       if (method !== "GET" && response.status >= 500) {
-        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+        throw new ReadFailure(
+          "CLICKUP_WRITE_OUTCOME_UNKNOWN",
+          apiDiagnostic(method, response.status),
+        );
       }
-      throw new ReadFailure("CLICKUP_UPSTREAM_UNAVAILABLE");
+      throw new ReadFailure("CLICKUP_UPSTREAM_UNAVAILABLE", apiDiagnostic(method, response.status));
     }
     const malformed = () =>
       new ReadFailure(method === "GET" ? "CLICKUP_BAD_RESPONSE" : "CLICKUP_WRITE_OUTCOME_UNKNOWN");
