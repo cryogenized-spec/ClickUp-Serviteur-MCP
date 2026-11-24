@@ -138,6 +138,7 @@ const taskDraft = obj(
 );
 
 const F = {
+  confirm_clear: flag("True only after explicit approval to clear the exact task field value."),
   event_after_time: integer(
     "Timestamp from the previous pending activity cursor.",
     0,
@@ -1503,6 +1504,77 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Mark only the exact reviewed event keys on one freshly authorized task as acknowledged in the private Serviteur register. Does not modify ClickUp or its Inbox. Requires explicit user approval.",
     "Acknowledge these reviewed changes for this task.",
     ["task_id", "event_keys", "confirm_review"],
+  ),
+
+  // HIGH PRIORITY CUSTOM FIELDS AND ATTACHMENTS
+  tool(
+    "clickup_get_workspace_custom_fields",
+    "Get Workspace Custom Fields",
+    "tasks",
+    "read",
+    "Discover Custom Fields defined at Workspace level using the authorized user's native API access.",
+    "Show Workspace-level Custom Fields.",
+    [],
+    ["include_applied_objects", "max_results"],
+  ),
+  tool(
+    "clickup_get_space_custom_fields",
+    "Get Space Custom Fields",
+    "tasks",
+    "read",
+    "Discover Custom Fields defined at an exact verified Space, including task type applicability.",
+    "Show Custom Fields available in this Space.",
+    ["space_id"],
+    ["include_applied_objects", "max_results"],
+  ),
+  tool(
+    "clickup_get_folder_custom_fields",
+    "Get Folder Custom Fields",
+    "tasks",
+    "read",
+    "Discover Custom Fields defined at an exact verified Folder, including task type applicability.",
+    "Show Custom Fields available in this Folder.",
+    ["folder_id"],
+    ["include_applied_objects", "max_results"],
+  ),
+  tool(
+    "clickup_clear_custom_field",
+    "Clear Custom Field Value",
+    "tasks",
+    "write",
+    "Clear the value of one applicable field on a verified task after explicit approval. Does not delete the field definition.",
+    "Clear this approved task field value.",
+    ["task_id", "field_id", "confirm_clear"],
+  ),
+  tool(
+    "clickup_upload_task_attachment",
+    "Upload Task Attachment V3",
+    "attachments",
+    "write",
+    "Upload user-provided Base64 bytes using ClickUp's v3 attachment endpoint. Never retry an uncertain upload.",
+    "Upload this approved file to the verified task.",
+    ["task_id", "file_name", "file_base64"],
+    ["media_type"],
+  ),
+  tool(
+    "clickup_get_file_field_attachments",
+    "Get File Field Attachments",
+    "attachments",
+    "read",
+    "List v3 attachment metadata on a file Custom Field applicable to the exact authorized task; the field collection can include files not yet associated to that task.",
+    "List the available files for this task's File field.",
+    ["task_id", "field_id"],
+    ["attachment_cursor", "max_results"],
+  ),
+  tool(
+    "clickup_upload_file_field_attachment",
+    "Upload File Field Attachment",
+    "attachments",
+    "write",
+    "Upload a file to an applicable File Custom Field via v3. Returns the uploaded ID; does not change the task's field value or claim association.",
+    "Upload this approved file to the specified File field.",
+    ["task_id", "field_id", "file_name", "file_base64"],
+    ["media_type"],
   ),
 
   // NATIVE API EXPANSION
