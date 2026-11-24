@@ -51,11 +51,12 @@ export function toolError(error: unknown) {
   const safe: Record<string, string | number> = { code };
   // Never forward upstream error bodies, message content, channel IDs, or tokens.
   // Only locally constructed diagnostics are eligible for the model response.
-  if (error instanceof ReadFailure && error.diagnostic?.endpoint_category === "chat_message_send") {
-    safe["endpoint_category"] = "chat_message_send";
+  if (error instanceof ReadFailure && error.diagnostic) {
+    safe["endpoint_category"] = error.diagnostic.endpoint_category;
     if (error.diagnostic.http_status !== undefined)
       safe["http_status"] = error.diagnostic.http_status;
-    safe["write_outcome"] = error.diagnostic.write_outcome;
+    if (error.diagnostic.write_outcome !== undefined)
+      safe["write_outcome"] = error.diagnostic.write_outcome;
   }
   return {
     isError: true,
