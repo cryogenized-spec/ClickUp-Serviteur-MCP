@@ -849,7 +849,8 @@ export async function uploadAttachmentBytes(
   // including the binary file-aware route and the legacy Base64 route.
   const target = await taskInWorkspace(grant, fetcher, taskId, v3Entity?.type === "attachments");
   if (v3Entity) {
-    if (grant.resourceScope !== "workspace") throw new ReadFailure("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
+    if (grant.resourceScope !== "workspace")
+      throw new ReadFailure("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
     if (v3Entity.type === "attachments" && v3Entity.id !== taskId)
       throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     if (v3Entity.type === "custom_fields") verifyFileField(target, v3Entity.id);
@@ -1496,7 +1497,12 @@ export async function runCatalogOperation(
         (Array.isArray(updated) &&
           updated.some((entry) => entry === attachmentId || obj(entry)?.["id"] === attachmentId));
       if (!linked) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
-      return { task_id: target["id"], field_id: fieldId, attachment_id: attachmentId, linked: true };
+      return {
+        task_id: target["id"],
+        field_id: fieldId,
+        attachment_id: attachmentId,
+        linked: true,
+      };
     }
     case "clickup_get_file_field_attachments":
     case "clickup_get_task_attachments": {
