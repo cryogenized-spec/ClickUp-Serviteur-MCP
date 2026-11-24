@@ -1845,7 +1845,7 @@ export async function runCatalogOperation(
       // Events are only hints. Never disclose an ID or title without a fresh
       // authorized upstream task read, including individually shared tasks.
       const verified: Json[] = [];
-      let incomplete = false;
+      let incomplete: boolean;
       let scanned = 0;
       try {
         const binding = g.webhookEvents;
