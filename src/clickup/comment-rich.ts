@@ -263,11 +263,7 @@ export function patchRichComment(
     (count === 0 && replacement.length === 0)
   )
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-  const next = [
-    ...original.slice(0, start),
-    ...replacement,
-    ...original.slice(start + count),
-  ];
+  const next = [...original.slice(0, start), ...replacement, ...original.slice(start + count)];
   return canonicalPatchComment(next);
 }
 
