@@ -16,6 +16,7 @@ export interface ReadGrant {
   readonly workspaceId: string;
   readonly apiToken: string;
   readonly webhookEvents?: ReadGrant["quota"];
+  readonly webhookEndpoint?: string;
   readonly quota: {
     readonly idFromName: (name: string) => unknown;
     readonly get: (id: never) => { fetch: (request: Request) => Promise<Response> };
@@ -186,8 +187,18 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
     typeof eventBinding["get"] === "function"
       ? (eventBinding as unknown as ReadGrant["quota"])
       : undefined;
+  const origin = env["MCP_PUBLIC_ORIGIN"];
+  const webhookEndpoint =
+    webhookEvents &&
+    typeof origin === "string" &&
+    /^https:\/\/[a-zA-Z0-9.-]+(?::[0-9]+)?$/.test(origin) &&
+    typeof env["CLICKUP_TOKEN_KEY"] === "string" &&
+    /^[A-Za-z0-9+/]{43}=$/.test(env["CLICKUP_TOKEN_KEY"])
+      ? origin + "/clickup/webhook"
+      : undefined;
   return {
     ...(webhookEvents ? { webhookEvents } : {}),
+    ...(webhookEndpoint ? { webhookEndpoint } : {}),
     subject,
     clickupUserId: user.clickupUserId,
     // A user's selected List is scoped to the same OAuth Workspace and
@@ -221,6 +232,12 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
  * expansion are deliberately absent. Every name must be reviewed individually.
  */
 export const COMPANY_SAFE_WRITE_OPERATIONS: ReadonlySet<string> = new Set([
+  "clickup_associate_file_field_attachment",
+  "clickup_create_activity_webhook",
+  "clickup_update_activity_webhook",
+  "clickup_clear_custom_field",
+  "clickup_upload_task_attachment",
+  "clickup_upload_file_field_attachment",
   "clickup_acknowledge_activity",
   "clickup_create_list_from_template",
   "clickup_create_folder_from_template",
@@ -306,6 +323,7 @@ export function isCompanyNonDestructiveOperation(name: string): boolean {
  * No general delete-List/Folder/Doc privilege is inferred from this grant.
  */
 export const COMPANY_OWNER_CLEANUP_OPERATIONS: ReadonlySet<string> = new Set([
+  "clickup_delete_activity_webhook",
   "clickup_merge_tasks",
   "clickup_delete_task",
   "clickup_delete_task_comment",
