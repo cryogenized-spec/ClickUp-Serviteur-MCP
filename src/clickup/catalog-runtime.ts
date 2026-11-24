@@ -1081,6 +1081,13 @@ async function scopedChatReactions(
 }
 
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
+  "clickup_get_workspace_custom_fields",
+  "clickup_get_space_custom_fields",
+  "clickup_get_folder_custom_fields",
+  "clickup_clear_custom_field",
+  "clickup_upload_task_attachment",
+  "clickup_get_file_field_attachments",
+  "clickup_upload_file_field_attachment",
   "clickup_get_pending_activity",
   "clickup_acknowledge_activity",
   "clickup_get_shared_resources",
@@ -1187,6 +1194,13 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
 // after a same-Workspace, exact-home-List preflight. Other Workspace-wide
 // operations remain blocked. ClickUp owns task history and enforces its ACL.
 const WORKSPACE_SCOPE_OPERATIONS = new Set([
+  "clickup_get_workspace_custom_fields",
+  "clickup_get_space_custom_fields",
+  "clickup_get_folder_custom_fields",
+  "clickup_clear_custom_field",
+  "clickup_upload_task_attachment",
+  "clickup_get_file_field_attachments",
+  "clickup_upload_file_field_attachment",
   "clickup_get_pending_activity",
   "clickup_acknowledge_activity",
   "clickup_get_shared_resources",
@@ -1691,13 +1705,26 @@ export async function runCatalogOperation(
           result["incomplete"] === true || hasClippedNestedArray(result) || hasClippedText(result),
       };
     }
+    case "clickup_get_workspace_custom_fields":
+    case "clickup_get_space_custom_fields":
+    case "clickup_get_folder_custom_fields":
     case "clickup_get_list_custom_fields": {
-      await list("list_id");
+      const level = name.split("_")[2];
+      let parent = "team/" + W;
+      if (level === "list") {
+        await list("list_id");
+        parent = "list/" + val(a, "list_id");
+      } else if (level === "space") {
+        await inWorkspace(g, f, a["space_id"]);
+        parent = "space/" + val(a, "space_id");
+      } else if (level === "folder") {
+        await folder("folder_id");
+        parent = "folder/" + val(a, "folder_id");
+      }
       const result = await call(
         "GET",
         v2(
-          "list/" +
-            val(a, "list_id") +
+          parent +
             "/field?include_applied_objects=" +
             (a["include_applied_objects"] === false ? "false" : "true"),
         ),
@@ -1711,7 +1738,9 @@ export async function runCatalogOperation(
       const selected = fields.slice(0, N);
       return {
         source: "clickup-api-v2",
-        list_id: String(a["list_id"]),
+        ...(level === "list"
+          ? { list_id: String(a["list_id"]) }
+          : { level, parent_id: parent.split("/")[1] }),
         fields: clip(selected),
         fields_in_response: fields.length,
         include_applied_objects: a["include_applied_objects"] !== false,
@@ -2750,6 +2779,7 @@ export async function runCatalogOperation(
       const before = await task("task_id");
       return short(await updateVerifiedTask(a["task_id"], before, buildArgs(a, "changes")));
     }
+    case "clickup_clear_custom_field":
     case "clickup_set_custom_field": {
       const target = await task("task_id");
       const homeListId = obj(target["list"])?.["id"];
@@ -2775,6 +2805,18 @@ export async function runCatalogOperation(
             )))
       )
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      if (name === "clickup_clear_custom_field") {
+        if (a["confirm_clear"] !== true) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        const fieldPath = v2("task/" + val(a, "task_id") + "/field/" + val(a, "field_id"));
+        await call("DELETE", fieldPath, undefined, "empty-write-ack");
+        const after = await task("task_id");
+        const values = after["custom_fields"];
+        if (!Array.isArray(values)) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+        const cleared = values.map(obj).find((item) => item?.["id"] === a["field_id"]);
+        if (cleared?.["value"] !== undefined && cleared["value"] !== null)
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+        return { task_id: target["id"], field_id: a["field_id"], cleared: true };
+      }
       const field = buildArgs(a, "field_value");
       const allowed = new Set([
         "text",
