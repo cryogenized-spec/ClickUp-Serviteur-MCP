@@ -199,3 +199,88 @@ export function compareRichCommentReadback(
   }
   return { match: true, mentionIdentityVerified };
 }
+
+/** Convert supported readback nodes to the documented write shape. Unknown
+ * embeds or formatting fail closed rather than being silently flattened. */
+export function canonicalPatchComment(input: unknown): Json[] {
+  if (!Array.isArray(input) || input.length < 1 || input.length > 100)
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  const pieces: Json[] = [];
+  const ids = new Set<string>();
+  for (const raw of input) {
+    const node = object(raw);
+    if (!node) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    const type = node["type"];
+    if (type === "tag") {
+      const id = String(object(node["user"])?.["id"] ?? "");
+      ids.add(id);
+      pieces.push({ mention_user_id: id });
+      continue;
+    }
+    if (type === "emoticon") {
+      pieces.push({ emoji_code: object(node["emoticon"])?.["code"] });
+      continue;
+    }
+    if (type !== undefined && type !== null && type !== "text")
+      throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    if (Object.keys(node).some((key) => !["text", "attributes", "type"].includes(key)))
+      throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    const attributes = object(node["attributes"]);
+    if (node["attributes"] != null && !attributes)
+      throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    const piece: Json = { text: node["text"] };
+    for (const [key, value] of Object.entries(attributes ?? {})) {
+      if (["bold", "italic", "code", "link", "indent"].includes(key)) {
+        piece[key] = value;
+      } else if (key === "list" || key === "code-block") {
+        const nested = object(value);
+        if (!nested || Object.keys(nested).length !== 1)
+          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+        piece[key === "list" ? "list_type" : "code_block_language"] = nested[key];
+      } else {
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      }
+    }
+    pieces.push(piece);
+  }
+  return compileClickUpRichSegments(pieces, ids).segments;
+}
+
+export function patchRichComment(
+  original: Json[],
+  start: unknown,
+  count: unknown,
+  replacement: Json[],
+): Json[] {
+  if (
+    typeof start !== "number" ||
+    typeof count !== "number" ||
+    !Number.isInteger(start) ||
+    !Number.isInteger(count) ||
+    start < 0 ||
+    count < 0 ||
+    start + count > original.length ||
+    (count === 0 && replacement.length === 0)
+  )
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  const next = [
+    ...original.slice(0, start),
+    ...replacement,
+    ...original.slice(start + count),
+  ];
+  return canonicalPatchComment(next);
+}
+
+/** Stable digest binds the preview to the exact before/after and target. */
+export async function commentPatchFingerprint(value: unknown): Promise<string> {
+  const canonical = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(canonical);
+    const record = object(item);
+    return record
+      ? Object.fromEntries(Object.keys(record).sort().map((key) => [key, canonical(record[key])]))
+      : item;
+  };
+  const bytes = new TextEncoder().encode(JSON.stringify(canonical(value)));
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
