@@ -238,3 +238,116 @@ describe("task comment editing is author- and List-bound", () => {
     expect(api.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1);
   });
 });
+
+describe("targeted rich comment patch", () => {
+  const initial = [
+    { text: "Heading", attributes: { bold: true } },
+    { type: "tag", user: { id: 708 }, text: "@Colleague" },
+    { text: "Unwanted sketch" },
+    { text: "\n", attributes: { "code-block": { "code-block": "plain" } } },
+    { text: "Supplier", attributes: { link: "https://example.com" } },
+  ];
+  const args = {
+    task_id: "task1",
+    comment_id: "own22",
+    patch_start: 2,
+    patch_delete_count: 2,
+  };
+  function fixture(author = 707) {
+    let segments: unknown[] = structuredClone(initial);
+    const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      const path = new URL(String(input)).pathname;
+      if (path === "/api/v2/task/task1") return reply({ id: "task1", list: { id: "12345" } });
+      if (path === "/api/v2/list/12345") return reply({ id: "12345", space: { id: "777" } });
+      if (path === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777" }] });
+      if (path === "/api/v2/task/task1/comment")
+        return reply({
+          comments: [
+            {
+              id: "own22",
+              user: { id: author },
+              assignee: { id: 708 },
+              resolved: true,
+              reply_count: 3,
+              comment: segments,
+            },
+          ],
+        });
+      if (path === "/api/v2/comment/own22" && method === "PUT") {
+        const expected = [
+          { text: "Heading", attributes: { bold: true } },
+          { type: "tag", user: { id: 708 } },
+          { text: "Supplier", attributes: { link: "https://example.com" } },
+        ];
+        expect(JSON.parse(String(init?.body))).toEqual({
+          comment: expected,
+          assignee: 708,
+          resolved: true,
+        });
+        segments = expected;
+        return reply({});
+      }
+      throw Error("Unexpected API request " + method + " " + path);
+    });
+    return {
+      api,
+      mutate: () => {
+        segments = [...segments, { text: "Concurrent edit" }];
+      },
+      run: (patch: Record<string, unknown> = {}) =>
+        runCatalogOperation(
+          "clickup_patch_task_comment",
+          { ...args, ...patch },
+          grant(),
+          api as typeof fetch,
+        ),
+    };
+  }
+
+  it("previews without a write, then removes only the approved range in place", async () => {
+    const f = fixture();
+    const preview = await f.run();
+    expect(preview).toMatchObject({ preview: true, write_performed: false });
+    expect(f.api.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
+    const result = await f.run({
+      confirm_patch: true,
+      expected_patch_fingerprint: preview["fingerprint"],
+    });
+    expect(result).toMatchObject({
+      success: true,
+      comment_id: "own22",
+      verified_by_readback: true,
+    });
+    expect(f.api.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1);
+    expect(f.api.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+  });
+
+  it("refuses a stale preview after concurrent changes", async () => {
+    const f = fixture();
+    const preview = await f.run();
+    f.mutate();
+    await expect(
+      f.run({ confirm_patch: true, expected_patch_fingerprint: preview["fingerprint"] }),
+    ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    expect(f.api.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
+  });
+
+  it("refuses an unapproved write and another author's comment", async () => {
+    const f = fixture();
+    await expect(f.run({ confirm_patch: true })).rejects.toThrow(
+      "CLICKUP_SCOPE_OR_SCHEMA_REJECTED",
+    );
+    const other = fixture(709);
+    await expect(other.run()).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    expect(f.api.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
+    expect(other.api.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
+  });
+
+  it("refuses removing the entire comment or an out-of-range segment", async () => {
+    const f = fixture();
+    await expect(f.run({ patch_start: 0, patch_delete_count: 5 })).rejects.toThrow();
+    await expect(f.run({ patch_start: 99 })).rejects.toThrow("CLICKUP_INVALID_ARGUMENT");
+    expect(f.api.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
+  });
+});
