@@ -143,10 +143,9 @@ describe("high-priority native API completion", () => {
     const created = await runCatalogOperation("clickup_create_activity_webhook", args, g, f);
     expect(created).toMatchObject({ webhook_id: hookId, signing_secret_stored: true });
     expect(JSON.stringify(created)).not.toContain("synthetic-signing-secret");
-    await expect(runCatalogOperation("clickup_create_activity_webhook", args, g, f)).resolves.toMatchObject({
-      created: false,
-      existing_webhook_ids: [hookId],
-    });
+    await expect(
+      runCatalogOperation("clickup_create_activity_webhook", args, g, f),
+    ).resolves.toMatchObject({ created: false, existing_webhook_ids: [hookId] });
     await expect(
       runCatalogOperation(
         "clickup_update_activity_webhook",
