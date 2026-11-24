@@ -16,6 +16,7 @@ export interface ReadGrant {
   readonly workspaceId: string;
   readonly apiToken: string;
   readonly webhookEvents?: ReadGrant["quota"];
+  readonly webhookOrigin?: string;
   readonly quota: {
     readonly idFromName: (name: string) => unknown;
     readonly get: (id: never) => { fetch: (request: Request) => Promise<Response> };
@@ -188,6 +189,9 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
       : undefined;
   return {
     ...(webhookEvents ? { webhookEvents } : {}),
+    ...(webhookEvents && typeof env["MCP_PUBLIC_ORIGIN"] === "string"
+      ? { webhookOrigin: env["MCP_PUBLIC_ORIGIN"] }
+      : {}),
     subject,
     clickupUserId: user.clickupUserId,
     // A user's selected List is scoped to the same OAuth Workspace and
@@ -221,6 +225,18 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
  * expansion are deliberately absent. Every name must be reviewed individually.
  */
 export const COMPANY_SAFE_WRITE_OPERATIONS: ReadonlySet<string> = new Set([
+  "clickup_update_own_time_entry",
+  "clickup_duplicate_saved_view",
+  "clickup_rename_saved_view",
+  "clickup_create_webhook_subscription",
+  "clickup_update_webhook_subscription",
+  "clickup_update_task_checklist",
+  "clickup_create_list_comment",
+  "clickup_create_subfolder",
+  "clickup_move_folder",
+  "clickup_create_chat_channel",
+  "clickup_update_goal_name",
+  "clickup_update_key_result_progress",
   "clickup_acknowledge_activity",
   "clickup_create_list_from_template",
   "clickup_create_folder_from_template",
@@ -306,6 +322,12 @@ export function isCompanyNonDestructiveOperation(name: string): boolean {
  * No general delete-List/Folder/Doc privilege is inferred from this grant.
  */
 export const COMPANY_OWNER_CLEANUP_OPERATIONS: ReadonlySet<string> = new Set([
+  "clickup_delete_own_time_entry",
+  "clickup_delete_saved_view",
+  "clickup_delete_webhook_subscription",
+  "clickup_clear_custom_field",
+  "clickup_delete_task_checklist",
+  "clickup_delete_checklist_item",
   "clickup_merge_tasks",
   "clickup_delete_task",
   "clickup_delete_task_comment",

@@ -79,6 +79,7 @@ const profile = {
     CLICKUP_COMPANY_CLEANUP_ENABLED: cleanupOptIn,
     CLICKUP_OAUTH_ENABLED: "true",
     CLICKUP_LIVE_ENABLED: "true",
+    CLICKUP_WEBHOOK_ENABLED: "true",
     ...(buildSha ? { MCP_BUILD_SHA: buildSha } : {}),
   },
   kv_namespaces: [{ binding: "OAUTH_KV", id: kv }],
