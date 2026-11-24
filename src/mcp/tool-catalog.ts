@@ -138,6 +138,15 @@ const taskDraft = obj(
 );
 
 const F = {
+  billable: flag("Whether the user's own time entry is billable."),
+  end_ms: integer("End of the time entry in Unix epoch milliseconds.", 0, 9_000_000_000_000),
+  view_parent_type: {
+    type: "string",
+    description: "Exact hierarchy level containing the saved view.",
+    enum: ["workspace", "space", "folder", "list"],
+  },
+  view_parent_id: str("Exact ID of the verified hierarchy parent.", 24),
+
   webhook_id: str("Exact ID of a webhook owned and registered by this Serviteur user.", 36),
   webhook_events: arrayOf(
     "Task activity event names from the supported ClickUp webhook event list.",
@@ -1849,6 +1858,62 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Remove one Serviteur-managed subscription owned by the caller after explicit approval. Previously received events retain their normal retention.",
     "Stop this approved subscription.",
     ["webhook_id", "confirm_delete"],
+  ),
+
+  tool(
+    "clickup_update_own_time_entry",
+    "Edit Own Time Entry",
+    "time",
+    "write",
+    "Edit description, billing flag or start and end of one verified time entry belonging to the signed-in user. Never modifies a colleague's time.",
+    "Correct the times on my verified time entry.",
+    ["timer_id"],
+    ["description", "billable", "start_ms", "end_ms"],
+  ),
+  tool(
+    "clickup_delete_own_time_entry",
+    "Delete Own Time Entry",
+    "time",
+    "destructive",
+    "Delete one verified stopped time entry belonging to the signed-in user, after explicit confirmation.",
+    "Delete this approved duplicate time entry of mine.",
+    ["timer_id", "confirm_delete"],
+  ),
+  tool(
+    "clickup_get_saved_view",
+    "Get Saved View Details",
+    "views",
+    "read",
+    "Read the exact saved view configuration after proving its hierarchy parent in the approved Workspace.",
+    "Show the grouping, sorting and filters of this view.",
+    ["view_id", "view_parent_type", "view_parent_id"],
+  ),
+  tool(
+    "clickup_duplicate_saved_view",
+    "Duplicate Saved View",
+    "views",
+    "write",
+    "Create a new view from a verified existing view at the same hierarchy level, copying configuration and changing only its name. Does not move the source.",
+    "Duplicate this approved view with a new name.",
+    ["view_id", "view_parent_type", "view_parent_id", "name"],
+  ),
+  tool(
+    "clickup_rename_saved_view",
+    "Rename Saved View",
+    "views",
+    "write",
+    "Rename a verified existing view while preserving its native configuration and hierarchy parent.",
+    "Rename this exact saved view.",
+    ["view_id", "view_parent_type", "view_parent_id", "name"],
+  ),
+  tool(
+    "clickup_delete_saved_view",
+    "Delete Saved View",
+    "views",
+    "destructive",
+    "Delete the exact saved view only after verifying its current hierarchy parent and name and receiving explicit confirmation.",
+    "Delete this exact approved obsolete view.",
+    ["view_id", "view_parent_type", "view_parent_id", "name", "confirm_delete"],
   ),
 ];
 
