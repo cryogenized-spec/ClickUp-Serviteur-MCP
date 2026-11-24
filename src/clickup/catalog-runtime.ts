@@ -25,7 +25,12 @@ import {
   validateDirectMessageRecipients,
   validateRequestedRecipients,
 } from "./chat-v3.js";
-import { apiDiagnostic, COMPANY_LIST_TASK_OPERATIONS, ReadFailure, type ReadGrant } from "./policy.js";
+import {
+  apiDiagnostic,
+  COMPANY_LIST_TASK_OPERATIONS,
+  ReadFailure,
+  type ReadGrant,
+} from "./policy.js";
 
 /** REST-backed ClickUp tool catalogue. No extra approval controls, state journal,
  * rollback engine or background watcher. ClickUp itself owns all task history.
