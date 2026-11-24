@@ -19,9 +19,7 @@ async function signedRequest(content: string, secret = registration.secret): Pro
     ["sign"],
   );
   const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(content));
-  const signature = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join(
-    "",
-  );
+  const signature = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
   return new Request("https://example.test/clickup/webhook", {
     method: "POST",
     headers: { "X-Signature": signature },
@@ -38,10 +36,20 @@ describe("ClickUp webhook ingress", () => {
       expect(result.status).toBe(204);
     }
     expect(persist).toHaveBeenNthCalledWith(1, registration, [
-      { key: webhookId + ":history1", taskId: "abc123", event: "taskCommentPosted", receivedAt: 1000 },
+      {
+        key: webhookId + ":history1",
+        taskId: "abc123",
+        event: "taskCommentPosted",
+        receivedAt: 1000,
+      },
     ]);
     expect(persist).toHaveBeenNthCalledWith(2, registration, [
-      { key: webhookId + ":history1", taskId: "abc123", event: "taskCommentPosted", receivedAt: 2000 },
+      {
+        key: webhookId + ":history1",
+        taskId: "abc123",
+        event: "taskCommentPosted",
+        receivedAt: 2000,
+      },
     ]);
     expect(JSON.stringify(persist.mock.calls)).not.toContain("private comment");
   });
