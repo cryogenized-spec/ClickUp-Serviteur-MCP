@@ -1565,7 +1565,8 @@ export async function runCatalogOperation(
       if (!result.ok) throw new ReadFailure("CLICKUP_EVENT_STORAGE_UNAVAILABLE");
       const body = obj(await result.json());
       const events = body?.["events"];
-      if (!Array.isArray(events) || events.length > 10) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      if (!Array.isArray(events) || events.length > 10)
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       const grouped = new Map<string, Json>();
       const denied = new Set<string>();
       let last: Json | null = null;
