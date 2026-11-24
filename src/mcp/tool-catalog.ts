@@ -138,6 +138,7 @@ const taskDraft = obj(
 );
 
 const F = {
+  confirm_file_association: flag("True after explicit approval to populate this empty File field."),
   webhook_id: str("Exact existing Serviteur webhook UUID from the authorized inventory.", 36),
   confirm_webhook: flag("True only after explicit approval for this subscription operation."),
   webhook_status: {
@@ -1540,6 +1541,17 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Remove only an explicitly approved subscription owned by the connected user at the fixed Serviteur destination, with upstream inventory readback.",
     "Remove this approved Serviteur subscription.",
     ["webhook_id", "confirm_webhook"],
+  ),
+
+  tool(
+    "clickup_associate_file_field_attachment",
+    "Associate File Field Attachment",
+    "attachments",
+    "write",
+    "Associate an existing v3 attachment from the verified File field with an empty task field, then check task readback. Never replace existing files implicitly.",
+    "Associate the approved uploaded file with this empty task field.",
+    ["task_id", "field_id", "attachment_id", "confirm_file_association"],
+    ["attachment_cursor"],
   ),
 
   // HIGH PRIORITY CUSTOM FIELDS AND ATTACHMENTS
