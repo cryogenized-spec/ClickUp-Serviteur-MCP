@@ -1730,7 +1730,7 @@ export async function runCatalogOperation(
           await listInWorkspace(g, f, listId);
         },
       );
-      if (!g.webhookEvents || !workspaceScope) return report;
+      if (!g.webhookEvents || !workspaceScope || a["list_id"] !== undefined) return report;
       // Events are only hints. Never disclose an ID or title without a fresh
       // authorized upstream task read, including individually shared tasks.
       const verified: Json[] = [];
