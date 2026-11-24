@@ -70,7 +70,7 @@ export async function handleClickUpWebhook(request: Request, env: OAuthEnv): Pro
         // A revoked or replaced OAuth connection cannot continue collecting activity.
         const connections = env.CLICKUP_CONNECTIONS as EventBinding | undefined;
         if (!connections) return null;
-        const connection = connections.get(connections.idFromName(subject) as never);
+        const connection = connections.get(connections.idFromName("staff-clickup:" + subject) as never);
         const status = await connection.fetch(
           new Request("https://internal/status", {
             method: "POST",
