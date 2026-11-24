@@ -1088,6 +1088,7 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_create_list_from_template",
   "clickup_create_folder_from_template",
   "clickup_preview_task_merge",
+  "clickup_merge_tasks",
   "clickup_get_webhooks",
   "clickup_get_workspace_goals",
   "clickup_get_goal_details",
@@ -1398,7 +1399,7 @@ export async function runCatalogOperation(
         "api/v3/workspaces/" + W + "/attachments/" + val(a, "task_id") + "/attachments?" + params,
       );
       // Only expose metadata, not signed download URLs.
-      const rows = result["attachments"];
+      const rows = result["data"];
       if (!Array.isArray(rows)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       const attachments = rows.slice(0, N).map((entry) => {
         const item = obj(entry);
@@ -1408,10 +1409,12 @@ export async function runCatalogOperation(
           title: item["title"] ?? item["name"] ?? null,
           extension: item["extension"] ?? null,
           size: item["size"] ?? null,
-          date: item["date"] ?? null,
+          date_created: item["date_created"] ?? null,
+          date_updated: item["date_updated"] ?? null,
+          mime_type: item["mime_type"] ?? null,
         };
       });
-      const next = result["next_cursor"] ?? result["cursor"] ?? null;
+      const next = result["next_cursor"] || null;
       if (next !== null && typeof next !== "string") throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       return {
         source: "clickup-api-v3",
@@ -1459,7 +1462,8 @@ export async function runCatalogOperation(
         retry_safe: false,
       };
     }
-    case "clickup_preview_task_merge": {
+    case "clickup_preview_task_merge":
+    case "clickup_merge_tasks": {
       const target = await task("task_id");
       const sources = a["task_ids"];
       if (!Array.isArray(sources) || sources.length < 1 || sources.length > 20)
@@ -1470,14 +1474,39 @@ export async function runCatalogOperation(
       const preview = [];
       for (const source of ids) {
         const item = await taskInWorkspace(g, f, source);
-        preview.push({ id: item["id"], name: item["name"], list: obj(item["list"])?.["id"] });
+        preview.push({
+          id: item["id"],
+          name: item["name"],
+          list: obj(item["list"])?.["id"],
+          date_updated: item["date_updated"] ?? null,
+        });
       }
-      return {
-        target: { id: target["id"], name: target["name"], list: obj(target["list"])?.["id"] },
+      const mergePreview = {
+        target: {
+          id: target["id"],
+          name: target["name"],
+          list: obj(target["list"])?.["id"],
+          date_updated: target["date_updated"] ?? null,
+        },
         sources: preview,
-        irreversible: true,
-        merged: false,
       };
+      const fingerprint = await commentPatchFingerprint({
+        workspace: W,
+        actor: g.clickupUserId,
+        ...mergePreview,
+      });
+      if (name === "clickup_preview_task_merge")
+        return { ...mergePreview, fingerprint, irreversible: true, merged: false };
+      if (a["confirm_merge"] !== true || a["expected_merge_fingerprint"] !== fingerprint)
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const result = await call(
+        "POST",
+        v2("task/" + val(a, "task_id") + "/merge"),
+        { source_task_ids: ids },
+        "empty-write-ack",
+      );
+      // The response acknowledges a native merge; never repeat after uncertainty.
+      return { acknowledgement: clip(result), readback_verified: false, retry_safe: false };
     }
     case "clickup_get_webhooks": {
       const result = await call("GET", v2("team/" + W + "/webhook"));
