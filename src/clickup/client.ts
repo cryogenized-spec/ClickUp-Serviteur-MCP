@@ -1,4 +1,4 @@
-import { apiDiagnostic, ReadFailure, type ReadGrant } from "./policy.js";
+import { apiDiagnostic, authorizationDiagnostic, ReadFailure, type ReadGrant } from "./policy.js";
 
 export interface ScopedTask {
   readonly id: string;
@@ -149,7 +149,10 @@ async function getJson(grant: ReadGrant, path: string, fetcher: Fetcher): Promis
       throw new ReadFailure("CLICKUP_RATE_LIMITED", apiDiagnostic("GET", 429));
     }
     if (response.status === 401 || response.status === 403)
-      throw new ReadFailure("CLICKUP_UPSTREAM_DENIED", apiDiagnostic("GET", response.status));
+      throw new ReadFailure(
+        "CLICKUP_UPSTREAM_DENIED",
+        await authorizationDiagnostic("GET", response, path),
+      );
     if (!response.ok)
       throw new ReadFailure("CLICKUP_UPSTREAM_UNAVAILABLE", apiDiagnostic("GET", response.status));
     const declaredSize = response.headers.get("content-length");

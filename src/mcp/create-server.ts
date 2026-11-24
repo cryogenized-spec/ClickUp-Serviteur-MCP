@@ -55,6 +55,10 @@ export function toolError(error: unknown) {
     safe["endpoint_category"] = error.diagnostic.endpoint_category;
     if (error.diagnostic.http_status !== undefined)
       safe["http_status"] = error.diagnostic.http_status;
+    if (error.diagnostic.upstream_ecode !== undefined)
+      safe["upstream_ecode"] = error.diagnostic.upstream_ecode;
+    if (error.diagnostic.authorization_target !== undefined)
+      safe["authorization_target"] = error.diagnostic.authorization_target;
     if (error.diagnostic.write_outcome !== undefined)
       safe["write_outcome"] = error.diagnostic.write_outcome;
   }
