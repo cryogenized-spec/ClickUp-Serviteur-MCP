@@ -59,7 +59,13 @@ jobs:
 
       - name: Enforce formatting
         if: steps.stage.outputs.application == 'true'
-        run: npm run format:check
+        run: |
+          if ! npm run format:check; then
+            # Display exact corrections without changing the repository or accepting the failed gate.
+            npx --no-install prettier --write src tests package.json tsconfig*.json eslint.config.js wrangler.jsonc
+            git diff --no-ext-diff
+            exit 1
+          fi
 
       - name: Enforce ESLint
         if: steps.stage.outputs.application == 'true'
