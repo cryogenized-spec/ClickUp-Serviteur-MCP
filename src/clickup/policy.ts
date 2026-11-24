@@ -25,6 +25,8 @@ export interface ReadGrant {
 export interface UpstreamDiagnostic {
   readonly endpoint_category: "chat_message_send" | "clickup_api_read" | "clickup_api_write";
   readonly http_status?: number;
+  readonly upstream_ecode?: string;
+  readonly authorization_target?: "task" | "list" | "workspace" | "other";
   readonly write_outcome?: "rejected" | "unknown";
 }
 
@@ -36,6 +38,55 @@ export function apiDiagnostic(method: string, status: number): UpstreamDiagnosti
     http_status: status,
     write_outcome: status >= 500 || status === 408 || status === 425 ? "unknown" : "rejected",
   };
+}
+
+/** Only documented, fixed OAuth codes may leave the upstream response. */
+export async function authorizationDiagnostic(
+  method: string,
+  response: Response,
+  path: string,
+): Promise<UpstreamDiagnostic> {
+  const base = apiDiagnostic(method, response.status);
+  const target = path.replace(/^api\/v[23]\//, "").split("/")[0];
+  const authorization_target =
+    target === "task" || target === "list" ? target : target === "team" ? "workspace" : "other";
+  const result: UpstreamDiagnostic = { ...base, authorization_target };
+  const body = response.body;
+  if (!body) return result;
+  const length = response.headers.get("content-length");
+  if (length !== null && (!/^\d+$/.test(length) || Number(length) > 2048)) {
+    void body.cancel().catch(() => undefined);
+    return result;
+  }
+  const reader = body.getReader();
+  const bytes = new Uint8Array(2048);
+  let used = 0;
+  try {
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      if (used + part.value.byteLength > bytes.length) {
+        void reader.cancel().catch(() => undefined);
+        return result;
+      }
+      bytes.set(part.value, used);
+      used += part.value.byteLength;
+    }
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes.subarray(0, used)));
+    const data = record(parsed);
+    const code = data?.["ECODE"] ?? data?.["ecode"];
+    if (
+      typeof code === "string" &&
+      /^OAUTH_(007|010|017|019|021|023|025|026|027|029|03[0-9]|04[0-5]|077|171)$/.test(code)
+    )
+      return { ...result, upstream_ecode: code };
+    return result;
+  } catch {
+    void reader.cancel().catch(() => undefined);
+    return result;
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 export class ReadFailure extends Error {
