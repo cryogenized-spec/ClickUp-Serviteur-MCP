@@ -1114,6 +1114,7 @@ async function scopedChatReactions(
 }
 
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
+  "clickup_associate_file_field_attachment",
   "clickup_create_activity_webhook",
   "clickup_update_activity_webhook",
   "clickup_delete_activity_webhook",
@@ -1230,6 +1231,7 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
 // after a same-Workspace, exact-home-List preflight. Other Workspace-wide
 // operations remain blocked. ClickUp owns task history and enforces its ACL.
 const WORKSPACE_SCOPE_OPERATIONS = new Set([
+  "clickup_associate_file_field_attachment",
   "clickup_create_activity_webhook",
   "clickup_update_activity_webhook",
   "clickup_delete_activity_webhook",
@@ -1446,6 +1448,48 @@ export async function runCatalogOperation(
         next_resource_offset: offset + N < rows.length ? offset + N : null,
         incomplete: offset + N < rows.length,
       };
+    }
+    case "clickup_associate_file_field_attachment": {
+      if (a["confirm_file_association"] !== true)
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const target = await task("task_id");
+      const fieldId = val(a, "field_id");
+      const definition = verifyFileField(target, fieldId);
+      const current = definition["value"];
+      // The vendor documents an attachment ID as the association input, but
+      // does not document append semantics. Never overwrite existing files.
+      if (current !== undefined && current !== null && !(Array.isArray(current) && !current.length))
+        throw new ReadFailure("CLICKUP_FILE_FIELD_NOT_EMPTY");
+      const attachmentId = txt(a["attachment_id"], 100);
+      const params = new URLSearchParams({ limit: "100" });
+      if (a["attachment_cursor"] !== undefined)
+        params.set("cursor", txt(a["attachment_cursor"], 500));
+      const result = await call(
+        "GET",
+        v3("workspaces/" + W + "/custom_fields/" + fieldId + "/attachments?" + params),
+      );
+      if (
+        !Array.isArray(result["data"]) ||
+        !result["data"].some((entry) => {
+          const item = obj(entry);
+          return item?.["id"] === attachmentId && String(item["parent_id"]) === fieldId;
+        })
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      await call(
+        "POST",
+        v2("task/" + val(a, "task_id") + "/field/" + fieldId),
+        { value: attachmentId },
+        "empty-write-ack",
+      );
+      const after = await task("task_id");
+      const updated = verifyFileField(after, fieldId)["value"];
+      const linked =
+        updated === attachmentId ||
+        (Array.isArray(updated) &&
+          updated.some((entry) => entry === attachmentId || obj(entry)?.["id"] === attachmentId));
+      if (!linked) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return { task_id: target["id"], field_id: fieldId, attachment_id: attachmentId, linked: true };
     }
     case "clickup_get_file_field_attachments":
     case "clickup_get_task_attachments": {
