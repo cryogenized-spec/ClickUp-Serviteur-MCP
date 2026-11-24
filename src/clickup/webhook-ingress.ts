@@ -88,7 +88,11 @@ export async function receiveClickUpWebhook(
   let payload: Json | null;
   try {
     body = await boundedBody(request);
-    payload = object(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)));
+    const decoded = new TextDecoder().decode(body);
+    const roundtrip = new TextEncoder().encode(decoded);
+    if (roundtrip.length !== body.length || roundtrip.some((byte, i) => byte !== body[i]))
+      return response(400);
+    payload = object(JSON.parse(decoded));
   } catch {
     return response(400);
   }
