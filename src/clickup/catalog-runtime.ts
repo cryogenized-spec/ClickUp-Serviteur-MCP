@@ -25,7 +25,7 @@ import {
   validateDirectMessageRecipients,
   validateRequestedRecipients,
 } from "./chat-v3.js";
-import { COMPANY_LIST_TASK_OPERATIONS, ReadFailure, type ReadGrant } from "./policy.js";
+import { apiDiagnostic, COMPANY_LIST_TASK_OPERATIONS, ReadFailure, type ReadGrant } from "./policy.js";
 
 /** REST-backed ClickUp tool catalogue. No extra approval controls, state journal,
  * rollback engine or background watcher. ClickUp itself owns all task history.
@@ -265,10 +265,16 @@ async function send(
         if (unix > Date.now() / 1000 && unix < Date.now() / 1000 + 3600)
           await quotaCall(grant, "cooldown", unix * 1000);
       }
-      throw new ReadFailure("CLICKUP_RATE_LIMITED", chatDiagnostic("rejected", 429));
+      throw new ReadFailure(
+        "CLICKUP_RATE_LIMITED",
+        chatDiagnostic("rejected", 429) ?? apiDiagnostic(method, 429),
+      );
     }
     if (res.status === 401 || res.status === 403)
-      throw new ReadFailure("CLICKUP_UPSTREAM_DENIED", chatDiagnostic("rejected", res.status));
+      throw new ReadFailure(
+        "CLICKUP_UPSTREAM_DENIED",
+        chatDiagnostic("rejected", res.status) ?? apiDiagnostic(method, res.status),
+      );
     if (!res.ok) {
       if (chatSend) {
         if (res.status === 400 || res.status === 422)
@@ -293,7 +299,8 @@ async function send(
         method === "GET" || res.status < 500
           ? "CLICKUP_UPSTREAM_UNAVAILABLE"
           : "CLICKUP_WRITE_OUTCOME_UNKNOWN",
-        chatDiagnostic(res.status >= 500 ? "unknown" : "rejected", res.status),
+        chatDiagnostic(res.status >= 500 ? "unknown" : "rejected", res.status) ??
+          apiDiagnostic(method, res.status),
       );
     }
     // ClickUp v3 Chat documents 201 for creation. Any other 2xx may
@@ -792,7 +799,8 @@ export async function uploadAttachmentBytes(
       }
       throw new ReadFailure("CLICKUP_RATE_LIMITED");
     }
-    if (res.status === 401 || res.status === 403) throw new ReadFailure("CLICKUP_UPSTREAM_DENIED");
+    if (res.status === 401 || res.status === 403)
+      throw new ReadFailure("CLICKUP_UPSTREAM_DENIED", apiDiagnostic("POST", res.status));
     if (!res.ok) {
       // A definitively rejected 4xx upload is different from an ambiguous
       // timeout/5xx. Surface only the status and a strictly validated ClickUp
