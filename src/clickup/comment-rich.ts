@@ -272,9 +272,12 @@ export async function commentPatchFingerprint(value: unknown): Promise<string> {
   const canonical = (item: unknown): unknown => {
     if (Array.isArray(item)) return item.map(canonical);
     const record = object(item);
-    return record
-      ? Object.fromEntries(Object.keys(record).sort().map((key) => [key, canonical(record[key])]))
-      : item;
+    if (!record) return item;
+    const result: Json = {};
+    for (const key of Object.keys(record).sort()) {
+      result[key] = canonical(record[key]);
+    }
+    return result;
   };
   const bytes = new TextEncoder().encode(JSON.stringify(canonical(value)));
   const hash = await crypto.subtle.digest("SHA-256", bytes);
