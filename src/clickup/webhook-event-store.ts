@@ -13,6 +13,15 @@ export class ClickUpWebhookEvents {
 
   async fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
+    if (request.method === "GET" && path === "/recent") {
+      const rows = this.state.storage.sql
+        .exec<{ task_id: string; received_at: number }>(
+          "SELECT task_id, MAX(received_at) AS received_at FROM hints WHERE received_at >= ? GROUP BY task_id ORDER BY received_at DESC, task_id LIMIT 51",
+          Date.now() - WEEK,
+        )
+        .toArray();
+      return Response.json({ tasks: rows.slice(0, 50), incomplete: rows.length > 50 });
+    }
     if (request.method !== "POST" || path !== "/ingest") return new Response(null, { status: 404 });
     const raw: unknown = await request.json().catch(() => null);
     if (!Array.isArray(raw) || raw.length < 1 || raw.length > 500)
@@ -56,7 +65,10 @@ export class ClickUpWebhookEvents {
         "DELETE FROM hints WHERE event_key IN (SELECT event_key FROM hints ORDER BY received_at DESC, event_key DESC LIMIT -1 OFFSET 5000)",
       );
     });
-    await this.state.storage.setAlarm(now + WEEK);
+    const earliest = this.state.storage.sql
+      .exec<{ earliest: number | null }>("SELECT MIN(received_at) AS earliest FROM hints")
+      .one().earliest;
+    if (earliest !== null) await this.state.storage.setAlarm(Math.max(now + 1000, earliest + WEEK));
     return new Response(null, { status: 204 });
   }
 
