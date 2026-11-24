@@ -1,7 +1,13 @@
 import { quotaCall } from "./client.js";
 import { getMyAttentionItems } from "./attention-items.js";
 import { readGoalDetails, readSprintTaskSnapshot, readWorkspaceGoals } from "./reporting-reads.js";
-import { compileClickUpRichSegments, compareRichCommentReadback } from "./comment-rich.js";
+import {
+  canonicalPatchComment,
+  commentPatchFingerprint,
+  compileClickUpRichSegments,
+  compareRichCommentReadback,
+  patchRichComment,
+} from "./comment-rich.js";
 import { verifySharedListWorkspace } from "./operations.js";
 import {
   chatMessageAuthorId,
@@ -1032,6 +1038,7 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_create_task_comment",
   "clickup_delete_task_comment",
   "clickup_edit_task_comment",
+  "clickup_patch_task_comment",
   "clickup_add_tag_to_task",
   "clickup_remove_tag_from_task",
   "clickup_add_task_link",
@@ -1137,6 +1144,7 @@ const WORKSPACE_SCOPE_OPERATIONS = new Set([
   "clickup_create_task_comment",
   "clickup_delete_task_comment",
   "clickup_edit_task_comment",
+  "clickup_patch_task_comment",
   "clickup_add_tag_to_task",
   "clickup_remove_tag_from_task",
   "clickup_add_task_link",
@@ -2906,6 +2914,111 @@ export async function runCatalogOperation(
         task_id: taskId,
         comment_id: commentId,
         action: "deleted_own_comment",
+      };
+    }
+    case "clickup_patch_task_comment": {
+      await task("task_id");
+      const taskId = val(a, "task_id");
+      const commentId = val(a, "comment_id");
+      const path = v2("task/" + taskId + "/comment");
+      const readOwn = async (): Promise<Json> => {
+        const result = await call("GET", path);
+        if (!Array.isArray(result["comments"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        const item = result["comments"].map(obj).find((entry) => String(entry?.["id"]) === commentId);
+        if (!item || String(obj(item["user"])?.["id"]) !== g.clickupUserId)
+          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+        return item;
+      };
+      const original = await readOwn();
+      const before = canonicalPatchComment(original["comment"]);
+      const rawAssignee = original["assignee"];
+      const assignee = rawAssignee === null ? 0 : Number(obj(rawAssignee)?.["id"] ?? rawAssignee);
+      if (
+        original["group_assignee"] != null ||
+        !Number.isSafeInteger(assignee) ||
+        assignee < 0 ||
+        (typeof original["resolved"] !== "boolean" &&
+          !(original["resolved"] === undefined && assignee === 0))
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const resolved = original["resolved"] === true;
+      const input = a["rich_segments"];
+      const wantsMentions =
+        Array.isArray(input) && input.some((segment) => obj(segment)?.["mention_user_id"] !== undefined);
+      const eligible = new Set(
+        wantsMentions ? (await members(g, f)).map((user) => String(user["id"])) : [],
+      );
+      const replacement = input === undefined ? [] : compileClickUpRichSegments(input, eligible).segments;
+      const next = patchRichComment(before, a["patch_start"], a["patch_delete_count"], replacement);
+      const fingerprint = await commentPatchFingerprint({
+        taskId,
+        commentId,
+        author: g.clickupUserId,
+        before,
+        next,
+        assignee,
+        resolved,
+        start: a["patch_start"],
+        count: a["patch_delete_count"],
+      });
+      if (a["confirm_patch"] !== true) {
+        if (a["expected_patch_fingerprint"] !== undefined)
+          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        return {
+          preview: true,
+          task_id: taskId,
+          comment_id: commentId,
+          fingerprint,
+          before,
+          after: next,
+          write_performed: false,
+        };
+      }
+      if (a["expected_patch_fingerprint"] !== fingerprint)
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      // Recheck immediately before writing. ClickUp offers no atomic conditional
+      // PUT; a concurrent change between this check and PUT remains possible.
+      const latest = await readOwn();
+      if (
+        (await commentPatchFingerprint(canonicalPatchComment(latest["comment"]))) !==
+          (await commentPatchFingerprint(before)) ||
+        JSON.stringify(latest["assignee"]) !== JSON.stringify(original["assignee"]) ||
+        latest["resolved"] !== original["resolved"] ||
+        latest["group_assignee"] != null
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      await call(
+        "PUT",
+        v2("comment/" + commentId),
+        { comment: next, assignee, resolved },
+        "empty-write-ack",
+      );
+      try {
+        const stored = await readOwn();
+        const storedAssignee =
+          stored["assignee"] === null ? 0 : Number(obj(stored["assignee"])?.["id"] ?? stored["assignee"]);
+        const replyCount = original["reply_count"];
+        if (
+          (await commentPatchFingerprint(canonicalPatchComment(stored["comment"]))) !==
+            (await commentPatchFingerprint(next)) ||
+          storedAssignee !== assignee ||
+          (stored["resolved"] !== resolved && !(stored["resolved"] === undefined && !resolved)) ||
+          stored["group_assignee"] != null ||
+          (replyCount !== undefined &&
+            (!Number.isFinite(Number(stored["reply_count"])) ||
+              Number(stored["reply_count"]) < Number(replyCount)))
+        )
+          throw new Error("Rich comment patch readback mismatch");
+      } catch {
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      }
+      return {
+        success: true,
+        task_id: taskId,
+        comment_id: commentId,
+        verified_by_readback: true,
+        fingerprint,
+        previous_segments: before,
       };
     }
     case "clickup_edit_task_comment": {
