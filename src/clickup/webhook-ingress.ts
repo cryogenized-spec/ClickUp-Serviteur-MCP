@@ -46,8 +46,7 @@ const response = (status: number) =>
 
 async function boundedBody(request: Request): Promise<Uint8Array> {
   const declared = request.headers.get("content-length");
-  if (declared && (!/^\d+$/.test(declared) || Number(declared) > MAX_BYTES))
-    throw new Error("SIZE");
+  if (declared && (!/^\d+$/.test(declared) || Number(declared) > MAX_BYTES)) throw new Error("SIZE");
   if (!request.body) throw new Error("BODY");
   const reader = request.body.getReader();
   const buffer = new Uint8Array(MAX_BYTES);
