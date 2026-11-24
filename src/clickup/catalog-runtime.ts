@@ -419,7 +419,64 @@ async function listInWorkspace(grant: ReadGrant, f: typeof fetch, listId: unknow
   }
   return list;
 }
-async function taskInWorkspace(grant: ReadGrant, f: typeof fetch, taskId: unknown): Promise<Json> {
+/** Prove the individual task's Workspace membership without granting its private List.
+ * Only used after an authoritative task GET and a denied parent-List read.
+ */
+async function verifySharedTaskWorkspace(
+  grant: ReadGrant,
+  f: typeof fetch,
+  taskId: string,
+  listId: string,
+): Promise<void> {
+  const hierarchy = await send(grant, f, "GET", v2("team/" + id(grant.workspaceId) + "/shared"));
+  const tasks = obj(hierarchy["shared"])?.["tasks"];
+  if (
+    Array.isArray(tasks) &&
+    tasks.length <= 500 &&
+    tasks.some((entry) => {
+      const item = obj(entry);
+      if (!item || String(item["id"]) !== taskId) return false;
+      const home = obj(item["list"])?.["id"];
+      return home === undefined || String(home) === listId;
+    })
+  )
+    return;
+  // A Workspace-scoped assigned-task page can also prove exact membership.
+  // Never use the listing as a substitute for the successful individual GET.
+  for (let page = 0; page < 3; page++) {
+    const params = new URLSearchParams({
+      page: String(page),
+      include_closed: "true",
+      subtasks: "true",
+    });
+    params.append("list_ids[]", listId);
+    params.append("assignees[]", id(grant.clickupUserId));
+    const result = await send(
+      grant,
+      f,
+      "GET",
+      v2("team/" + id(grant.workspaceId) + "/task?" + params),
+    );
+    const rows = result["tasks"];
+    if (!Array.isArray(rows) || rows.length > 100)
+      throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+    if (
+      rows.some((entry) => {
+        const item = obj(entry);
+        return String(item?.["id"]) === taskId && String(obj(item?.["list"])?.["id"]) === listId;
+      })
+    )
+      return;
+    if (rows.length < 100 || result["last_page"] === true) break;
+  }
+  throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+}
+async function taskInWorkspace(
+  grant: ReadGrant,
+  f: typeof fetch,
+  taskId: unknown,
+  allowSharedTask = false,
+): Promise<Json> {
   const task = await send(
     grant,
     f,
@@ -428,7 +485,20 @@ async function taskInWorkspace(grant: ReadGrant, f: typeof fetch, taskId: unknow
   );
   if (String(task["id"]) !== String(taskId))
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-  await listInWorkspace(grant, f, obj(task["list"])?.["id"]);
+  const homeList = obj(task["list"])?.["id"];
+  try {
+    await listInWorkspace(grant, f, homeList);
+  } catch (error) {
+    if (
+      !allowSharedTask ||
+      grant.resourceScope !== "workspace" ||
+      !(error instanceof ReadFailure) ||
+      error.code !== "CLICKUP_UPSTREAM_DENIED" ||
+      error.diagnostic?.authorization_target !== "list"
+    )
+      throw error;
+    await verifySharedTaskWorkspace(grant, f, id(taskId), id(homeList));
+  }
   return task;
 }
 async function folderInWorkspace(
@@ -1194,7 +1264,11 @@ export async function runCatalogOperation(
   const workspaceScope = g.resourceScope === "workspace";
   const call = (method: Method, path: string, body?: Json, responseMode: ResponseMode = "strict") =>
     send(g, f, method, path, body, responseMode);
-  const task = async (k: string) => taskInWorkspace(g, f, a[k]);
+  const allowSharedTask =
+    name === "clickup_get_task" ||
+    name === "clickup_get_task_comments" ||
+    name === "clickup_create_task_comment";
+  const task = async (k: string) => taskInWorkspace(g, f, a[k], allowSharedTask);
   const updateVerifiedTask = async (taskId: unknown, before: Json, patch: Json): Promise<Json> => {
     const path = v2("task/" + id(taskId));
     const response = await call("PUT", path, taskBody(patch, true, before));
