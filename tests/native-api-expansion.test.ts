@@ -29,6 +29,8 @@ const fixture = () =>
         },
       });
     if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "777" }] });
+    if (path === "/api/v2/team/555/task") return Response.json({ tasks: [] });
+    if (path === "/api/v2/task/denied") return Response.json({}, { status: 403 });
     if (path === "/api/v2/list/12345") return Response.json({ id: "12345", space: { id: "777" } });
     if (path === "/api/v2/task/abc123" || path === "/api/v2/task/def456")
       return Response.json({
@@ -118,6 +120,36 @@ describe("native API expansion", () => {
       ),
     ).resolves.toMatchObject({ retry_safe: false });
     expect(f.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
+  it("supplements attention with freshly authorized hints only", async () => {
+    const f = fixture();
+    const events = {
+      idFromName: vi.fn((name: string) => name),
+      get: () => ({
+        fetch: async () =>
+          Response.json({
+            tasks: [
+              { task_id: "abc123", received_at: 1234 },
+              { task_id: "denied", received_at: 1235 },
+            ],
+            incomplete: false,
+          }),
+      }),
+    };
+    const result = await runCatalogOperation(
+      "clickup_get_my_attention_items",
+      { attention_comment_tasks: 0 },
+      { ...grant, webhookEvents: events },
+      f,
+    );
+    expect(events.idFromName).toHaveBeenCalledWith("555:github:11");
+    expect(result["webhook_activity"]).toMatchObject({
+      recent_verified_tasks: [{ task_id: "abc123", received_at: 1234 }],
+      candidates_scanned: 2,
+      incomplete: true,
+    });
+    expect(JSON.stringify(result["webhook_activity"])).not.toContain("denied");
   });
 
   it("returns webhook inventory without secrets or private destinations", async () => {
