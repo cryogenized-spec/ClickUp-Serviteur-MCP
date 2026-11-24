@@ -1482,7 +1482,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     ["max_results", "resource_offset"],
   ),
   tool(
-    "clickup_get_task_attachments_v3",
+    "clickup_get_task_attachments",
     "Get Task Attachments V3",
     "tasks",
     "read",
