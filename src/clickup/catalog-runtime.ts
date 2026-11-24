@@ -1081,6 +1081,8 @@ async function scopedChatReactions(
 }
 
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
+  "clickup_get_workspace_plan",
+  "clickup_get_workspace_seats",
   "clickup_update_own_time_entry",
   "clickup_delete_own_time_entry",
   "clickup_get_saved_view",
@@ -1217,6 +1219,8 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
 // after a same-Workspace, exact-home-List preflight. Other Workspace-wide
 // operations remain blocked. ClickUp owns task history and enforces its ACL.
 const WORKSPACE_SCOPE_OPERATIONS = new Set([
+  "clickup_get_workspace_plan",
+  "clickup_get_workspace_seats",
   "clickup_update_own_time_entry",
   "clickup_delete_own_time_entry",
   "clickup_get_saved_view",
@@ -2231,6 +2235,14 @@ export async function runCatalogOperation(
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
       return { webhook_id: webhookId, updated: true, verified_by_readback: true };
     }
+    case "clickup_get_workspace_plan":
+    case "clickup_get_workspace_seats":
+      return short(
+        await call(
+          "GET",
+          v2("team/" + W + (name === "clickup_get_workspace_plan" ? "/plan" : "/seats")),
+        ),
+      );
     case "clickup_get_webhooks": {
       const result = await call("GET", v2("team/" + W + "/webhook"));
       const rows = result["webhooks"];
