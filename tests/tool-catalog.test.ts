@@ -32,8 +32,8 @@ async function clientHarness(schemaPreview: boolean, fetcher: typeof fetch) {
 
 describe("Official ClickUp MCP capability catalogue (model-facing only)", () => {
   it("contains the hosted capabilities and custom Serviteur tools", () => {
-    expect(CLICKUP_MODEL_TOOL_CATALOG).toHaveLength(100);
-    expect(new Set(CLICKUP_MODEL_TOOL_CATALOG.map((tool) => tool.name)).size).toBe(100);
+    expect(CLICKUP_MODEL_TOOL_CATALOG).toHaveLength(121);
+    expect(new Set(CLICKUP_MODEL_TOOL_CATALOG.map((tool) => tool.name)).size).toBe(121);
     expect(new Set(CLICKUP_MODEL_TOOL_CATALOG.map((tool) => tool.group))).toEqual(
       new Set(CLICKUP_TOOL_GROUPS),
     );
@@ -59,7 +59,7 @@ describe("Official ClickUp MCP capability catalogue (model-facing only)", () => 
 
   it("returns bounded catalogue pages and complete JSON schemas by category", () => {
     const first = catalogPage({ group: "tasks", maxResults: 2, includeSchema: true });
-    expect(first.count).toBe(12);
+    expect(first.count).toBe(16);
     expect(first.entries).toHaveLength(2);
     expect(first.has_more).toBe(true);
     expect(first.entries[0]).toMatchObject({
@@ -114,7 +114,7 @@ describe("Official ClickUp MCP capability catalogue (model-facing only)", () => 
     }
   });
 
-  it("registers all 100 exact schemas through official SDK only in isolated explicit preview", async () => {
+  it("registers all 121 exact schemas through official SDK only in isolated explicit preview", async () => {
     const outbound = vi.fn(async () => Response.json({ tasks: [] }));
     const { client, handler } = await clientHarness(true, outbound as typeof fetch);
     try {
@@ -127,7 +127,7 @@ describe("Official ClickUp MCP capability catalogue (model-facing only)", () => 
           tool.name !== "clickup_preview_target" &&
           tool.name !== "clickup_select_target",
       );
-      expect(preview).toHaveLength(100);
+      expect(preview).toHaveLength(121);
       for (const spec of CLICKUP_MODEL_TOOL_CATALOG) {
         const tool = preview.find((value) => value.name === spec.name);
         expect(tool).toBeDefined();
