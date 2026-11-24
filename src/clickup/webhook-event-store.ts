@@ -4,7 +4,10 @@ const WEEK = 7 * 24 * 60 * 60 * 1000;
 
 /** Internal binding only. Partition by approved Workspace and authenticated actor. */
 export class ClickUpWebhookEvents {
-  constructor(private readonly state: DurableObjectState) {
+  constructor(
+    private readonly state: DurableObjectState,
+    private readonly env: { CLICKUP_TOKEN_KEY?: string },
+  ) {
     state.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS hints (event_key TEXT PRIMARY KEY, task_id TEXT NOT NULL, event TEXT NOT NULL, received_at INTEGER NOT NULL)",
     );
@@ -17,6 +20,7 @@ export class ClickUpWebhookEvents {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
+    if (path === "/registry") return this.registry(request);
     if (request.method === "GET" && path === "/pending") {
       const since = url.searchParams.get("after_time");
       const key = url.searchParams.get("after_key");
@@ -142,6 +146,70 @@ export class ClickUpWebhookEvents {
       .one().earliest;
     if (earliest !== null) await this.state.storage.setAlarm(Math.max(now + 1000, earliest + WEEK));
     return new Response(null, { status: 204 });
+  }
+
+  /** A separate internal DO instance per Workspace/webhook stores the signing
+   * credential encrypted with the existing Worker key. No public read route. */
+  private async registry(request: Request): Promise<Response> {
+    const secretKey = this.env.CLICKUP_TOKEN_KEY;
+    if (!secretKey || !/^[A-Za-z0-9+/]{43}=$/.test(secretKey))
+      return new Response(null, { status: 503 });
+    const key = await crypto.subtle.importKey(
+      "raw",
+      Uint8Array.from(atob(secretKey), (c) => c.charCodeAt(0)),
+      "AES-GCM",
+      false,
+      ["encrypt", "decrypt"],
+    );
+    type Stored = { iv: number[]; ciphertext: number[] };
+    const existing = await this.state.storage.get<Stored>("registration");
+    if (request.method === "GET") {
+      if (!existing) return new Response(null, { status: 404 });
+      const plaintext = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: new Uint8Array(existing.iv) },
+        key,
+        new Uint8Array(existing.ciphertext),
+      );
+      return new Response(new TextDecoder().decode(plaintext), {
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+    if (request.method === "DELETE") {
+      await this.state.storage.delete("registration");
+      return new Response(null, { status: 204 });
+    }
+    if (request.method !== "POST") return new Response(null, { status: 405 });
+    if (existing) return new Response(null, { status: 409 });
+    const value: unknown = await request.json().catch(() => null);
+    if (value === null || typeof value !== "object" || Array.isArray(value))
+      return new Response(null, { status: 400 });
+    const registration = value as Record<string, unknown>;
+    if (
+      typeof registration["workspaceId"] !== "string" ||
+      !/^[1-9]\d{0,17}$/.test(registration["workspaceId"]) ||
+      typeof registration["subject"] !== "string" ||
+      !/^github:[1-9]\d{0,15}$/.test(registration["subject"]) ||
+      typeof registration["secret"] !== "string" ||
+      !registration["secret"] ||
+      registration["secret"].length > 512
+    )
+      return new Response(null, { status: 400 });
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      new TextEncoder().encode(JSON.stringify(registration)),
+    );
+    // A transaction prevents a concurrent registration replacing a known key.
+    const inserted = await this.state.storage.transaction(async (transaction) => {
+      if (await transaction.get("registration")) return false;
+      await transaction.put("registration", {
+        iv: Array.from(iv),
+        ciphertext: Array.from(new Uint8Array(ciphertext)),
+      });
+      return true;
+    });
+    return new Response(null, { status: inserted ? 204 : 409 });
   }
 
   async alarm(): Promise<void> {
