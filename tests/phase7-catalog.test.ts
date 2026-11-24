@@ -42,9 +42,9 @@ const fakeApi = () =>
   });
 
 describe("Phase 7 individual OAuth and native catalogue - adversarial tests", () => {
-  it("registers all 89 REST backed capabilities including the read-only PDF job-card tool", () => {
-    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(89);
-    expect(new Set(OPERATIONAL_CATALOG_NAMES).size).toBe(89);
+  it("registers all 98 REST backed capabilities including the read-only PDF job-card tool", () => {
+    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(98);
+    expect(new Set(OPERATIONAL_CATALOG_NAMES).size).toBe(98);
     expect(
       OPERATIONAL_CATALOG_NAMES.every((n) => CLICKUP_MODEL_TOOL_CATALOG.some((s) => s.name === n)),
     ).toBe(true);
@@ -1889,6 +1889,8 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
         throw Error("unexpected extra task page");
       }
       if (u.pathname === "/api/v3/workspaces/555/docs") return reply({ docs: [] });
+      if (u.pathname === "/api/v2/team/555/shared")
+        return reply({ shared: { tasks: [], lists: [], folders: [] } });
       if (u.pathname === "/api/v2/team/555/space") return reply({ spaces: [] });
       throw Error("unexpected endpoint " + u.pathname);
     });
@@ -1944,6 +1946,8 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
         throw Error("unexpected task page");
       }
       if (u.pathname === "/api/v3/workspaces/555/docs") return reply({ docs: [] });
+      if (u.pathname === "/api/v2/team/555/shared")
+        return reply({ shared: { tasks: [], lists: [], folders: [] } });
       if (u.pathname === "/api/v2/team/555/space") return reply({ spaces: [] });
       throw Error("unexpected endpoint " + u.pathname);
     });
@@ -2082,6 +2086,14 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       if (p === "/api/v2/list/12345") return reply(fixture(p));
       if (p === "/api/v2/team/555/task") return reply({ tasks: [] });
       if (p === "/api/v3/workspaces/555/docs") return reply({ docs: [] });
+      if (p === "/api/v2/team/555/shared")
+        return reply({
+          shared: {
+            tasks: [{ id: "shared123", name: "Stocktake Shared Task" }],
+            lists: [],
+            folders: [],
+          },
+        });
       if (p === "/api/v2/team/555/space") return reply({ spaces: [{ id: "777", name: "Sales" }] });
       if (p === "/api/v2/space/777/folder")
         return reply({ folders: [{ id: "f1", name: "Stocktake Folder" }] });
@@ -2099,6 +2111,10 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
     );
     expect(output["lists"]).toHaveLength(2);
     expect(output["folders"]).toHaveLength(1);
+    expect(output["shared_resources"]).toEqual([
+      { kind: "tasks", id: "shared123", name: "Stocktake Shared Task" },
+    ]);
+    expect(output["shared_discovery_unavailable"]).toBe(false);
     expect(output["incomplete"]).toBe(false);
   });
   it("reads one task in legacy List scope using its atomic home-List metadata", async () => {
@@ -2150,7 +2166,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       ).rejects.toThrow("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
     }
     expect(f).not.toHaveBeenCalled();
-    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(89);
+    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(98);
   });
 
   it("permits cross-List moves in the explicitly authorised Workspace", async () => {

@@ -74,12 +74,17 @@ describe("sole-owner ClickUp cleanup", () => {
       "clickup_delete_own_chat_message",
       "clickup_delete_task",
       "clickup_delete_task_comment",
+      "clickup_merge_tasks",
       "clickup_remove_dependency",
       "clickup_remove_own_chat_reaction",
       "clickup_remove_tag_from_task",
       "clickup_remove_task_link",
     ]);
-    for (const name of ["clickup_delete_own_chat_message", "clickup_remove_own_chat_reaction"]) {
+    for (const name of [
+      "clickup_delete_own_chat_message",
+      "clickup_remove_own_chat_reaction",
+      "clickup_merge_tasks",
+    ]) {
       const spec = CLICKUP_MODEL_TOOL_CATALOG.find((item) => item.name === name);
       expect(spec?.effect).toBe("destructive");
     }

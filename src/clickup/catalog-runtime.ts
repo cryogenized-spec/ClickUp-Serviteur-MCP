@@ -1081,6 +1081,15 @@ async function scopedChatReactions(
 }
 
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
+  "clickup_get_shared_resources",
+  "clickup_get_task_attachments",
+  "clickup_get_list_templates",
+  "clickup_get_folder_templates",
+  "clickup_create_list_from_template",
+  "clickup_create_folder_from_template",
+  "clickup_preview_task_merge",
+  "clickup_merge_tasks",
+  "clickup_get_webhooks",
   "clickup_get_workspace_goals",
   "clickup_get_goal_details",
   "clickup_get_sprint_task_snapshot",
@@ -1176,6 +1185,14 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
 // after a same-Workspace, exact-home-List preflight. Other Workspace-wide
 // operations remain blocked. ClickUp owns task history and enforces its ACL.
 const WORKSPACE_SCOPE_OPERATIONS = new Set([
+  "clickup_get_shared_resources",
+  "clickup_get_task_attachments",
+  "clickup_get_list_templates",
+  "clickup_get_folder_templates",
+  "clickup_create_list_from_template",
+  "clickup_create_folder_from_template",
+  "clickup_preview_task_merge",
+  "clickup_get_webhooks",
   // These tools have Workspace-wide effects or return data outside the home List.
   "clickup_get_workspace_goals",
   "clickup_get_goal_details",
@@ -1264,6 +1281,7 @@ export async function runCatalogOperation(
   const call = (method: Method, path: string, body?: Json, responseMode: ResponseMode = "strict") =>
     send(g, f, method, path, body, responseMode);
   const allowSharedTask =
+    name === "clickup_get_task_attachments" ||
     name === "clickup_get_task" ||
     name === "clickup_get_task_comments" ||
     name === "clickup_create_task_comment";
@@ -1344,6 +1362,169 @@ export async function runCatalogOperation(
   if (a["workspace_id"] !== undefined && String(a["workspace_id"]) !== g.workspaceId)
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   switch (name) {
+    case "clickup_get_shared_resources": {
+      const result = await call("GET", v2("team/" + W + "/shared"));
+      const shared = obj(result["shared"]);
+      if (!shared) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const offset = Number(a["resource_offset"] ?? 0);
+      if (!Number.isSafeInteger(offset) || offset < 0 || offset > 100000)
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const rows: Json[] = [];
+      for (const kind of ["tasks", "lists", "folders"]) {
+        const entries = shared[kind];
+        if (!Array.isArray(entries)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        for (const entry of entries) {
+          const item = obj(entry);
+          if (!item || item["id"] === undefined) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+          rows.push({ kind, id: item["id"], name: item["name"] ?? null });
+        }
+      }
+      const visible = rows.slice(offset, offset + N);
+      return {
+        source: "clickup-api-v2",
+        workspace_id: W,
+        resources: visible,
+        total: rows.length,
+        next_resource_offset: offset + N < rows.length ? offset + N : null,
+        incomplete: offset + N < rows.length,
+      };
+    }
+    case "clickup_get_task_attachments": {
+      await task("task_id");
+      const params = new URLSearchParams({ limit: String(N) });
+      if (a["attachment_cursor"] !== undefined)
+        params.set("cursor", txt(a["attachment_cursor"], 500));
+      const result = await call(
+        "GET",
+        "api/v3/workspaces/" + W + "/attachments/" + val(a, "task_id") + "/attachments?" + params,
+      );
+      // Only expose metadata, not signed download URLs.
+      const rows = result["data"];
+      if (!Array.isArray(rows)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const attachments = rows.slice(0, N).map((entry) => {
+        const item = obj(entry);
+        if (!item || item["id"] === undefined) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        return {
+          id: item["id"],
+          title: item["title"] ?? item["name"] ?? null,
+          extension: item["extension"] ?? null,
+          size: item["size"] ?? null,
+          date_created: item["date_created"] ?? null,
+          date_updated: item["date_updated"] ?? null,
+          mime_type: item["mime_type"] ?? null,
+        };
+      });
+      const next = result["next_cursor"] || null;
+      if (next !== null && typeof next !== "string") throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      return {
+        source: "clickup-api-v3",
+        attachments,
+        next_attachment_cursor: next,
+        incomplete: next !== null || rows.length > N,
+      };
+    }
+    case "clickup_get_list_templates":
+    case "clickup_get_folder_templates":
+    case "clickup_create_list_from_template":
+    case "clickup_create_folder_from_template": {
+      const isFolder = name.includes("folder");
+      const kind = isFolder ? "folder_template" : "list_template";
+      const result = await call("GET", v2("team/" + W + "/" + kind));
+      const rows = result["templates"];
+      if (!Array.isArray(rows)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      if (name.startsWith("clickup_get_")) {
+        const offset = Number(a["resource_offset"] ?? 0);
+        if (!Number.isSafeInteger(offset) || offset < 0 || offset > 100000)
+          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        return {
+          templates: clip(rows.slice(offset, offset + N)),
+          next_resource_offset: offset + N < rows.length ? offset + N : null,
+          incomplete: offset + N < rows.length,
+        };
+      }
+      const wanted = txt(a["hierarchy_template_id"], 80);
+      if (!/^t-[0-9]+$/.test(wanted) || !rows.some((row) => obj(row)?.["id"] === wanted))
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const folderId = a["folder_id"];
+      const spaceId = a["space_id"];
+      if ((folderId === undefined) === (spaceId === undefined) || (isFolder && !spaceId))
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (folderId !== undefined) await folder("folder_id");
+      else await inWorkspace(g, f, spaceId);
+      const parent = folderId === undefined ? "space/" + id(spaceId) : "folder/" + id(folderId);
+      const created = await call("POST", v2(parent + "/" + kind + "/" + id(wanted)), {
+        name: txt(a["name"], 180),
+        options: { return_immediately: true },
+      });
+      return {
+        acknowledgement: clip(created),
+        completion_verified: false,
+        retry_safe: false,
+      };
+    }
+    case "clickup_preview_task_merge":
+    case "clickup_merge_tasks": {
+      const target = await task("task_id");
+      const sources = a["task_ids"];
+      if (!Array.isArray(sources) || sources.length < 1 || sources.length > 20)
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const ids = sources.map(id);
+      if (new Set(ids).size !== ids.length || ids.includes(val(a, "task_id")))
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const preview = [];
+      for (const source of ids) {
+        const item = await taskInWorkspace(g, f, source);
+        preview.push({
+          id: item["id"],
+          name: item["name"],
+          list: obj(item["list"])?.["id"],
+          date_updated: item["date_updated"] ?? null,
+        });
+      }
+      const mergePreview = {
+        target: {
+          id: target["id"],
+          name: target["name"],
+          list: obj(target["list"])?.["id"],
+          date_updated: target["date_updated"] ?? null,
+        },
+        sources: preview,
+      };
+      const fingerprint = await commentPatchFingerprint({
+        workspace: W,
+        actor: g.clickupUserId,
+        ...mergePreview,
+      });
+      if (name === "clickup_preview_task_merge")
+        return { ...mergePreview, fingerprint, irreversible: true, merged: false };
+      if (a["confirm_merge"] !== true || a["expected_merge_fingerprint"] !== fingerprint)
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const result = await call(
+        "POST",
+        v2("task/" + val(a, "task_id") + "/merge"),
+        { source_task_ids: ids },
+        "empty-write-ack",
+      );
+      // The response acknowledges a native merge; never repeat after uncertainty.
+      return { acknowledgement: clip(result), readback_verified: false, retry_safe: false };
+    }
+    case "clickup_get_webhooks": {
+      const result = await call("GET", v2("team/" + W + "/webhook"));
+      const rows = result["webhooks"];
+      if (!Array.isArray(rows)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const offset = Number(a["resource_offset"] ?? 0);
+      if (!Number.isSafeInteger(offset) || offset < 0 || offset > 100000)
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      return {
+        webhooks: rows.slice(offset, offset + N).map((entry) => {
+          const item = obj(entry);
+          if (!item || item["id"] === undefined) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+          return { id: item["id"], events: clip(item["events"]), status: clip(item["health"]) };
+        }),
+        next_resource_offset: offset + N < rows.length ? offset + N : null,
+        incomplete: offset + N < rows.length,
+      };
+    }
     case "clickup_get_workspace_goals": {
       const completed = a["include_completed"] ?? false;
       const offset = a["goal_offset"] ?? 0;
@@ -1937,9 +2118,34 @@ export async function runCatalogOperation(
           foundLists.push(...childLists["lists"]);
         }
       }
+      // Search direct shares independently of normal task-page pagination.
+      // Keep a distinct collection so these results never consume task cursors.
+      let sharedResources: Json[] = [];
+      let sharedDiscoveryUnavailable = false;
+      try {
+        const result = await call("GET", v2("team/" + W + "/shared"));
+        const shared = obj(result["shared"]);
+        if (!shared) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        for (const kind of ["tasks", "lists", "folders"]) {
+          const entries = shared[kind];
+          if (!Array.isArray(entries)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+          for (const entry of entries) {
+            const item = obj(entry);
+            if (!item || item["id"] === undefined) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+            if (match(item))
+              sharedResources.push({ kind, id: item["id"], name: item["name"] ?? null });
+          }
+        }
+      } catch (error) {
+        if (!(error instanceof ReadFailure)) throw error;
+        sharedResources = [];
+        sharedDiscoveryUnavailable = true;
+      }
       return {
         source: "clickup-api",
         scope: "workspace",
+        shared_resources: clip(sharedResources.slice(0, N)),
+        shared_discovery_unavailable: sharedDiscoveryUnavailable,
         tasks: clip(matchingTasks.slice(0, N)),
         pages_scanned: pagesScanned,
         next_task_page: nextTaskPage,
@@ -1949,6 +2155,8 @@ export async function runCatalogOperation(
         folders: clip(foundFolders.filter(match).slice(0, N)),
         incomplete:
           taskPageTruncated ||
+          sharedDiscoveryUnavailable ||
+          sharedResources.length > N ||
           matchingTasks.length > N ||
           d.length >= 50 ||
           hierarchySpaces.length > 5 ||
