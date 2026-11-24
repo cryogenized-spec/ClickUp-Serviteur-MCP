@@ -49,7 +49,9 @@ const response = (status: number) =>
 
 async function boundedBody(request: Request): Promise<Uint8Array> {
   const declared = request.headers.get("content-length");
-  if (declared && (!/^\d+$/.test(declared) || Number(declared) > MAX_BYTES)) throw new Error("SIZE");
+  if (declared && (!/^\d+$/.test(declared) || Number(declared) > MAX_BYTES)) {
+    throw new Error("SIZE");
+  }
   if (!request.body) throw new Error("BODY");
   const reader = request.body.getReader();
   const buffer = new Uint8Array(MAX_BYTES);
@@ -95,11 +97,9 @@ export async function receiveClickUpWebhook(
   let registration: WebhookRegistration | null;
   try {
     registration = await deps.resolve(webhookId);
-    if (
-      !registration ||
-      !(await verifyClickUpWebhookSignature(body, signature, registration.secret))
-    )
-      return response(401);
+    if (!registration) return response(401);
+    const verified = await verifyClickUpWebhookSignature(body, signature, registration.secret);
+    if (!verified) return response(401);
   } catch {
     return response(503);
   }
@@ -125,9 +125,10 @@ export async function receiveClickUpWebhook(
   // Some event types omit history_items. Deduplicate exact retransmissions by digest.
   if (!ids.size) {
     const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(body));
-    ids.add(
-      Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(""),
-    );
+    const digestHex = Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    ids.add(digestHex);
   }
   const hints = [...ids].map((id) => ({
     key: webhookId + ":" + id,
