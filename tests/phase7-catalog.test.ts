@@ -42,14 +42,15 @@ const fakeApi = () =>
   });
 
 describe("Phase 7 individual OAuth and native catalogue - adversarial tests", () => {
-  it("registers all 50 REST backed capabilities including the read-only PDF job-card tool", () => {
-    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(88);
-    expect(new Set(OPERATIONAL_CATALOG_NAMES).size).toBe(88);
+  it("registers all 89 REST backed capabilities including the read-only PDF job-card tool", () => {
+    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(89);
+    expect(new Set(OPERATIONAL_CATALOG_NAMES).size).toBe(89);
     expect(
       OPERATIONAL_CATALOG_NAMES.every((n) => CLICKUP_MODEL_TOOL_CATALOG.some((s) => s.name === n)),
     ).toBe(true);
     expect(OPERATIONAL_CATALOG_NAMES).toContain("clickup_attach_file_to_task");
     expect(OPERATIONAL_CATALOG_NAMES).toContain("clickup_read_task_image");
+    expect(OPERATIONAL_CATALOG_NAMES).toContain("clickup_patch_task_comment");
   });
 
   it("creates a task in a verified Workspace List using solely the connected employee OAuth token", async () => {
@@ -2149,7 +2150,7 @@ describe("Phase 7 individual OAuth and native catalogue - adversarial tests", ()
       ).rejects.toThrow("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
     }
     expect(f).not.toHaveBeenCalled();
-    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(88);
+    expect(OPERATIONAL_CATALOG_NAMES).toHaveLength(89);
   });
 
   it("permits cross-List moves in the explicitly authorised Workspace", async () => {
