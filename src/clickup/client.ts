@@ -1,4 +1,4 @@
-import { ReadFailure, type ReadGrant } from "./policy.js";
+import { apiDiagnostic, ReadFailure, type ReadGrant } from "./policy.js";
 
 export interface ScopedTask {
   readonly id: string;
@@ -146,11 +146,12 @@ async function getJson(grant: ReadGrant, path: string, fetcher: Fetcher): Promis
       if (Number.isSafeInteger(seconds) && seconds > Date.now() / 1000) {
         await quotaCall(grant, "cooldown", seconds * 1_000);
       }
-      throw new ReadFailure("CLICKUP_RATE_LIMITED");
+      throw new ReadFailure("CLICKUP_RATE_LIMITED", apiDiagnostic("GET", 429));
     }
     if (response.status === 401 || response.status === 403)
-      throw new ReadFailure("CLICKUP_UPSTREAM_DENIED");
-    if (!response.ok) throw new ReadFailure("CLICKUP_UPSTREAM_UNAVAILABLE");
+      throw new ReadFailure("CLICKUP_UPSTREAM_DENIED", apiDiagnostic("GET", response.status));
+    if (!response.ok)
+      throw new ReadFailure("CLICKUP_UPSTREAM_UNAVAILABLE", apiDiagnostic("GET", response.status));
     const declaredSize = response.headers.get("content-length");
     if (declaredSize !== null && Number(declaredSize) > MAX_BODY)
       throw new ReadFailure("CLICKUP_BAD_RESPONSE");
