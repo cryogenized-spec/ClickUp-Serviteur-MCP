@@ -19,7 +19,9 @@ async function signedRequest(content: string, secret = registration.secret): Pro
     ["sign"],
   );
   const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(content));
-  const signature = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  const signature = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join(
+    "",
+  );
   return new Request("https://example.test/clickup/webhook", {
     method: "POST",
     headers: { "X-Signature": signature },
