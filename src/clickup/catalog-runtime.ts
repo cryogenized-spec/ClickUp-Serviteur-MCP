@@ -279,7 +279,8 @@ async function send(
     if (res.status === 401 || res.status === 403)
       throw new ReadFailure(
         "CLICKUP_UPSTREAM_DENIED",
-        chatDiagnostic("rejected", res.status) ?? (await authorizationDiagnostic(method, res, path)),
+        chatDiagnostic("rejected", res.status) ??
+          (await authorizationDiagnostic(method, res, path)),
       );
     if (!res.ok) {
       if (chatSend) {
