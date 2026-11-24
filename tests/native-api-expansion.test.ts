@@ -29,8 +29,7 @@ const fixture = () =>
         },
       });
     if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "777" }] });
-    if (path === "/api/v2/list/12345")
-      return Response.json({ id: "12345", space: { id: "777" } });
+    if (path === "/api/v2/list/12345") return Response.json({ id: "12345", space: { id: "777" } });
     if (path === "/api/v2/task/abc123" || path === "/api/v2/task/def456")
       return Response.json({
         id: path.split("/").at(-1),
@@ -67,7 +66,12 @@ describe("native API expansion", () => {
       resources: [{ id: "abc123", kind: "tasks" }],
     });
     await expect(
-      runCatalogOperation("clickup_get_shared_resources", {}, { ...grant, resourceScope: "list" }, f),
+      runCatalogOperation(
+        "clickup_get_shared_resources",
+        {},
+        { ...grant, resourceScope: "list" },
+        f,
+      ),
     ).rejects.toThrow("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
   });
 
