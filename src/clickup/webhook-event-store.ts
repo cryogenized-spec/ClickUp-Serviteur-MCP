@@ -148,9 +148,13 @@ export class ClickUpWebhookEvents {
     return new Response(null, { status: 204 });
   }
 
-  /** A separate internal DO instance per Workspace/webhook stores the signing
+  /** A separate internal DO instance per Workspace stores the signing
    * credential encrypted with the existing Worker key. No public read route. */
   private async registry(request: Request): Promise<Response> {
+    const webhookId = new URL(request.url).searchParams.get("webhook_id");
+    if (!webhookId || !/^[a-f0-9-]{36}$/i.test(webhookId))
+      return new Response(null, { status: 400 });
+    const storageKey = "registration:" + webhookId;
     const secretKey = this.env.CLICKUP_TOKEN_KEY;
     if (!secretKey || !/^[A-Za-z0-9+/]{43}=$/.test(secretKey))
       return new Response(null, { status: 503 });
@@ -162,7 +166,7 @@ export class ClickUpWebhookEvents {
       ["encrypt", "decrypt"],
     );
     type Stored = { iv: number[]; ciphertext: number[] };
-    const existing = await this.state.storage.get<Stored>("registration");
+    const existing = await this.state.storage.get<Stored>(storageKey);
     if (request.method === "GET") {
       if (!existing) return new Response(null, { status: 404 });
       const plaintext = await crypto.subtle.decrypt(
@@ -175,7 +179,7 @@ export class ClickUpWebhookEvents {
       });
     }
     if (request.method === "DELETE") {
-      await this.state.storage.delete("registration");
+      await this.state.storage.delete(storageKey);
       return new Response(null, { status: 204 });
     }
     if (request.method !== "POST") return new Response(null, { status: 405 });
@@ -202,8 +206,8 @@ export class ClickUpWebhookEvents {
     );
     // A transaction prevents a concurrent registration replacing a known key.
     const inserted = await this.state.storage.transaction(async (transaction) => {
-      if (await transaction.get("registration")) return false;
-      await transaction.put("registration", {
+      if (await transaction.get(storageKey)) return false;
+      await transaction.put(storageKey, {
         iv: Array.from(iv),
         ciphertext: Array.from(new Uint8Array(ciphertext)),
       });
