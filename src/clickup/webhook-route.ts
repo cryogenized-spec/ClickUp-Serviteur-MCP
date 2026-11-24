@@ -57,8 +57,8 @@ export async function handleClickUpWebhook(request: Request, env: OAuthEnv): Pro
     resolve: async (id) => {
       const manual = configured.get(id);
       if (manual) return manual;
-      const stub = binding.get(binding.idFromName("registry:" + workspaceId + ":" + id) as never);
-      const response = await stub.fetch(new Request("https://internal/registry"));
+      const stub = binding.get(binding.idFromName("registry:" + workspaceId) as never);
+      const response = await stub.fetch(new Request("https://internal/registry?webhook_id=" + encodeURIComponent(id)));
       if (response.status === 404) return null;
       if (!response.ok) throw new Error("REGISTRY_UNAVAILABLE");
       const row = (await response.json()) as WebhookRegistration;
