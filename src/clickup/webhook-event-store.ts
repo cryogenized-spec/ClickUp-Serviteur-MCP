@@ -13,8 +13,7 @@ export class ClickUpWebhookEvents {
 
   async fetch(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
-    if (request.method !== "POST" || path !== "/ingest")
-      return new Response(null, { status: 404 });
+    if (request.method !== "POST" || path !== "/ingest") return new Response(null, { status: 404 });
     const raw: unknown = await request.json().catch(() => null);
     if (!Array.isArray(raw) || raw.length < 1 || raw.length > 500)
       return new Response(null, { status: 400 });
