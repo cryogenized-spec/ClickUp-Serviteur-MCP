@@ -19,7 +19,10 @@ export interface WebhookHint {
 
 export interface WebhookIngressDependencies {
   readonly resolve: (webhookId: string) => Promise<WebhookRegistration | null>;
-  readonly persist: (registration: WebhookRegistration, hints: readonly WebhookHint[]) => Promise<void>;
+  readonly persist: (
+    registration: WebhookRegistration,
+    hints: readonly WebhookHint[],
+  ) => Promise<void>;
 }
 
 const MAX_BYTES = 1_000_000;
@@ -38,7 +41,7 @@ const taskEvents = new Set([
   "taskCommentPosted",
   "taskCommentUpdated",
   "taskTimeEstimateUpdated",
-  "taskTimeTracked",
+  "taskTimeTrackedUpdated",
 ]);
 
 const response = (status: number) =>
@@ -92,7 +95,10 @@ export async function receiveClickUpWebhook(
   let registration: WebhookRegistration | null;
   try {
     registration = await deps.resolve(webhookId);
-    if (!registration || !(await verifyClickUpWebhookSignature(body, signature, registration.secret)))
+    if (
+      !registration ||
+      !(await verifyClickUpWebhookSignature(body, signature, registration.secret))
+    )
       return response(401);
   } catch {
     return response(503);
