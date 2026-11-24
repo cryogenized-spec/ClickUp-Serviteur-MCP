@@ -87,23 +87,20 @@ describe("high-priority native API completion", () => {
       ).resolves.toMatchObject({ fields: [{ id: fileField }], level });
     }
     await expect(
-      runCatalogOperation(
-        "clickup_get_space_custom_fields",
-        { space_id: "999" },
-        grant,
-        f,
-      ),
+      runCatalogOperation("clickup_get_space_custom_fields", { space_id: "999" }, grant, f),
     ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   });
 
   it("uploads v3 task and File field attachments and associates only an empty field", async () => {
     const f = fixture();
     const args = { task_id: "abc123", file_name: "sample.pdf", file_base64: btoa("example") };
-    await expect(runCatalogOperation("clickup_upload_task_attachment", args, grant, f))
-      .resolves.toMatchObject({ attachment_id: "sample.pdf", requires_task_association: false });
+    await expect(
+      runCatalogOperation("clickup_upload_task_attachment", args, grant, f),
+    ).resolves.toMatchObject({ attachment_id: "sample.pdf", requires_task_association: false });
     const fieldArgs = { ...args, field_id: fileField };
-    await expect(runCatalogOperation("clickup_upload_file_field_attachment", fieldArgs, grant, f))
-      .resolves.toMatchObject({ attachment_id: "sample.pdf", requires_task_association: true });
+    await expect(
+      runCatalogOperation("clickup_upload_file_field_attachment", fieldArgs, grant, f),
+    ).resolves.toMatchObject({ attachment_id: "sample.pdf", requires_task_association: true });
     await expect(
       runCatalogOperation(
         "clickup_get_file_field_attachments",
@@ -118,10 +115,12 @@ describe("high-priority native API completion", () => {
       attachment_id: "sample.pdf",
       confirm_file_association: true,
     };
-    await expect(runCatalogOperation("clickup_associate_file_field_attachment", link, grant, f))
-      .resolves.toMatchObject({ linked: true });
-    await expect(runCatalogOperation("clickup_associate_file_field_attachment", link, grant, f))
-      .rejects.toThrow("CLICKUP_FILE_FIELD_NOT_EMPTY");
+    await expect(
+      runCatalogOperation("clickup_associate_file_field_attachment", link, grant, f),
+    ).resolves.toMatchObject({ linked: true });
+    await expect(
+      runCatalogOperation("clickup_associate_file_field_attachment", link, grant, f),
+    ).rejects.toThrow("CLICKUP_FILE_FIELD_NOT_EMPTY");
     await expect(
       runCatalogOperation(
         "clickup_clear_custom_field",
@@ -144,9 +143,10 @@ describe("high-priority native API completion", () => {
     const created = await runCatalogOperation("clickup_create_activity_webhook", args, g, f);
     expect(created).toMatchObject({ webhook_id: hookId, signing_secret_stored: true });
     expect(JSON.stringify(created)).not.toContain("synthetic-signing-secret");
-    await expect(
-      runCatalogOperation("clickup_create_activity_webhook", args, g, f),
-    ).resolves.toMatchObject({ created: false, existing_webhook_ids: [hookId] });
+    await expect(runCatalogOperation("clickup_create_activity_webhook", args, g, f)).resolves.toMatchObject({
+      created: false,
+      existing_webhook_ids: [hookId],
+    });
     await expect(
       runCatalogOperation(
         "clickup_update_activity_webhook",
