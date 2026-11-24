@@ -1760,7 +1760,8 @@ export async function runCatalogOperation(
         await call("DELETE", targetPath, undefined, "empty-write-ack");
       }
       const after = await task("task_id");
-      if (!Array.isArray(after["checklists"])) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      if (!Array.isArray(after["checklists"]))
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
       const next = after["checklists"].map(obj).find((x) => x?.["id"] === a["checklist_id"]);
       const verified =
         name === "clickup_delete_task_checklist"
@@ -1898,9 +1899,7 @@ export async function runCatalogOperation(
         !after ||
         String(after["id"]) !== String(a["timer_id"]) ||
         Object.entries(patch).some(([key, value]) =>
-          key === "start" || key === "end"
-            ? Number(after[key]) !== value
-            : after[key] !== value,
+          key === "start" || key === "end" ? Number(after[key]) !== value : after[key] !== value,
         )
       )
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
