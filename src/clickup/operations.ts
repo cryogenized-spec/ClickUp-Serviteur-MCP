@@ -46,7 +46,10 @@ async function requestJson(
     }
     if (!response.ok) {
       if (method !== "GET" && response.status >= 500) {
-        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN", apiDiagnostic(method, response.status));
+        throw new ReadFailure(
+          "CLICKUP_WRITE_OUTCOME_UNKNOWN",
+          apiDiagnostic(method, response.status),
+        );
       }
       throw new ReadFailure("CLICKUP_UPSTREAM_UNAVAILABLE", apiDiagnostic(method, response.status));
     }
