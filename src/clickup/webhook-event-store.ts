@@ -9,14 +9,83 @@ export class ClickUpWebhookEvents {
       "CREATE TABLE IF NOT EXISTS hints (event_key TEXT PRIMARY KEY, task_id TEXT NOT NULL, event TEXT NOT NULL, received_at INTEGER NOT NULL)",
     );
     state.storage.sql.exec("CREATE INDEX IF NOT EXISTS hints_received ON hints(received_at)");
+    state.storage.sql.exec(
+      "CREATE TABLE IF NOT EXISTS reviewed (event_key TEXT PRIMARY KEY, acknowledged_at INTEGER NOT NULL)",
+    );
   }
 
   async fetch(request: Request): Promise<Response> {
-    const path = new URL(request.url).pathname;
+    const url = new URL(request.url);
+    const path = url.pathname;
+    if (request.method === "GET" && path === "/pending") {
+      const since = url.searchParams.get("after_time");
+      const key = url.searchParams.get("after_key");
+      if (
+        (since === null) !== (key === null) ||
+        (since !== null && (!/^\d{1,16}$/.test(since) || !Number.isSafeInteger(Number(since)))) ||
+        (key !== null && !/^[a-f0-9-]{36}:[a-zA-Z0-9_-]{1,100}$/i.test(key))
+      )
+        return new Response(null, { status: 400 });
+      const rows = this.state.storage.sql
+        .exec<{ event_key: string; task_id: string; event: string; received_at: number }>(
+          "SELECT h.event_key, h.task_id, h.event, h.received_at FROM hints h LEFT JOIN reviewed r ON h.event_key = r.event_key WHERE r.event_key IS NULL AND h.received_at >= ? AND (h.received_at > ? OR (h.received_at = ? AND h.event_key > ?)) ORDER BY h.received_at, h.event_key LIMIT 11",
+          Date.now() - WEEK,
+          Number(since ?? 0),
+          Number(since ?? 0),
+          key ?? "",
+        )
+        .toArray();
+      return Response.json({ events: rows.slice(0, 10), incomplete: rows.length > 10 });
+    }
+    if (request.method === "POST" && path === "/acknowledge") {
+      const raw: unknown = await request.json().catch(() => null);
+      if (raw === null || typeof raw !== "object" || Array.isArray(raw))
+        return new Response(null, { status: 400 });
+      const args = raw as Record<string, unknown>;
+      const taskId = args["task_id"];
+      const keys = args["event_keys"];
+      if (
+        typeof taskId !== "string" ||
+        !/^[a-zA-Z0-9_-]{1,80}$/.test(taskId) ||
+        !Array.isArray(keys) ||
+        keys.length < 1 ||
+        keys.length > 50 ||
+        keys.some(
+          (key) => typeof key !== "string" || !/^[a-f0-9-]{36}:[a-zA-Z0-9_-]{1,100}$/i.test(key),
+        )
+      )
+        return new Response(null, { status: 400 });
+      const unique = [...new Set<string>(keys as string[])];
+      const now = Date.now();
+      const acknowledged = this.state.storage.transactionSync(() => {
+        // All-or-nothing: no accidentally acknowledging another task's event.
+        for (const key of unique) {
+          const match = this.state.storage.sql
+            .exec(
+              "SELECT event_key FROM hints WHERE task_id = ? AND event_key = ? AND received_at >= ?",
+              taskId,
+              key,
+              now - WEEK,
+            )
+            .toArray();
+          if (match.length !== 1) return false;
+        }
+        for (const key of unique)
+          this.state.storage.sql.exec(
+            "INSERT OR IGNORE INTO reviewed(event_key, acknowledged_at) VALUES (?, ?)",
+            key,
+            now,
+          );
+        return true;
+      });
+      return acknowledged
+        ? Response.json({ acknowledged_event_keys: unique })
+        : new Response(null, { status: 409 });
+    }
     if (request.method === "GET" && path === "/recent") {
       const rows = this.state.storage.sql
         .exec<{ task_id: string; received_at: number }>(
-          "SELECT task_id, MAX(received_at) AS received_at FROM hints WHERE received_at >= ? GROUP BY task_id ORDER BY received_at DESC, task_id LIMIT 51",
+          "SELECT h.task_id, MAX(h.received_at) AS received_at FROM hints h LEFT JOIN reviewed r ON h.event_key = r.event_key WHERE r.event_key IS NULL AND h.received_at >= ? GROUP BY h.task_id ORDER BY received_at DESC, h.task_id LIMIT 51",
           Date.now() - WEEK,
         )
         .toArray();
@@ -64,6 +133,9 @@ export class ClickUpWebhookEvents {
       this.state.storage.sql.exec(
         "DELETE FROM hints WHERE event_key IN (SELECT event_key FROM hints ORDER BY received_at DESC, event_key DESC LIMIT -1 OFFSET 5000)",
       );
+      this.state.storage.sql.exec(
+        "DELETE FROM reviewed WHERE event_key NOT IN (SELECT event_key FROM hints)",
+      );
     });
     const earliest = this.state.storage.sql
       .exec<{ earliest: number | null }>("SELECT MIN(received_at) AS earliest FROM hints")
@@ -75,6 +147,9 @@ export class ClickUpWebhookEvents {
   async alarm(): Promise<void> {
     const now = Date.now();
     this.state.storage.sql.exec("DELETE FROM hints WHERE received_at <= ?", now - WEEK);
+    this.state.storage.sql.exec(
+      "DELETE FROM reviewed WHERE event_key NOT IN (SELECT event_key FROM hints)",
+    );
     const remaining = this.state.storage.sql
       .exec<{ earliest: number | null }>("SELECT MIN(received_at) AS earliest FROM hints")
       .one();
