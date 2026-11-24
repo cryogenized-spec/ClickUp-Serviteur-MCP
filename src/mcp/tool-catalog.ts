@@ -1915,6 +1915,25 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Delete this exact approved obsolete view.",
     ["view_id", "view_parent_type", "view_parent_id", "name", "confirm_delete"],
   ),
+
+  tool(
+    "clickup_get_workspace_plan",
+    "Get Workspace Plan",
+    "hierarchy",
+    "read",
+    "Read the approved Workspace subscription plan to diagnose plan-gated native features.",
+    "Check which ClickUp plan this Workspace uses.",
+    [],
+  ),
+  tool(
+    "clickup_get_workspace_seats",
+    "Get Workspace Seats",
+    "members",
+    "read",
+    "Read aggregate member and guest seat usage from the approved Workspace. Does not invite or change access.",
+    "Show the used and available member and guest seats.",
+    [],
+  ),
 ];
 
 export const CLICKUP_TOOL_GROUPS: readonly ToolGroup[] = [
