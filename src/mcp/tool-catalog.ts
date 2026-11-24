@@ -138,6 +138,14 @@ const taskDraft = obj(
 );
 
 const F = {
+  webhook_id: str("Exact ID of a webhook owned and registered by this Serviteur user.", 36),
+  webhook_events: arrayOf(
+    "Task activity event names from the supported ClickUp webhook event list.",
+    str("Exact ClickUp task webhook event name.", 80),
+    20,
+  ),
+  confirm_subscription: flag("True after explicit approval of the requested webhook subscription."),
+
   position: integer("Zero-based native position in the destination or checklist order.", 0, 100000),
   destination_folder_id: str("Exact destination Folder ID within the approved Workspace.", 24),
   timer_id: str("Exact native time entry ID, verified within the approved Workspace.", 80),
@@ -1812,6 +1820,35 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Update numeric progress and note on a Target independently verified within its Goal.",
     "Use update key result progress on the approved resource.",
     ["goal_id", "key_result_id", "steps_current", "text"],
+  ),
+
+  tool(
+    "clickup_create_webhook_subscription",
+    "Create Serviteur Webhook Subscription",
+    "hierarchy",
+    "write",
+    "Register task activity on the approved Workspace or one verified location. Destination is the configured Serviteur receiver, never a caller-supplied URL. Signing secret is encrypted internally.",
+    "Subscribe this Workspace to task activity after approval.",
+    ["confirm_subscription"],
+    ["webhook_events", "space_id", "folder_id", "list_id", "task_id"],
+  ),
+  tool(
+    "clickup_update_webhook_subscription",
+    "Update Serviteur Webhook Subscription",
+    "hierarchy",
+    "write",
+    "Update the event selection of a Serviteur-managed subscription owned by the caller, preserving its fixed receiver.",
+    "Change the approved subscription's event selection.",
+    ["webhook_id", "webhook_events", "confirm_subscription"],
+  ),
+  tool(
+    "clickup_delete_webhook_subscription",
+    "Delete Serviteur Webhook Subscription",
+    "hierarchy",
+    "destructive",
+    "Remove one Serviteur-managed subscription owned by the caller after explicit approval. Previously received events retain their normal retention.",
+    "Stop this approved subscription.",
+    ["webhook_id", "confirm_delete"],
   ),
 ];
 
