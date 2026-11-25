@@ -129,8 +129,7 @@ function fixture(
       const form = init?.body as FormData;
       expect(form.get("attachment")).toBeInstanceOf(Blob);
       expect(form.get("filename")).toBeNull();
-      if (options.v2RejectStorage)
-        return Response.json({ ECODE: "GBUSED_005" }, { status: 400 });
+      if (options.v2RejectStorage) return Response.json({ ECODE: "GBUSED_005" }, { status: 400 });
       return Response.json({ id: "uploaded-v2", title: "sample.pdf" });
     }
     throw Error("Unexpected endpoint " + method + " " + path);
@@ -185,7 +184,6 @@ describe("v3 task and Files Custom Field attachment lifecycle", () => {
     expect(api.requests.some((entry) => entry.method === "POST")).toBe(false);
   });
 
-
   it("recovers from a definitive v3 task-upload 404 using a single v2 task POST", async () => {
     const api = fixture({ v3PostNotFound: true });
     const result = await runCatalogOperation(
@@ -229,12 +227,7 @@ describe("v3 task and Files Custom Field attachment lifecycle", () => {
     expect(field.requests.filter((row) => row.method === "POST")).toHaveLength(1);
     const quota = fixture({ rejectStorage: true });
     await expect(
-      runCatalogOperation(
-        "clickup_upload_task_attachment",
-        args,
-        grant(),
-        quota.f as typeof fetch,
-      ),
+      runCatalogOperation("clickup_upload_task_attachment", args, grant(), quota.f as typeof fetch),
     ).rejects.toThrow("CLICKUP_ATTACHMENT_HTTP_400_GBUSED_005");
     expect(quota.requests.filter((row) => row.method === "POST")).toHaveLength(1);
   });
