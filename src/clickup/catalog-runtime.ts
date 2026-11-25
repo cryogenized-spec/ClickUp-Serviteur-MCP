@@ -1620,19 +1620,57 @@ export async function runCatalogOperation(
       const params = new URLSearchParams({ limit: String(N) });
       if (a["attachment_cursor"] !== undefined)
         params.set("cursor", txt(a["attachment_cursor"], 500));
-      const result = await call(
-        "GET",
-        v3(
-          "workspaces/" +
-            W +
-            "/" +
-            (isFileField ? "custom_fields" : "attachments") +
-            "/" +
-            entityId +
-            "/attachments?" +
-            params,
-        ),
-      );
+      let result: Json;
+      try {
+        result = await call(
+          "GET",
+          v3(
+            "workspaces/" +
+              W +
+              "/" +
+              (isFileField ? "custom_fields" : "attachments") +
+              "/" +
+              entityId +
+              "/attachments?" +
+              params,
+          ),
+        );
+      } catch (error) {
+        // Some existing ClickUp workspaces return 404 from v3 even when the
+        // authorized task GET contains real attachments. Fall back only for
+        // task metadata and only without a v3 continuation cursor.
+        if (
+          isFileField ||
+          a["attachment_cursor"] !== undefined ||
+          !(error instanceof ReadFailure) ||
+          error.code !== "CLICKUP_UPSTREAM_UNAVAILABLE" ||
+          error.diagnostic?.http_status !== 404
+        )
+          throw error;
+        const legacy = target["attachments"];
+        if (!Array.isArray(legacy)) throw error;
+        const attachments = legacy.slice(0, N).map((entry) => {
+          const item = obj(entry);
+          if (!item || typeof item["id"] !== "string")
+            throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+          return {
+            id: item["id"],
+            title: item["title"] ?? item["name"] ?? null,
+            extension: item["extension"] ?? null,
+            size: item["size"] ?? null,
+            date_created: item["date_created"] ?? null,
+            date_updated: item["date_updated"] ?? null,
+            mime_type: item["mime_type"] ?? null,
+          };
+        });
+        return {
+          source: "clickup-api-v2-task-fallback",
+          attachments,
+          next_attachment_cursor: null,
+          incomplete: true,
+          note: "ClickUp v3 attachment listing returned 404. Showing bounded task metadata without pagination; completeness cannot be confirmed.",
+        };
+      }
       // Only expose metadata, not signed download URLs.
       const rows = result["data"];
       if (!Array.isArray(rows)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
