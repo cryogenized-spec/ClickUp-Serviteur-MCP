@@ -1672,8 +1672,7 @@ export async function runCatalogOperation(
             !Number.isSafeInteger(event["received_at"]) ||
             (cursorTime !== undefined &&
               (event["received_at"] < cursorTime ||
-                (event["received_at"] === cursorTime &&
-                  event["event_key"] <= (cursorKey ?? ""))))
+                (event["received_at"] === cursorTime && event["event_key"] <= (cursorKey ?? ""))))
           )
             throw new ReadFailure("CLICKUP_BAD_RESPONSE");
           const taskId = event["task_id"];
