@@ -155,7 +155,6 @@ describe("pending activity batched pagination", () => {
     expect(f.requests).toHaveBeenCalledTimes(1);
   });
 
-
   it("allows twenty distinct verified tasks before returning a resumable continuation", async () => {
     const events = Array.from({ length: 23 }, (_, i) => makeEvent(i, `task${i}`));
     const f = fixture(events);
