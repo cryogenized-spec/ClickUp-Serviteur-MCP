@@ -7,13 +7,21 @@ Implement the documented v3 REST path `/api/v3/workspaces/{workspace_id}/{entity
 New model-facing capabilities:
 - `clickup_upload_task_attachment` and `clickup_upload_file_field_attachment` accept caller-supplied Base64 payloads up to 500 KiB; both require a preflight of the authorized task, home List and, when applicable, Files field.
 - `clickup_get_task_attachments` uses the documented v3 path, but ClickUp returned HTTP 404 for a real company task with a visible v2 attachment; on exact v3 404 only, bounded task metadata is returned as an explicitly incomplete, unpaginated fallback.
-- `clickup_get_file_field_attachments` returns only task-associated file metadata or an explicitly requested uploaded ID; no broad enumeration of files shared by other tasks.
-- `clickup_associate_file_field_attachment` requires an exact uploaded ID, explicit owner confirmation, an empty task field, and a post-write task readback. It does not implicitly replace existing files.
+- `clickup_get_file_field_attachments` returns only task-associated file metadata or an explicitly requested **provenance-verified pending upload**; a caller-supplied exact ID by itself is never authority to view metadata in a shared field.
+- `clickup_associate_file_field_attachment` requires a fresh owner-/OAuth-generation-/task-/field-bound upload record, an exact attachment ID, explicit owner confirmation, an empty task field, an **atomic one-time durable claim**, last-moment task preflight, and post-write readback. An unknown or replayed ID cannot be associated. A claim is permanently consumed, even if the upstream result is ambiguous; this conservative endpoint supports one association attempt per task/field, rather than offering an unsafe overwrite or blind retry.
 - `clickup_upload_chatgpt_file_v3` declares the ChatGPT `openai/fileParams` slot for PDF, image and safe text bytes, with optional `field_id`. It retrieves only a bounded, signed OpenAI-hosted source and never forwards ClickUp credentials. Files field uploads still require a separate association call.
 
 ## Security and failure behavior
 
 The existing per-user OAuth, company Workspace scope, original task home-List restrictions, data size/MIME checks, quota reservation, no-arbitrary-URL and no-redirect rules stay in effect. A successful POST requires an authoritative attachment ID, and a failed readback never authorizes a duplicate upload retry. No file contents, bearer tokens or signed URLs are written into source, tests or logs. A v3 File field may be shared with multiple tasks, so only a task-associated ID or an exact requested upload ID may be returned.
+
+## Post-Codex P1 remediation design
+
+Codex's completed PR review (25 November, original head `2b11923`) found three P1 issues: shared Files-field attachment ID provenance, overlapping association writes, and company List-scoped file reads. The remediation uses the **already deployed `CLICKUP_QUOTA` Durable Object class** with separate SQLite-backed object instances named by authorized Workspace/task/field. A successful v3 Files-field upload records the subject, ClickUp user ID, OAuth credential generation, returned attachment ID and a 15-minute expiry. Verification and association query this internal ledger; model-provided IDs alone cannot register ownership.
+
+Claiming an association performs a synchronous SQLite transaction and irreversibly marks the field claimed, so concurrent requests from different principals/Worker instances cannot both submit through this MCP. Follow-up attempts fail closed; an upstream failure or expired ownership record does not release the claim. The existing task and Files-field authorization checks remain in place, and the verified file-read operation is allowed in company List mode. The helper uses the existing Durable Object binding; no public route or new secret is introduced.
+
+**Limitation:** The ClickUp Set Custom Field API does not document a compare-and-swap conditional update. The last-moment field read minimizes but **cannot eliminate an external edit race** from ClickUp UI or another integration. This implementation serializes *Serviteur* requests, not all ClickUp writers. Keep association use restricted to explicitly approved, otherwise idle test fields; do not advertise an unconditional upstream no-overwrite guarantee. Do not merge until the revised SHA passes mechanical CI and fresh security review.
 
 ## Observed environment and acceptance limits
 
