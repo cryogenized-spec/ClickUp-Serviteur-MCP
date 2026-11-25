@@ -42,7 +42,7 @@ function fixture(events: ReturnType<typeof makeEvent>[], rateLimitTask?: string)
     const path = new URL(String(request)).pathname;
     if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "777" }] });
     if (path === "/api/v2/list/12345") return Response.json({ id: "12345", space: { id: "777" } });
-    const task = /^\/api\/v2\/task\/(abc123|def456)$/.exec(path)?.[1];
+    const task = /^\/api\/v2\/task\/([a-zA-Z0-9_-]+)$/.exec(path)?.[1];
     if (task) {
       if (task === rateLimitTask) return Response.json({}, { status: 429 });
       return Response.json({
@@ -153,5 +153,37 @@ describe("pending activity batched pagination", () => {
     });
     expect((response["tasks"] as Array<{ events: unknown[] }>)[0]!.events).toHaveLength(1);
     expect(f.requests).toHaveBeenCalledTimes(1);
+  });
+
+
+  it("allows twenty distinct verified tasks before returning a resumable continuation", async () => {
+    const events = Array.from({ length: 23 }, (_, i) => makeEvent(i, `task${i}`));
+    const f = fixture(events);
+    const response = await runCatalogOperation(
+      "clickup_get_pending_activity",
+      { max_results: 50 },
+      f.enrichedGrant,
+      f.api as typeof fetch,
+    );
+    expect(response).toMatchObject({
+      events_scanned: 20,
+      interrupted_reason: "task_verification_budget_exhausted",
+      incomplete: true,
+      next_event_after_time: events[19]!.received_at,
+      next_event_after_key: events[19]!.event_key,
+    });
+    expect(response["tasks"]).toHaveLength(20);
+    const next = await runCatalogOperation(
+      "clickup_get_pending_activity",
+      {
+        max_results: 50,
+        event_after_time: response["next_event_after_time"],
+        event_after_key: response["next_event_after_key"],
+      },
+      f.enrichedGrant,
+      f.api as typeof fetch,
+    );
+    expect(next).toMatchObject({ events_scanned: 3, incomplete: false });
+    expect(next["tasks"]).toHaveLength(3);
   });
 });
