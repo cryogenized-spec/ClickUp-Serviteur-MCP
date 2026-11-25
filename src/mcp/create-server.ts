@@ -22,7 +22,7 @@ import {
   saveClickUpListTarget,
 } from "../clickup/per-user-oauth.js";
 import { OPERATIONAL_CATALOG_NAMES, runCatalogOperation } from "../clickup/catalog-runtime.js";
-import { attachChatGPTFileToTask } from "../clickup/chatgpt-uploads.js";
+import { attachChatGPTFileToTask, attachChatGPTFileV3 } from "../clickup/chatgpt-uploads.js";
 import { createAttentionReport } from "../reports/attention.js";
 import {
   CLICKUP_MODEL_TOOL_CATALOG,
@@ -542,6 +542,89 @@ export function createServer(deps?: ReadDependencies): McpServer {
               dependencies.fetcher ?? fetch,
               args.task_id,
               args.file,
+            ),
+          );
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    );
+  }
+
+  // v3 file-slot uploader shares the same validated host fetch, without Base64.
+  if (
+    dependencies.schemaPreview !== true &&
+    companyCatalogAllows("clickup_upload_chatgpt_file_v3", "write")
+  ) {
+    server.registerTool(
+      "clickup_upload_chatgpt_file_v3",
+      {
+        description:
+          "Upload a ChatGPT-provided photo, PDF or text file through ClickUp v3, either to an authorized task or to its verified Files Custom Field. Supplying field_id uploads bytes without associating the field; explicit confirmation is required for association. Do not invent file references or retry uncertain writes.",
+        scopeChallenge: requireScopes("mcp:read", "mcp:write"),
+        inputSchema: fromJsonSchema<{
+          task_id: string;
+          field_id?: string;
+          file: {
+            download_url: string;
+            file_id: string;
+            mime_type?: string;
+            file_name?: string;
+          };
+        }>({
+          type: "object",
+          properties: {
+            task_id: {
+              type: "string",
+              minLength: 2,
+              maxLength: 40,
+              description: "Exact existing ClickUp task ID, never a title.",
+            },
+            field_id: {
+              type: "string",
+              minLength: 2,
+              maxLength: 100,
+              description:
+                "Optional verified Files Custom Field ID. Omit to upload directly to the task.",
+            },
+            file: {
+              type: "object",
+              description: "ChatGPT-supplied file. Attach the photo in the conversation.",
+              properties: {
+                download_url: { type: "string" },
+                file_id: { type: "string" },
+                mime_type: { type: "string" },
+                file_name: { type: "string" },
+              },
+              required: ["download_url", "file_id"],
+              additionalProperties: false,
+            },
+          },
+          required: ["task_id", "file"],
+          additionalProperties: false,
+        }),
+        _meta: { "openai/fileParams": ["file"] },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: true,
+        },
+      },
+      async (args, extra) => {
+        try {
+          const grant = await requireWriteGrant(
+            extra.http?.authInfo,
+            dependencies.bindings,
+            "clickup_upload_chatgpt_file_v3",
+          );
+          return toolSuccess(
+            await attachChatGPTFileV3(
+              grant,
+              dependencies.fetcher ?? fetch,
+              args.task_id,
+              args.file,
+              args.field_id,
             ),
           );
         } catch (error) {

@@ -1,4 +1,5 @@
 import { quotaCall } from "./client.js";
+import { filePendingLedger } from "./file-field-ledger.js";
 import { getMyAttentionItems } from "./attention-items.js";
 import { readGoalDetails, readSprintTaskSnapshot, readWorkspaceGoals } from "./reporting-reads.js";
 import {
@@ -764,6 +765,7 @@ async function uploadAttachment(
   filename: string,
   base64: string,
   mime: string,
+  v3Entity?: { type: "attachments" | "custom_fields"; id: string },
 ): Promise<Json> {
   if (
     !/^[a-zA-Z0-9._ ()-]{1,120}$/.test(filename) ||
@@ -786,7 +788,7 @@ async function uploadAttachment(
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   const data = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) data[i] = binary.charCodeAt(i);
-  return uploadAttachmentBytes(grant, fetcher, taskId, filename, data, mime);
+  return uploadAttachmentBytes(grant, fetcher, taskId, filename, data, mime, v3Entity);
 }
 
 /** Inspect only a tiny rejected-upload response; never buffer unlimited 4xx bodies. */
@@ -833,6 +835,7 @@ export async function uploadAttachmentBytes(
   filename: string,
   data: Uint8Array,
   mime: string,
+  v3Entity?: { type: "attachments" | "custom_fields"; id: string },
 ): Promise<Json> {
   if (
     !/^[a-zA-Z0-9._ ()-]{1,120}$/.test(filename) ||
@@ -845,7 +848,15 @@ export async function uploadAttachmentBytes(
     throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
   // The task home List is validated immediately before every upload POST,
   // including the binary file-aware route and the legacy Base64 route.
-  await taskInWorkspace(grant, fetcher, taskId);
+  const verifiedTask = await taskInWorkspace(grant, fetcher, taskId);
+  if (v3Entity) {
+    if (grant.resourceScope !== "workspace" && grant.companyListTaskAccess !== true)
+      throw new ReadFailure("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
+    if (v3Entity.type === "attachments" && v3Entity.id !== taskId)
+      throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    if (v3Entity.type === "custom_fields")
+      await verifiedFileField(grant, fetcher, verifiedTask, v3Entity.id);
+  }
   const uploadBytes = new Uint8Array(data.byteLength);
   uploadBytes.set(data);
   const form = new FormData();
@@ -853,11 +864,23 @@ export async function uploadAttachmentBytes(
   // attachment[0] in some single-file uploads despite the array documentation.
   // The production-compatible single-file field is the unindexed "attachment".
   form.append("attachment", new Blob([uploadBytes], { type: mime }), filename);
+  if (v3Entity) form.append("filename", filename);
   await quotaCall(grant, "reserve");
   const abort = new AbortController();
   const timeout = setTimeout(() => abort.abort(), 10000);
   try {
-    const res = await fetcher("https://api.clickup.com/api/v2/task/" + id(taskId) + "/attachment", {
+    const endpoint = v3Entity
+      ? v3(
+          "workspaces/" +
+            id(grant.workspaceId) +
+            "/" +
+            v3Entity.type +
+            "/" +
+            id(v3Entity.id) +
+            "/attachments",
+        )
+      : v2("task/" + id(taskId) + "/attachment");
+    const res = await fetcher(pathEncoded(endpoint), {
       method: "POST",
       redirect: "manual",
       signal: abort.signal,
@@ -888,17 +911,42 @@ export async function uploadAttachmentBytes(
     }
     // Only an authoritative response ID correlates this upload to this request.
     // A matching filename seen later may belong to another concurrent writer.
-    const content = await res.text();
-    if (content.length > 1000000) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    const content = await readBoundedJsonBody(res, "CLICKUP_WRITE_OUTCOME_UNKNOWN");
     let parsed: unknown;
     try {
       parsed = JSON.parse(content);
     } catch {
       throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
     }
-    const attachment = obj(parsed);
+    const attachment =
+      obj(parsed) && obj(obj(parsed)?.["data"]) ? obj(obj(parsed)?.["data"]) : obj(parsed);
     if (!attachment || typeof attachment["id"] !== "string" || !attachment["id"])
       throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    if (v3Entity) {
+      if (attachment["parent_id"] !== undefined && String(attachment["parent_id"]) !== v3Entity.id)
+        throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      if (v3Entity.type === "custom_fields") {
+        // Only a confirmed upload can create an owner/task/field-bound pending ID.
+        // If this durable write fails, the remote upload is orphaned and must not
+        // be associated from a caller-provided attachment ID.
+        const registered = await filePendingLedger(
+          grant,
+          taskId,
+          v3Entity.id,
+          attachment["id"],
+          "register",
+        );
+        if (!registered) throw new ReadFailure("CLICKUP_FILE_PROVENANCE_REJECTED");
+      }
+      return {
+        source: "clickup-api-v3",
+        attachment_id: attachment["id"],
+        title: attachment["title"] ?? attachment["name"] ?? filename,
+        parent_id: v3Entity.id,
+        requires_task_association: v3Entity.type === "custom_fields",
+        retry_safe: false,
+      };
+    }
     return clip(attachment) as Json;
   } catch (error) {
     if (error instanceof ReadFailure) throw error;
@@ -907,6 +955,41 @@ export async function uploadAttachmentBytes(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/** Verify a Files field against the task's *authorized home List* before any
+ * v3 collection read or upload. Empty fields may be absent from task values. */
+async function verifiedFileField(
+  grant: ReadGrant,
+  fetcher: typeof fetch,
+  task: Json,
+  fieldId: string,
+): Promise<Json> {
+  const listId = id(obj(task["list"])?.["id"]);
+  const fields = await send(
+    grant,
+    fetcher,
+    "GET",
+    v2("list/" + listId + "/field?include_applied_objects=true"),
+  );
+  const rows = fields["fields"];
+  if (!Array.isArray(rows) || rows.length > 500) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+  const definition = rows.map(obj).find((item) => item?.["id"] === fieldId);
+  if (!definition || !["attachment", "files"].includes(String(definition["type"])))
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  const applied = definition["applied_objects"];
+  if (
+    applied !== undefined &&
+    (!Array.isArray(applied) ||
+      (applied.length > 0 &&
+        !applied.some(
+          (entry) =>
+            String(obj(entry)?.["object_type"]) === "19" &&
+            String(obj(entry)?.["object_id"]) === String(task["custom_item_id"] ?? 0),
+        )))
+  )
+    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  return definition;
 }
 
 /** Scope-bound checklist identity. No checklist ID alone grants a write. */
@@ -1081,6 +1164,10 @@ async function scopedChatReactions(
 }
 
 export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
+  "clickup_upload_task_attachment",
+  "clickup_upload_file_field_attachment",
+  "clickup_get_file_field_attachments",
+  "clickup_associate_file_field_attachment",
   "clickup_get_workspace_plan",
   "clickup_get_workspace_seats",
   "clickup_update_own_time_entry",
@@ -1219,6 +1306,10 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
 // after a same-Workspace, exact-home-List preflight. Other Workspace-wide
 // operations remain blocked. ClickUp owns task history and enforces its ACL.
 const WORKSPACE_SCOPE_OPERATIONS = new Set([
+  "clickup_upload_task_attachment",
+  "clickup_upload_file_field_attachment",
+  "clickup_get_file_field_attachments",
+  "clickup_associate_file_field_attachment",
   "clickup_get_workspace_plan",
   "clickup_get_workspace_seats",
   "clickup_update_own_time_entry",
@@ -1464,19 +1555,183 @@ export async function runCatalogOperation(
         incomplete: offset + N < rows.length,
       };
     }
+    case "clickup_associate_file_field_attachment": {
+      if (a["confirm_file_association"] !== true) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const target = await task("task_id");
+      const fieldId = val(a, "field_id");
+      await verifiedFileField(g, f, target, fieldId);
+      const fields = target["custom_fields"];
+      if (!Array.isArray(fields)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const current = fields.map(obj).find((item) => item?.["id"] === fieldId)?.["value"];
+      if (
+        current !== undefined &&
+        current !== null &&
+        !(Array.isArray(current) && current.length === 0)
+      )
+        throw new ReadFailure("CLICKUP_FILE_FIELD_NOT_EMPTY");
+      const uploadedId = txt(a["attachment_id"], 100);
+      // An ID's presence in a shared field collection cannot prove that the
+      // attachment was uploaded for this task by this authorized principal.
+      if (!(await filePendingLedger(g, val(a, "task_id"), fieldId, uploadedId, "verify")))
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      const params = new URLSearchParams({ limit: "100" });
+      if (a["attachment_cursor"] !== undefined)
+        params.set("cursor", txt(a["attachment_cursor"], 500));
+      const available = await call(
+        "GET",
+        v3("workspaces/" + W + "/custom_fields/" + fieldId + "/attachments?" + params),
+      );
+      if (
+        !Array.isArray(available["data"]) ||
+        !available["data"].some((entry) => {
+          const row = obj(entry);
+          return (
+            row?.["id"] === uploadedId &&
+            (row["parent_id"] === undefined || String(row["parent_id"]) === fieldId)
+          );
+        })
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      // A permanent atomic claim serializes this field across Worker isolates,
+      // principals and concurrent MCP requests. A failed/ambiguous write never
+      // releases the claim, so it cannot be replayed as a replacement.
+      if (!(await filePendingLedger(g, val(a, "task_id"), fieldId, uploadedId, "claim")))
+        throw new ReadFailure("CLICKUP_FILE_FIELD_ALREADY_CLAIMED");
+      // Revalidate immediately before POST to narrow an external ClickUp-edit
+      // race. ClickUp offers no documented compare-and-swap for this field API.
+      const latest = await task("task_id");
+      const latestFields = latest["custom_fields"];
+      if (!Array.isArray(latestFields)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const latestValue = latestFields.map(obj).find((row) => row?.["id"] === fieldId)?.["value"];
+      if (
+        latestValue !== undefined &&
+        latestValue !== null &&
+        !(Array.isArray(latestValue) && latestValue.length === 0)
+      )
+        throw new ReadFailure("CLICKUP_FILE_FIELD_NOT_EMPTY");
+      await call(
+        "POST",
+        v2("task/" + val(a, "task_id") + "/field/" + fieldId),
+        { value: uploadedId },
+        "empty-write-ack",
+      );
+      const after = await task("task_id");
+      const updatedFields = after["custom_fields"];
+      if (!Array.isArray(updatedFields)) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      const value = updatedFields.map(obj).find((item) => item?.["id"] === fieldId)?.["value"];
+      const linked =
+        value === uploadedId ||
+        (Array.isArray(value) &&
+          value.some((item) => item === uploadedId || obj(item)?.["id"] === uploadedId));
+      if (!linked) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      return {
+        task_id: target["id"],
+        field_id: fieldId,
+        attachment_id: uploadedId,
+        linked: true,
+        retry_safe: false,
+      };
+    }
+    case "clickup_get_file_field_attachments":
     case "clickup_get_task_attachments": {
-      await task("task_id");
+      const target = await task("task_id");
+      const isFileField = name === "clickup_get_file_field_attachments";
+      const entityId = isFileField ? val(a, "field_id") : val(a, "task_id");
+      if (isFileField) await verifiedFileField(g, f, target, entityId);
+      const exactId = a["attachment_id"] === undefined ? null : txt(a["attachment_id"], 100);
+      // Files fields can contain uploads belonging to other tasks. Never
+      // enumerate unrelated objects when the caller only authorized one task.
+      const values = Array.isArray(target["custom_fields"]) ? target["custom_fields"] : [];
+      const fieldValue = isFileField
+        ? values.map(obj).find((field) => field?.["id"] === entityId)?.["value"]
+        : null;
+      const links = Array.isArray(fieldValue) ? fieldValue : fieldValue ? [fieldValue] : [];
+      const linkedIds = new Set(
+        links
+          .map((entry) => (typeof entry === "string" ? entry : String(obj(entry)?.["id"] ?? "")))
+          .filter(Boolean),
+      );
+      if (isFileField && exactId && !linkedIds.has(exactId)) {
+        // A task identifier plus a foreign attachment ID is not authorization.
+        // The pending record must match this principal's successful upload.
+        if (!(await filePendingLedger(g, val(a, "task_id"), entityId, exactId, "verify")))
+          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      }
+      if (isFileField && !exactId && linkedIds.size === 0)
+        return {
+          source: "clickup-api-v3",
+          attachments: [],
+          next_attachment_cursor: null,
+          incomplete: false,
+          note: "No files are associated with this task field; provide an exact uploaded ID to check a pending upload.",
+        };
       const params = new URLSearchParams({ limit: String(N) });
       if (a["attachment_cursor"] !== undefined)
         params.set("cursor", txt(a["attachment_cursor"], 500));
-      const result = await call(
-        "GET",
-        "api/v3/workspaces/" + W + "/attachments/" + val(a, "task_id") + "/attachments?" + params,
-      );
+      let result: Json;
+      try {
+        result = await call(
+          "GET",
+          v3(
+            "workspaces/" +
+              W +
+              "/" +
+              (isFileField ? "custom_fields" : "attachments") +
+              "/" +
+              entityId +
+              "/attachments?" +
+              params,
+          ),
+        );
+      } catch (error) {
+        // Some existing ClickUp workspaces return 404 from v3 even when the
+        // authorized task GET contains real attachments. Fall back only for
+        // task metadata and only without a v3 continuation cursor.
+        if (
+          isFileField ||
+          a["attachment_cursor"] !== undefined ||
+          !(error instanceof ReadFailure) ||
+          error.code !== "CLICKUP_UPSTREAM_UNAVAILABLE" ||
+          error.diagnostic?.http_status !== 404
+        )
+          throw error;
+        const legacy = target["attachments"];
+        if (!Array.isArray(legacy)) throw error;
+        const attachments = legacy.slice(0, N).map((entry) => {
+          const item = obj(entry);
+          if (!item || typeof item["id"] !== "string")
+            throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+          return {
+            id: item["id"],
+            title: item["title"] ?? item["name"] ?? null,
+            extension: item["extension"] ?? null,
+            size: item["size"] ?? null,
+            date_created: item["date_created"] ?? null,
+            date_updated: item["date_updated"] ?? null,
+            mime_type: item["mime_type"] ?? null,
+          };
+        });
+        return {
+          source: "clickup-api-v2-task-fallback",
+          attachments,
+          next_attachment_cursor: null,
+          incomplete: true,
+          note: "ClickUp v3 attachment listing returned 404. Showing bounded task metadata without pagination; completeness cannot be confirmed.",
+        };
+      }
       // Only expose metadata, not signed download URLs.
       const rows = result["data"];
       if (!Array.isArray(rows)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      const attachments = rows.slice(0, N).map((entry) => {
+      const visible = isFileField
+        ? rows.filter((entry) => {
+            const attachment = obj(entry);
+            return (
+              attachment &&
+              (exactId ? attachment["id"] === exactId : linkedIds.has(String(attachment["id"])))
+            );
+          })
+        : rows;
+      const attachments = visible.slice(0, N).map((entry) => {
         const item = obj(entry);
         if (!item || item["id"] === undefined) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
         return {
@@ -3638,7 +3893,15 @@ export async function runCatalogOperation(
         partial: outcome.some((x) => obj(x)?.["success"] === false),
       };
     }
+    case "clickup_upload_task_attachment":
+    case "clickup_upload_file_field_attachment":
     case "clickup_attach_file_to_task": {
+      const entity =
+        name === "clickup_upload_task_attachment"
+          ? { type: "attachments" as const, id: val(a, "task_id") }
+          : name === "clickup_upload_file_field_attachment"
+            ? { type: "custom_fields" as const, id: val(a, "field_id") }
+            : undefined;
       return uploadAttachment(
         g,
         f,
@@ -3646,6 +3909,7 @@ export async function runCatalogOperation(
         txt(a["file_name"], 120),
         txt(a["file_base64"], 700000),
         typeof a["media_type"] === "string" ? a["media_type"] : "application/octet-stream",
+        entity,
       );
     }
     case "clickup_get_task_comments": {

@@ -1,3 +1,23 @@
+# 25 November 2026 — Codex P1 remediation of v3 uploads (source branch)
+
+PR [#158](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/158) received a genuine completed Codex review on `2b119230c15aba3ec3851ed99b26f6092b54f4a3`. It identified three P1 issues: shared Files-field attachment ID provenance, overlapping field association writes and company List-mode field-read policy. The topic branch now binds pending Files uploads to the verified OAuth principal/connection generation and exact task/field in existing SQLite-backed Durable Objects, atomically claims a field once before association and blocks cross-task or replayed IDs. The List-mode policy omission is corrected; targeted negative and concurrency tests added. See [the dated acceptance spec](V3_ATTACHMENT_UPLOAD_WORKFLOW_2026-11-25.md).
+
+**Verified on remediation SHA `0a86180647eed51921bddef120d8ff7b49bf0c76`:** Strict CI success [run 45584962333](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/actions/runs/45584962333), with 52 Vitest files / **598 passing tests**, strict TypeScript, lint, formatting, build, smoke and high/critical audit gate. CodeQL success [run 45584962292](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/actions/runs/45584962292). This documentation update introduces a newer HEAD and requires exact-head checks again.
+
+**Safety and limitations:** The durable one-time claim prevents competing writes **through Serviteur**, but ClickUp's Custom Field API exposes no documented conditional-set/CAS for unrelated UI or third-party writers; do not promise an absolute external no-overwrite guarantee. New v3 features are **source-only**, not merged or deployed; no live task/file write, user-upload acceptance or storage-quota confirmation has been performed. Older ClickUp `GBUSED_005` quota error may still block uploading. The review and security scan need renewal on the final corrected SHA before merge. Keep conflicting PR #156 separate.
+
+**One next action:** Let exact-head Strict CI and CodeQL pass after this checkpoint, then request Codex review/security review on the unchanged SHA; address any new findings, then merge, protected manual company deploy, schema refresh and explicitly approved disposable-file live test.
+
+---
+
+# 25 November 2026 — v3 attachment upload/retrieval source candidate
+
+The current company Worker returned HTTP 404 for `clickup_get_task_attachments` on a verified real task with an attachment. ClickUp's published v3 path matches the source; the exact reason for the upstream 404 remains unverified. The new implementation falls back to bounded, authorized v2 task attachment metadata when this specific 404 occurs. A topic branch now implements the documented v3 task/File Custom Field upload and GET routes, explicit Files field association with readback, and a new bounded ChatGPT file-slot v3 uploader. Original v2 and ChatGPT upload adapters remain available. See [v3 upload design and acceptance](V3_ATTACHMENT_UPLOAD_WORKFLOW_2026-11-25.md). The company Workspace reports Free Forever; earlier upload errors included `GBUSED_005`. **Source only, not a live deployment or acceptance certificate.** No customer records or uploads were changed while developing this candidate.
+
+**Verification still required:** exact-head Strict CI/CodeQL and review; user-approved merge, protected company deploy, refreshed ChatGPT tool schema, and positive disposable task/file acceptance subject to ClickUp storage capacity. The open pre-existing PR #156 conflicts with `main`; avoid blindly merging or overwriting newer source. Next action: obtain CI on this scoped upload PR and resolve all failures.
+
+---
+
 # 23 November 2026 — read-only task image reader (source candidate)
 
 Owner-approved work on a branch adds one tool, \`clickup_read_task_image\`, to the **existing** unified Serviteur MCP. It verifies the connected user's task home-List/Workspace and exact attachment membership, downloads only the verified Workspace CDN URL without forwarding OAuth credentials, validates size/MIME/file header/dimensions, and returns an MCP image block rather than exposing signed links or base64 in text. PNG/JPEG/WebP are the supported formats. Synthetic acceptance tests and [design/gates](TASK_IMAGE_READER_2026-11.md) accompany the code.

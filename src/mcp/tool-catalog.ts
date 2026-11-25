@@ -188,6 +188,9 @@ const F = {
   expected_merge_fingerprint: str("Fingerprint from the matching task merge preview.", 64),
   resource_offset: integer("Zero-based index in the returned resource collection.", 0, 100000),
   attachment_cursor: str("Opaque cursor returned by the previous attachment page.", 500),
+  confirm_file_association: flag(
+    "True only after explicit approval to associate this uploaded file to an empty task File Custom Field.",
+  ),
   hierarchy_template_id: str("Exact List or Folder template ID including its t- prefix.", 80),
   query: str(
     "Words or phrase to find; search only within an explicitly authorized Workspace.",
@@ -1547,6 +1550,48 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Show resources shared directly with me.",
     [],
     ["max_results", "resource_offset"],
+  ),
+  // ClickUp v3 attachment and Files Custom Field lifecycle. The original v2
+  // uploader remains for clients that already supply bounded Base64 content.
+  tool(
+    "clickup_upload_task_attachment",
+    "Upload Task Attachment V3",
+    "attachments",
+    "write",
+    "Upload user-supplied bytes to an authorized task using ClickUp v3 multipart. Returns a real attachment ID; do not blindly retry.",
+    "Upload this approved file to the task.",
+    ["task_id", "file_name", "file_base64"],
+    ["media_type"],
+  ),
+  tool(
+    "clickup_upload_file_field_attachment",
+    "Upload File Custom Field Attachment V3",
+    "attachments",
+    "write",
+    "Upload user-supplied bytes to a verified Files Custom Field; this does not associate the upload with a task.",
+    "Upload this approved file to the task's Files field.",
+    ["task_id", "field_id", "file_name", "file_base64"],
+    ["media_type"],
+  ),
+  tool(
+    "clickup_get_file_field_attachments",
+    "Get Files Field Attachments V3",
+    "attachments",
+    "read",
+    "Inspect only an exact supplied attachment ID or files already associated with this authorized task. Do not enumerate other tasks sharing the field.",
+    "Verify an uploaded file or show files on this task's Files field.",
+    ["task_id", "field_id"],
+    ["attachment_id", "attachment_cursor", "max_results"],
+  ),
+  tool(
+    "clickup_associate_file_field_attachment",
+    "Associate Files Field Attachment",
+    "attachments",
+    "write",
+    "Associate a verified uploaded attachment to an empty Files field on a scoped task. Requires confirmation and readback; never replaces existing files.",
+    "Associate the uploaded file with this task's empty Files field.",
+    ["task_id", "field_id", "attachment_id", "confirm_file_association"],
+    ["attachment_cursor"],
   ),
   tool(
     "clickup_get_task_attachments",

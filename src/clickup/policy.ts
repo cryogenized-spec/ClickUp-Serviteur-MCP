@@ -225,6 +225,9 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
  * expansion are deliberately absent. Every name must be reviewed individually.
  */
 export const COMPANY_SAFE_WRITE_OPERATIONS: ReadonlySet<string> = new Set([
+  "clickup_upload_task_attachment",
+  "clickup_upload_file_field_attachment",
+  "clickup_associate_file_field_attachment",
   "clickup_update_own_time_entry",
   "clickup_duplicate_saved_view",
   "clickup_rename_saved_view",
@@ -251,6 +254,7 @@ export const COMPANY_SAFE_WRITE_OPERATIONS: ReadonlySet<string> = new Set([
   "clickup_update_bulk_tasks",
   "clickup_attach_file_to_task",
   "clickup_attach_chatgpt_file_to_task",
+  "clickup_upload_chatgpt_file_v3",
   "clickup_create_task_comment",
   "clickup_edit_task_comment",
   "clickup_patch_task_comment",
@@ -293,7 +297,12 @@ export const COMPANY_LIST_TASK_OPERATIONS: ReadonlySet<string> = new Set([
   "clickup_set_custom_field",
   "clickup_update_bulk_tasks",
   "clickup_attach_file_to_task",
+  "clickup_upload_task_attachment",
+  "clickup_upload_file_field_attachment",
+  "clickup_associate_file_field_attachment",
+  "clickup_get_file_field_attachments",
   "clickup_attach_chatgpt_file_to_task",
+  "clickup_upload_chatgpt_file_v3",
   "clickup_create_task_comment",
   "clickup_edit_task_comment",
   "clickup_patch_task_comment",
