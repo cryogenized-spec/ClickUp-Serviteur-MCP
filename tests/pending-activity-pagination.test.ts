@@ -162,11 +162,12 @@ describe("pending activity batched pagination", () => {
     expect(wait).toHaveBeenCalledTimes(2);
     expect(wait).toHaveBeenNthCalledWith(1, 60_000);
     expect(wait).toHaveBeenNthCalledWith(2, 60_000);
-    expect(f.api.mock.calls.filter(([request]) => String(request).includes("/task/def456")))
-      .toHaveLength(3);
-    const eventKeys = (response["tasks"] as Array<{ events: Array<{ event_key: string }> }>).flatMap(
-      (task) => task.events.map((event) => event.event_key),
-    );
+    expect(
+      f.api.mock.calls.filter(([request]) => String(request).includes("/task/def456")),
+    ).toHaveLength(3);
+    const eventKeys = (
+      response["tasks"] as Array<{ events: Array<{ event_key: string }> }>
+    ).flatMap((task) => task.events.map((event) => event.event_key));
     expect(eventKeys.sort()).toEqual(events.map((event) => event.event_key).sort());
     expect(f.requests).toHaveBeenCalledTimes(1);
   });
