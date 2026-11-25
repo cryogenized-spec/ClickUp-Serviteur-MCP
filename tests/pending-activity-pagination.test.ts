@@ -42,7 +42,7 @@ function fixture(events: ReturnType<typeof makeEvent>[], rateLimitTask?: string)
     const path = new URL(String(request)).pathname;
     if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "777" }] });
     if (path === "/api/v2/list/12345") return Response.json({ id: "12345", space: { id: "777" } });
-    const task = /^\/api\/v2\/task\/(abc123|def456)$/.exec(path)?.[1];
+    const task = /^\/api\/v2\/task\/([a-zA-Z0-9_-]+)$/.exec(path)?.[1];
     if (task) {
       if (task === rateLimitTask) return Response.json({}, { status: 429 });
       return Response.json({
@@ -153,5 +153,53 @@ describe("pending activity batched pagination", () => {
     });
     expect((response["tasks"] as Array<{ events: unknown[] }>)[0]!.events).toHaveLength(1);
     expect(f.requests).toHaveBeenCalledTimes(1);
+  });
+
+  it("verifies all distinct tasks without imposing a task-verification ceiling", async () => {
+    const events = Array.from({ length: 23 }, (_, i) => makeEvent(i, `task${i}`));
+    const f = fixture(events);
+    const response = await runCatalogOperation(
+      "clickup_get_pending_activity",
+      {},
+      f.enrichedGrant,
+      f.api as typeof fetch,
+    );
+    expect(response).toMatchObject({
+      events_scanned: 23,
+      pages_scanned: 3,
+      interrupted_reason: null,
+      incomplete: false,
+      next_event_after_time: null,
+      next_event_after_key: null,
+    });
+    expect(response["tasks"]).toHaveLength(23);
+    expect(f.api.mock.calls.filter(([request]) => String(request).includes("/task/"))).toHaveLength(
+      23,
+    );
+  });
+
+  it("reads more than fifty events when no caller limit was requested", async () => {
+    const events = Array.from({ length: 57 }, (_, i) =>
+      makeEvent(i, i % 2 === 0 ? "abc123" : "def456"),
+    );
+    const f = fixture(events);
+    const response = await runCatalogOperation(
+      "clickup_get_pending_activity",
+      {},
+      f.enrichedGrant,
+      f.api as typeof fetch,
+    );
+    expect(response).toMatchObject({
+      events_scanned: 57,
+      pages_scanned: 6,
+      interrupted_reason: null,
+      incomplete: false,
+      next_event_after_time: null,
+      next_event_after_key: null,
+    });
+    expect(response["tasks"]).toHaveLength(2);
+    expect(
+      (response["tasks"] as Array<{ events: unknown[] }>).map((task) => task.events.length),
+    ).toEqual([29, 28]);
   });
 });
