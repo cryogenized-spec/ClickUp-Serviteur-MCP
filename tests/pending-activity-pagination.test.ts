@@ -198,7 +198,8 @@ describe("pending activity batched pagination", () => {
       next_event_after_key: null,
     });
     expect(response["tasks"]).toHaveLength(2);
-    expect((response["tasks"] as Array<{ events: unknown[] }>).map((task) => task.events.length))
-      .toEqual([29, 28]);
+    expect(
+      (response["tasks"] as Array<{ events: unknown[] }>).map((task) => task.events.length),
+    ).toEqual([29, 28]);
   });
 });
