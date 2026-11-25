@@ -139,8 +139,7 @@ describe("ChatGPT v3 attached-file bridge", () => {
 
   it("renames a transcoded camera photo to its detected WebP extension", async () => {
     const webp = new Uint8Array([
-      0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0,
-      0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20,
+      0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20,
     ]);
     const api = mockUpload(webp);
     const result = await attachChatGPTFileV3(grant, api.fetcher as typeof fetch, "abc123", {
