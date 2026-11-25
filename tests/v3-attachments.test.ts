@@ -268,16 +268,28 @@ describe("v3 task and Files Custom Field attachment lifecycle", () => {
   it("permits only one claim when two valid uploads race for the same empty field", async () => {
     const api = fixture();
     const g = grant();
-    expect(await filePendingLedger(g, "abc123", "file-field", "uploaded-field", "register")).toBe(true);
-    expect(await filePendingLedger(g, "abc123", "file-field", "second-file", "register")).toBe(true);
+    expect(await filePendingLedger(g, "abc123", "file-field", "uploaded-field", "register")).toBe(
+      true,
+    );
+    expect(await filePendingLedger(g, "abc123", "file-field", "second-file", "register")).toBe(
+      true,
+    );
     const associate = (attachment_id: string) =>
       runCatalogOperation(
         "clickup_associate_file_field_attachment",
-        { task_id: "abc123", field_id: "file-field", attachment_id, confirm_file_association: true },
+        {
+          task_id: "abc123",
+          field_id: "file-field",
+          attachment_id,
+          confirm_file_association: true,
+        },
         g,
         api.f as typeof fetch,
       );
-    const results = await Promise.allSettled([associate("uploaded-field"), associate("second-file")]);
+    const results = await Promise.allSettled([
+      associate("uploaded-field"),
+      associate("second-file"),
+    ]);
     expect(results.filter((row) => row.status === "fulfilled")).toHaveLength(1);
     expect(api.requests.filter((r) => r.method === "POST")).toHaveLength(1);
   });
