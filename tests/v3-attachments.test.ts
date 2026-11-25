@@ -17,7 +17,9 @@ function grant(scope: "workspace" | "list" = "workspace"): ReadGrant {
   };
 }
 
-function fixture(options: { foreign?: boolean; rejectStorage?: boolean; v3NotFound?: boolean } = {}) {
+function fixture(
+  options: { foreign?: boolean; rejectStorage?: boolean; v3NotFound?: boolean } = {},
+) {
   let fieldValue: unknown = null;
   const requests: { path: string; method: string; init?: RequestInit }[] = [];
   const f = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
@@ -34,7 +36,14 @@ function fixture(options: { foreign?: boolean; rejectStorage?: boolean; v3NotFou
         name: "Synthetic QA task",
         list: { id: options.foreign ? "98765" : "12345" },
         custom_fields: [{ id: "file-field", type: "attachment", value: fieldValue }],
-        attachments: [{ id: "existing.jpg", title: "existing.jpg", size: 100, url: "https://signed-private.example.com/file" }],
+        attachments: [
+          {
+            id: "existing.jpg",
+            title: "existing.jpg",
+            size: 100,
+            url: "https://signed-private.example.com/file",
+          },
+        ],
       });
     if (path === "/api/v2/task/abc123/field/file-field" && method === "POST") {
       fieldValue = JSON.parse(String(init?.body)).value;
