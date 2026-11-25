@@ -34,7 +34,7 @@ function mockUpload() {
     const url = new URL(String(request));
     const path = url.pathname;
     const method = init?.method ?? "GET";
-    requests.push({ path, method, ...(init ? { headers: init.headers } : {}) });
+    requests.push({ path, method, ...(init?.headers ? { headers: init.headers } : {}) });
     if (url.hostname === "files.oaiusercontent.com") {
       expect(JSON.stringify(init?.headers)).not.toContain("never-forward-to-file-host");
       expect(init?.redirect).toBe("manual");
