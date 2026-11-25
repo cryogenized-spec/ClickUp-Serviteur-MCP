@@ -1558,7 +1558,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Upload Task Attachment V3",
     "attachments",
     "write",
-    "Upload user-supplied bytes to an authorized task using ClickUp v3 multipart. Returns a real attachment ID; do not blindly retry.",
+    "Upload user-supplied bytes to an authorized task using ClickUp v3 multipart, with a one-time v2 fallback only on definitive upstream v3 404. Returns an authoritative attachment ID; never retry an ambiguous write.",
     "Upload this approved file to the task.",
     ["task_id", "file_name", "file_base64"],
     ["media_type"],
