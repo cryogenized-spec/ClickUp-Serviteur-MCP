@@ -1,3 +1,11 @@
+# 25 November 2026 — v3 attachment upload/retrieval source candidate
+
+The current company Worker was observed to return HTTP 404 for `clickup_get_task_attachments` due to its incorrect v3 path. A topic branch now implements the documented v3 task/File Custom Field upload and GET routes, explicit Files field association with readback, and a new bounded ChatGPT file-slot v3 uploader. Original v2 and ChatGPT upload adapters remain available. See [v3 upload design and acceptance](V3_ATTACHMENT_UPLOAD_WORKFLOW_2026-11-25.md). The company Workspace reports Free Forever; earlier upload errors included `GBUSED_005`. **Source only, not a live deployment or acceptance certificate.** No customer records or uploads were changed while developing this candidate.
+
+**Verification still required:** exact-head Strict CI/CodeQL and review; user-approved merge, protected company deploy, refreshed ChatGPT tool schema, and positive disposable task/file acceptance subject to ClickUp storage capacity. The open pre-existing PR #156 conflicts with `main`; avoid blindly merging or overwriting newer source. Next action: obtain CI on this scoped upload PR and resolve all failures.
+
+---
+
 # 23 November 2026 — read-only task image reader (source candidate)
 
 Owner-approved work on a branch adds one tool, \`clickup_read_task_image\`, to the **existing** unified Serviteur MCP. It verifies the connected user's task home-List/Workspace and exact attachment membership, downloads only the verified Workspace CDN URL without forwarding OAuth credentials, validates size/MIME/file header/dimensions, and returns an MCP image block rather than exposing signed links or base64 in text. PNG/JPEG/WebP are the supported formats. Synthetic acceptance tests and [design/gates](TASK_IMAGE_READER_2026-11.md) accompany the code.
