@@ -215,3 +215,78 @@ export async function attachChatGPTFileToTask(
     media_type: loaded.mime,
   };
 }
+
+/**
+ * File-slot v3 route for ChatGPT: task uploads and Files Custom Field uploads
+ * use one bounded source loader. Uploaded Files field bytes must be separately
+ * associated with the task; this function deliberately does not mutate it.
+ */
+export async function attachChatGPTFileV3(
+  grant: ReadGrant,
+  fetcher: typeof fetch,
+  taskId: string,
+  file: ChatGPTProvidedFile,
+  fieldId?: string,
+): Promise<Record<string, unknown>> {
+  if (typeof taskId !== "string" || !/^[a-zA-Z0-9_-]{2,40}$/.test(taskId))
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  if (fieldId !== undefined && !/^[a-zA-Z0-9_-]{2,100}$/.test(fieldId))
+    throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+  if (grant.resourceScope !== "workspace" && grant.companyListTaskAccess !== true)
+    throw new ReadFailure("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
+  validatedSource(file);
+  // Authorization and field applicability are checked before fetching the
+  // user's signed file URL. Both are checked again in the shared POST path.
+  await runCatalogOperation("clickup_get_task", { task_id: taskId }, grant, fetcher);
+  if (fieldId)
+    await runCatalogOperation(
+      "clickup_get_file_field_attachments",
+      { task_id: taskId, field_id: fieldId, max_results: 1 },
+      grant,
+      fetcher,
+    );
+  const loaded = await loadHostFile(file, fetcher);
+  const uploaded = await uploadAttachmentBytes(
+    grant,
+    fetcher,
+    taskId,
+    loaded.filename,
+    loaded.bytes,
+    loaded.mime,
+    { type: fieldId ? "custom_fields" : "attachments", id: fieldId ?? taskId },
+  );
+  const attachmentId = uploaded["attachment_id"];
+  if (typeof attachmentId !== "string" || !attachmentId)
+    throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+  let verifiedByReadback = false;
+  try {
+    const read = await runCatalogOperation(
+      fieldId ? "clickup_get_file_field_attachments" : "clickup_get_task_attachments",
+      fieldId
+        ? { task_id: taskId, field_id: fieldId, attachment_id: attachmentId, max_results: 10 }
+        : { task_id: taskId, max_results: 50 },
+      grant,
+      fetcher,
+    );
+    verifiedByReadback =
+      Array.isArray(read["attachments"]) &&
+      read["attachments"].some((item) => {
+        const row = item && typeof item === "object" ? (item as Record<string, unknown>) : null;
+        return row?.["id"] === attachmentId;
+      });
+  } catch {
+    // A completed POST must not be retried after a failed readback.
+  }
+  return {
+    source: "clickup-api-v3",
+    task_id: taskId,
+    ...(fieldId ? { field_id: fieldId } : {}),
+    attachment_id: attachmentId,
+    attachment_name: uploaded["title"] ?? loaded.filename,
+    verified_by_readback: verifiedByReadback,
+    requires_task_association: Boolean(fieldId),
+    byte_size: loaded.bytes.byteLength,
+    media_type: loaded.mime,
+    retry_safe: false,
+  };
+}
