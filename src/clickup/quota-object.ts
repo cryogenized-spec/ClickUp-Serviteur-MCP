@@ -50,7 +50,7 @@ export class ClickUpQuota {
         typeof attachmentId !== "string" ||
         !/^[a-zA-Z0-9._-]{1,100}$/.test(attachmentId) ||
         typeof clickupUserId !== "string" ||
-        !/^[1-9]\\d{0,17}$/.test(clickupUserId) ||
+        !/^[1-9][0-9]{0,17}$/.test(clickupUserId) ||
         typeof generation !== "string" ||
         generation.length > 128
       ) {
