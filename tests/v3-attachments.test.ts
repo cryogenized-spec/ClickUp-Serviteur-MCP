@@ -51,7 +51,14 @@ function grant(scope: "workspace" | "list" = "workspace"): ReadGrant {
 }
 
 function fixture(
-  options: { foreign?: boolean; rejectStorage?: boolean; v3NotFound?: boolean } = {},
+  options: {
+    foreign?: boolean;
+    rejectStorage?: boolean;
+    v3NotFound?: boolean;
+    v3PostNotFound?: boolean;
+    v2RejectStorage?: boolean;
+    v3FileFieldNotFound?: boolean;
+  } = {},
 ) {
   let fieldValue: unknown = null;
   const requests: { path: string; method: string; init?: RequestInit }[] = [];
@@ -88,6 +95,7 @@ function fixture(
         const form = init?.body as FormData;
         expect(form.get("attachment")).toBeInstanceOf(Blob);
         expect(form.get("filename")).toBe("sample.pdf");
+        if (options.v3PostNotFound) return Response.json({ error: "not found" }, { status: 404 });
         if (options.rejectStorage) return Response.json({ ECODE: "GBUSED_005" }, { status: 400 });
         return Response.json({ id: "uploaded-task", parent_id: "abc123", title: "sample.pdf" });
       }
@@ -101,6 +109,7 @@ function fixture(
       if (method === "POST") {
         const form = init?.body as FormData;
         expect(form.get("attachment")).toBeInstanceOf(Blob);
+        if (options.v3FileFieldNotFound) return Response.json({}, { status: 404 });
         return Response.json({
           id: "uploaded-field",
           parent_id: "file-field",
@@ -115,6 +124,14 @@ function fixture(
         ],
         next_cursor: null,
       });
+    }
+    if (path === "/api/v2/task/abc123/attachment" && method === "POST") {
+      const form = init?.body as FormData;
+      expect(form.get("attachment")).toBeInstanceOf(Blob);
+      expect(form.get("filename")).toBeNull();
+      if (options.v2RejectStorage)
+        return Response.json({ ECODE: "GBUSED_005" }, { status: 400 });
+      return Response.json({ id: "uploaded-v2", title: "sample.pdf" });
     }
     throw Error("Unexpected endpoint " + method + " " + path);
   });
@@ -168,6 +185,59 @@ describe("v3 task and Files Custom Field attachment lifecycle", () => {
     expect(api.requests.some((entry) => entry.method === "POST")).toBe(false);
   });
 
+
+  it("recovers from a definitive v3 task-upload 404 using a single v2 task POST", async () => {
+    const api = fixture({ v3PostNotFound: true });
+    const result = await runCatalogOperation(
+      "clickup_upload_task_attachment",
+      args,
+      grant(),
+      api.f as typeof fetch,
+    );
+    expect(result).toMatchObject({
+      source: "clickup-api-v2-task-fallback",
+      attachment_id: "uploaded-v2",
+      parent_id: "abc123",
+      requires_task_association: false,
+      retry_safe: false,
+    });
+    const posts = api.requests.filter((row) => row.method === "POST");
+    expect(posts.map((row) => row.path)).toEqual([
+      "/api/v3/workspaces/555/attachments/abc123/attachments",
+      "/api/v2/task/abc123/attachment",
+    ]);
+  });
+
+  it("preserves the real storage error when the compatible v2 fallback is full", async () => {
+    const api = fixture({ v3PostNotFound: true, v2RejectStorage: true });
+    await expect(
+      runCatalogOperation("clickup_upload_task_attachment", args, grant(), api.f as typeof fetch),
+    ).rejects.toThrow("CLICKUP_ATTACHMENT_HTTP_400_GBUSED_005");
+    expect(api.requests.filter((row) => row.method === "POST")).toHaveLength(2);
+  });
+
+  it("does not fall back for Files-field upload 404 or for other task upload errors", async () => {
+    const field = fixture({ v3FileFieldNotFound: true });
+    await expect(
+      runCatalogOperation(
+        "clickup_upload_file_field_attachment",
+        { ...args, field_id: "file-field" },
+        grant(),
+        field.f as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_ATTACHMENT_HTTP_404");
+    expect(field.requests.filter((row) => row.method === "POST")).toHaveLength(1);
+    const quota = fixture({ rejectStorage: true });
+    await expect(
+      runCatalogOperation(
+        "clickup_upload_task_attachment",
+        args,
+        grant(),
+        quota.f as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_ATTACHMENT_HTTP_400_GBUSED_005");
+    expect(quota.requests.filter((row) => row.method === "POST")).toHaveLength(1);
+  });
   it("uploads task and Files field bytes via v3 and requires a separate association", async () => {
     const api = fixture();
     const taskUpload = await runCatalogOperation(
