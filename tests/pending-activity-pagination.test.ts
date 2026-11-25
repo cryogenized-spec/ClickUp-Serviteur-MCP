@@ -111,8 +111,8 @@ describe("pending activity batched pagination", () => {
     expect(first).toMatchObject({
       events_scanned: 15,
       incomplete: true,
-      next_event_after_time: events[14].received_at,
-      next_event_after_key: events[14].event_key,
+      next_event_after_time: events[14]!.received_at,
+      next_event_after_key: events[14]!.event_key,
     });
     const second = await runCatalogOperation(
       "clickup_get_pending_activity",
@@ -148,10 +148,10 @@ describe("pending activity batched pagination", () => {
       incomplete: true,
       partial: true,
       interrupted_reason: "clickup_rate_limited",
-      next_event_after_time: events[0].received_at,
-      next_event_after_key: events[0].event_key,
+      next_event_after_time: events[0]!.received_at,
+      next_event_after_key: events[0]!.event_key,
     });
-    expect((response["tasks"] as Array<{ events: unknown[] }>)[0].events).toHaveLength(1);
+    expect((response["tasks"] as Array<{ events: unknown[] }>)[0]!.events).toHaveLength(1);
     expect(f.requests).toHaveBeenCalledTimes(1);
   });
 });
