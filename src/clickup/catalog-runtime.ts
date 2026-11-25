@@ -1,4 +1,5 @@
 import { quotaCall } from "./client.js";
+import { filePendingLedger } from "./file-field-ledger.js";
 import { getMyAttentionItems } from "./attention-items.js";
 import { readGoalDetails, readSprintTaskSnapshot, readWorkspaceGoals } from "./reporting-reads.js";
 import {
@@ -924,6 +925,15 @@ export async function uploadAttachmentBytes(
     if (v3Entity) {
       if (attachment["parent_id"] !== undefined && String(attachment["parent_id"]) !== v3Entity.id)
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+      if (v3Entity.type === "custom_fields") {
+        // Only a confirmed upload can create an owner/task/field-bound pending ID.
+        // If this durable write fails, the remote upload is orphaned and must not
+        // be associated from a caller-provided attachment ID.
+        const registered = await filePendingLedger(
+          grant, taskId, v3Entity.id, attachment["id"], "register",
+        );
+        if (!registered) throw new ReadFailure("CLICKUP_FILE_PROVENANCE_REJECTED");
+      }
       return {
         source: "clickup-api-v3",
         attachment_id: attachment["id"],
@@ -1549,6 +1559,10 @@ export async function runCatalogOperation(
       )
         throw new ReadFailure("CLICKUP_FILE_FIELD_NOT_EMPTY");
       const uploadedId = txt(a["attachment_id"], 100);
+      // An ID's presence in a shared field collection cannot prove that the
+      // attachment was uploaded for this task by this authorized principal.
+      if (!(await filePendingLedger(g, val(a, "task_id"), fieldId, uploadedId, "verify")))
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       const params = new URLSearchParams({ limit: "100" });
       if (a["attachment_cursor"] !== undefined)
         params.set("cursor", txt(a["attachment_cursor"], 500));
@@ -1567,6 +1581,22 @@ export async function runCatalogOperation(
         })
       )
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      // A permanent atomic claim serializes this field across Worker isolates,
+      // principals and concurrent MCP requests. A failed/ambiguous write never
+      // releases the claim, so it cannot be replayed as a replacement.
+      if (!(await filePendingLedger(g, val(a, "task_id"), fieldId, uploadedId, "claim")))
+        throw new ReadFailure("CLICKUP_FILE_FIELD_ALREADY_CLAIMED");
+      // Revalidate immediately before POST to narrow an external ClickUp-edit
+      // race. ClickUp offers no documented compare-and-swap for this field API.
+      const latest = await task("task_id");
+      const latestFields = latest["custom_fields"];
+      if (!Array.isArray(latestFields)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const latestValue = latestFields.map(obj).find((row) => row?.["id"] === fieldId)?.["value"];
+      if (
+        latestValue !== undefined &&
+        latestValue !== null &&
+        !(Array.isArray(latestValue) && latestValue.length === 0)
+      ) throw new ReadFailure("CLICKUP_FILE_FIELD_NOT_EMPTY");
       await call(
         "POST",
         v2("task/" + val(a, "task_id") + "/field/" + fieldId),
@@ -1609,6 +1639,12 @@ export async function runCatalogOperation(
           .map((entry) => (typeof entry === "string" ? entry : String(obj(entry)?.["id"] ?? "")))
           .filter(Boolean),
       );
+      if (isFileField && exactId && !linkedIds.has(exactId)) {
+        // A task identifier plus a foreign attachment ID is not authorization.
+        // The pending record must match this principal's successful upload.
+        if (!(await filePendingLedger(g, val(a, "task_id"), entityId, exactId, "verify")))
+          throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      }
       if (isFileField && !exactId && linkedIds.size === 0)
         return {
           source: "clickup-api-v3",
