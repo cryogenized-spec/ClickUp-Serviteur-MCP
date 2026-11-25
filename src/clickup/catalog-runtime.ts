@@ -1637,7 +1637,9 @@ export async function runCatalogOperation(
       let pagesScanned = 0;
       let hasMore = true;
       let interruptedReason: string | null = null;
-      const maxVerifications = 8;
+      // A verified task typically needs several upstream calls. Allow a useful
+      // batch while retaining headroom for other concurrent ClickUp activity.
+      const maxVerifications = 20;
       while (hasMore && eventsScanned < N && pagesScanned < 5) {
         const url = new URL("https://internal/pending");
         if (cursorTime !== undefined && cursorKey !== undefined) {
