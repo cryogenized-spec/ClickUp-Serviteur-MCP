@@ -23,7 +23,7 @@ function fixture(options: { foreign?: boolean; rejectStorage?: boolean } = {}) {
   const f = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(String(request)).pathname;
     const method = init?.method ?? "GET";
-    requests.push({ path, method, init });
+    requests.push({ path, method, ...(init ? { init } : {}) });
     if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "777" }] });
     if (path === "/api/v2/list/12345") return Response.json({ id: "12345", space: { id: "777" } });
     if (path === "/api/v2/list/12345/field")
