@@ -869,7 +869,15 @@ export async function uploadAttachmentBytes(
   const timeout = setTimeout(() => abort.abort(), 10000);
   try {
     const endpoint = v3Entity
-      ? v3("workspaces/" + id(grant.workspaceId) + "/" + v3Entity.type + "/" + id(v3Entity.id) + "/attachments")
+      ? v3(
+          "workspaces/" +
+            id(grant.workspaceId) +
+            "/" +
+            v3Entity.type +
+            "/" +
+            id(v3Entity.id) +
+            "/attachments",
+        )
       : v2("task/" + id(taskId) + "/attachment");
     const res = await fetcher(pathEncoded(endpoint), {
       method: "POST",
@@ -909,7 +917,8 @@ export async function uploadAttachmentBytes(
     } catch {
       throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
     }
-    const attachment = obj(parsed) && obj(obj(parsed)?.["data"]) ? obj(obj(parsed)?.["data"]) : obj(parsed);
+    const attachment =
+      obj(parsed) && obj(obj(parsed)?.["data"]) ? obj(obj(parsed)?.["data"]) : obj(parsed);
     if (!attachment || typeof attachment["id"] !== "string" || !attachment["id"])
       throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
     if (v3Entity) {
@@ -1533,7 +1542,11 @@ export async function runCatalogOperation(
       const fields = target["custom_fields"];
       if (!Array.isArray(fields)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       const current = fields.map(obj).find((item) => item?.["id"] === fieldId)?.["value"];
-      if (current !== undefined && current !== null && !(Array.isArray(current) && current.length === 0))
+      if (
+        current !== undefined &&
+        current !== null &&
+        !(Array.isArray(current) && current.length === 0)
+      )
         throw new ReadFailure("CLICKUP_FILE_FIELD_NOT_EMPTY");
       const uploadedId = txt(a["attachment_id"], 100);
       const params = new URLSearchParams({ limit: "100" });
@@ -1547,19 +1560,35 @@ export async function runCatalogOperation(
         !Array.isArray(available["data"]) ||
         !available["data"].some((entry) => {
           const row = obj(entry);
-          return row?.["id"] === uploadedId &&
-            (row["parent_id"] === undefined || String(row["parent_id"]) === fieldId);
+          return (
+            row?.["id"] === uploadedId &&
+            (row["parent_id"] === undefined || String(row["parent_id"]) === fieldId)
+          );
         })
-      ) throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      await call("POST", v2("task/" + val(a, "task_id") + "/field/" + fieldId), { value: uploadedId }, "empty-write-ack");
+      )
+        throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+      await call(
+        "POST",
+        v2("task/" + val(a, "task_id") + "/field/" + fieldId),
+        { value: uploadedId },
+        "empty-write-ack",
+      );
       const after = await task("task_id");
       const updatedFields = after["custom_fields"];
       if (!Array.isArray(updatedFields)) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
       const value = updatedFields.map(obj).find((item) => item?.["id"] === fieldId)?.["value"];
-      const linked = value === uploadedId ||
-        (Array.isArray(value) && value.some((item) => item === uploadedId || obj(item)?.["id"] === uploadedId));
+      const linked =
+        value === uploadedId ||
+        (Array.isArray(value) &&
+          value.some((item) => item === uploadedId || obj(item)?.["id"] === uploadedId));
       if (!linked) throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
-      return { task_id: target["id"], field_id: fieldId, attachment_id: uploadedId, linked: true, retry_safe: false };
+      return {
+        task_id: target["id"],
+        field_id: fieldId,
+        attachment_id: uploadedId,
+        linked: true,
+        retry_safe: false,
+      };
     }
     case "clickup_get_file_field_attachments":
     case "clickup_get_task_attachments": {
@@ -1576,7 +1605,9 @@ export async function runCatalogOperation(
         : null;
       const links = Array.isArray(fieldValue) ? fieldValue : fieldValue ? [fieldValue] : [];
       const linkedIds = new Set(
-        links.map((entry) => typeof entry === "string" ? entry : String(obj(entry)?.["id"] ?? "")).filter(Boolean),
+        links
+          .map((entry) => (typeof entry === "string" ? entry : String(obj(entry)?.["id"] ?? "")))
+          .filter(Boolean),
       );
       if (isFileField && !exactId && linkedIds.size === 0)
         return {
@@ -1591,7 +1622,16 @@ export async function runCatalogOperation(
         params.set("cursor", txt(a["attachment_cursor"], 500));
       const result = await call(
         "GET",
-        v3("workspaces/" + W + "/" + (isFileField ? "custom_fields" : "attachments") + "/" + entityId + "/attachments?" + params),
+        v3(
+          "workspaces/" +
+            W +
+            "/" +
+            (isFileField ? "custom_fields" : "attachments") +
+            "/" +
+            entityId +
+            "/attachments?" +
+            params,
+        ),
       );
       // Only expose metadata, not signed download URLs.
       const rows = result["data"];
@@ -1599,7 +1639,10 @@ export async function runCatalogOperation(
       const visible = isFileField
         ? rows.filter((entry) => {
             const attachment = obj(entry);
-            return attachment && (exactId ? attachment["id"] === exactId : linkedIds.has(String(attachment["id"])));
+            return (
+              attachment &&
+              (exactId ? attachment["id"] === exactId : linkedIds.has(String(attachment["id"])))
+            );
           })
         : rows;
       const attachments = visible.slice(0, N).map((entry) => {
@@ -3708,11 +3751,12 @@ export async function runCatalogOperation(
     case "clickup_upload_task_attachment":
     case "clickup_upload_file_field_attachment":
     case "clickup_attach_file_to_task": {
-      const entity = name === "clickup_upload_task_attachment"
-        ? { type: "attachments" as const, id: val(a, "task_id") }
-        : name === "clickup_upload_file_field_attachment"
-          ? { type: "custom_fields" as const, id: val(a, "field_id") }
-          : undefined;
+      const entity =
+        name === "clickup_upload_task_attachment"
+          ? { type: "attachments" as const, id: val(a, "task_id") }
+          : name === "clickup_upload_file_field_attachment"
+            ? { type: "custom_fields" as const, id: val(a, "field_id") }
+            : undefined;
       return uploadAttachment(
         g,
         f,
