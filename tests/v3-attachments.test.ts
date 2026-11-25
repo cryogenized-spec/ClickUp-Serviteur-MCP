@@ -28,6 +28,7 @@ function fixture(
     requests.push({ path, method, ...(init ? { init } : {}) });
     if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "777" }] });
     if (path === "/api/v2/list/12345") return Response.json({ id: "12345", space: { id: "777" } });
+    if (path === "/api/v2/list/98765") return Response.json({ id: "98765", space: { id: "888" } });
     if (path === "/api/v2/list/12345/field")
       return Response.json({ fields: [{ id: "file-field", type: "attachment" }] });
     if (path === "/api/v2/task/abc123")
