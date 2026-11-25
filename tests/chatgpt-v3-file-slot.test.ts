@@ -113,6 +113,24 @@ describe("ChatGPT v3 attached-file bridge", () => {
     );
   });
 
+  it("preflights and uploads a Files field under company List-scoped task access", async () => {
+    const api = mockUpload();
+    const listGrant: ReadGrant = { ...grant, resourceScope: "list", companyListTaskAccess: true };
+    const uploaded = await attachChatGPTFileV3(
+      listGrant,
+      api.fetcher as typeof fetch,
+      "abc123",
+      file,
+      "field-file",
+    );
+    expect(uploaded).toMatchObject({
+      attachment_id: "uploaded-file",
+      verified_by_readback: true,
+      requires_task_association: true,
+    });
+    expect(api.postCount).toBe(1);
+  });
+
   it("rejects unresolved file slots and disallowed source URLs before fetching", async () => {
     const api = mockUpload();
     await expect(
