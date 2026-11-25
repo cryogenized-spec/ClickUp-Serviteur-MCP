@@ -300,6 +300,7 @@ export const COMPANY_LIST_TASK_OPERATIONS: ReadonlySet<string> = new Set([
   "clickup_upload_task_attachment",
   "clickup_upload_file_field_attachment",
   "clickup_associate_file_field_attachment",
+  "clickup_get_file_field_attachments",
   "clickup_attach_chatgpt_file_to_task",
   "clickup_upload_chatgpt_file_v3",
   "clickup_create_task_comment",
