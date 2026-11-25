@@ -53,8 +53,10 @@ export function toolError(error: unknown) {
   // Only locally constructed diagnostics are eligible for the model response.
   if (error instanceof ReadFailure && error.diagnostic) {
     safe["endpoint_category"] = error.diagnostic.endpoint_category;
-    if (error.code === "CLICKUP_FILE_HOST_NOT_ALLOWED" &&
-        error.diagnostic.file_source_host !== undefined)
+    if (
+      error.code === "CLICKUP_FILE_HOST_NOT_ALLOWED" &&
+      error.diagnostic.file_source_host !== undefined
+    )
       safe["file_source_host"] = error.diagnostic.file_source_host;
     if (error.diagnostic.http_status !== undefined)
       safe["http_status"] = error.diagnostic.http_status;
