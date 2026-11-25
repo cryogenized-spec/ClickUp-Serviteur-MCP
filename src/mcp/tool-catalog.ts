@@ -188,7 +188,9 @@ const F = {
   expected_merge_fingerprint: str("Fingerprint from the matching task merge preview.", 64),
   resource_offset: integer("Zero-based index in the returned resource collection.", 0, 100000),
   attachment_cursor: str("Opaque cursor returned by the previous attachment page.", 500),
-  confirm_file_association: flag("True only after explicit approval to associate this uploaded file to an empty task File Custom Field."),
+  confirm_file_association: flag(
+    "True only after explicit approval to associate this uploaded file to an empty task File Custom Field.",
+  ),
   hierarchy_template_id: str("Exact List or Folder template ID including its t- prefix.", 80),
   query: str(
     "Words or phrase to find; search only within an explicitly authorized Workspace.",
