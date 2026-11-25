@@ -31,8 +31,7 @@ function fixture(events: ReturnType<typeof makeEvent>[], rateLimitTask?: string)
     const afterKey = url.searchParams.get("after_key") ?? "";
     const remaining = events.filter(
       (event) =>
-        event.received_at > after ||
-        (event.received_at === after && event.event_key > afterKey),
+        event.received_at > after || (event.received_at === after && event.event_key > afterKey),
     );
     return Response.json({
       events: remaining.slice(0, 10),
@@ -41,10 +40,8 @@ function fixture(events: ReturnType<typeof makeEvent>[], rateLimitTask?: string)
   });
   const api = vi.fn(async (request: RequestInfo | URL) => {
     const path = new URL(String(request)).pathname;
-    if (path === "/api/v2/team/555/space")
-      return Response.json({ spaces: [{ id: "777" }] });
-    if (path === "/api/v2/list/12345")
-      return Response.json({ id: "12345", space: { id: "777" } });
+    if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "777" }] });
+    if (path === "/api/v2/list/12345") return Response.json({ id: "12345", space: { id: "777" } });
     const task = /^\/api\/v2\/task\/(abc123|def456)$/.exec(path)?.[1];
     if (task) {
       if (task === rateLimitTask) return Response.json({}, { status: 429 });
@@ -93,9 +90,12 @@ describe("pending activity batched pagination", () => {
       interrupted_reason: null,
     });
     expect(f.requests).toHaveBeenCalledTimes(3);
-    expect((response["tasks"] as Array<{ events: unknown[] }>).map((item) => item.events.length))
-      .toEqual([14, 13]);
-    expect(f.api.mock.calls.filter(([request]) => String(request).includes("/task/"))).toHaveLength(2);
+    expect(
+      (response["tasks"] as Array<{ events: unknown[] }>).map((item) => item.events.length),
+    ).toEqual([14, 13]);
+    expect(f.api.mock.calls.filter(([request]) => String(request).includes("/task/"))).toHaveLength(
+      2,
+    );
     expect(f.requests.mock.calls.every(([request]) => request.method === "GET")).toBe(true);
   });
 
@@ -128,9 +128,9 @@ describe("pending activity batched pagination", () => {
     const firstEvents = (first["tasks"] as Array<{ events: Array<{ event_key: string }> }>).flatMap(
       (t) => t.events.map((e) => e.event_key),
     );
-    const secondEvents = (second["tasks"] as Array<{ events: Array<{ event_key: string }> }>).flatMap(
-      (t) => t.events.map((e) => e.event_key),
-    );
+    const secondEvents = (
+      second["tasks"] as Array<{ events: Array<{ event_key: string }> }>
+    ).flatMap((t) => t.events.map((e) => e.event_key));
     expect([...firstEvents, ...secondEvents]).toEqual(events.map((e) => e.event_key));
   });
 
