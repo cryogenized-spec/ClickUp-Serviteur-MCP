@@ -1,3 +1,11 @@
+# 25 November 2026 — ChatGPT file-slot diagnostic and image-name compatibility (candidate)
+
+After the merged task upload 404 fallback (PR #162, commit `3ba8413`), the company Worker was still serving prior commit `47fba6a`. Live file-slot testing of a previously attached user photo reported `CLICKUP_FILE_HOST_NOT_ALLOWED` with both file ID and mounted path, before any ClickUp write. Work in progress: emit a **hostname-only** diagnostic for rejected OpenAI file-source URLs (no signed path/query), allow explicit known OpenAI delivery origins, and normalize a genuine transcoded JPG-name/WebP-bytes mismatch. This is source-only pending exact-head CI, review and protected deployment. Storage remains a separate ClickUp-side `GBUSED_005` rejection.
+
+**Acceptance:** strict CI, host mismatch/credential secrecy regression, transcoded filename regression, CodeQL, then a read-only/failed-before-write real file-slot check. **No live file or comment should be uploaded to production for testing until storage policy and task approval are addressed.**
+
+---
+
 # 25 November 2026 — Codex P1 remediation of v3 uploads (source branch)
 
 PR [#158](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/158) received a genuine completed Codex review on `2b119230c15aba3ec3851ed99b26f6092b54f4a3`. It identified three P1 issues: shared Files-field attachment ID provenance, overlapping field association writes and company List-mode field-read policy. The topic branch now binds pending Files uploads to the verified OAuth principal/connection generation and exact task/field in existing SQLite-backed Durable Objects, atomically claims a field once before association and blocks cross-task or replayed IDs. The List-mode policy omission is corrected; targeted negative and concurrency tests added. See [the dated acceptance spec](V3_ATTACHMENT_UPLOAD_WORKFLOW_2026-11-25.md).

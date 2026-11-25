@@ -22,9 +22,10 @@ const grant: ReadGrant = {
   },
 };
 
-function mockUpload() {
+function mockUpload(sourceBytes: Uint8Array = image) {
   const requests: Array<{ path: string; method: string; headers?: RequestInit["headers"] }> = [];
   let postCount = 0;
+  const uploadedFilenames: string[] = [];
   const fetcher = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(request));
     const path = url.pathname;
@@ -33,7 +34,7 @@ function mockUpload() {
     if (url.hostname === "files.oaiusercontent.com") {
       expect(JSON.stringify(init?.headers)).not.toContain("never-forward-to-file-host");
       expect(init?.redirect).toBe("manual");
-      return new Response(image, { status: 200 });
+      return new Response(sourceBytes, { status: 200 });
     }
     if (path === "/api/v2/task/abc123")
       return Response.json({
@@ -49,7 +50,9 @@ function mockUpload() {
     if (path === "/api/v3/workspaces/555/attachments/abc123/attachments") {
       if (method === "POST") {
         postCount++;
-        expect((init?.body as FormData).get("attachment")).toBeInstanceOf(Blob);
+        const attachment = (init?.body as FormData).get("attachment");
+        expect(attachment).toBeInstanceOf(Blob);
+        uploadedFilenames.push((attachment as File).name);
         return Response.json({ id: "uploaded-image", parent_id: "abc123", title: "small.png" });
       }
       return Response.json({
@@ -74,6 +77,9 @@ function mockUpload() {
     requests,
     get postCount() {
       return postCount;
+    },
+    get uploadedFilenames() {
+      return uploadedFilenames;
     },
   };
 }
@@ -129,6 +135,58 @@ describe("ChatGPT v3 attached-file bridge", () => {
       requires_task_association: true,
     });
     expect(api.postCount).toBe(1);
+  });
+
+  it("renames a transcoded camera photo to its detected WebP extension", async () => {
+    const webp = new Uint8Array([
+      0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20,
+    ]);
+    const api = mockUpload(webp);
+    const result = await attachChatGPTFileV3(grant, api.fetcher as typeof fetch, "abc123", {
+      ...file,
+      file_name: "photo.jpg",
+      mime_type: "image/webp",
+    });
+    expect(result).toMatchObject({
+      attachment_id: "uploaded-image",
+      media_type: "image/webp",
+    });
+    expect(api.uploadedFilenames).toEqual(["photo.webp"]);
+  });
+
+  it("reports only the untrusted hostname and never a signed file URL", async () => {
+    const api = mockUpload();
+    const url = "https://outside.example.com/private/token?a=secret-credential";
+    await expect(
+      attachChatGPTFileV3(grant, api.fetcher as typeof fetch, "abc123", {
+        ...file,
+        download_url: url,
+      }),
+    ).rejects.toMatchObject({
+      code: "CLICKUP_FILE_HOST_NOT_ALLOWED",
+      diagnostic: {
+        endpoint_category: "file_source_validation",
+        file_source_host: "outside.example.com",
+      },
+    });
+    expect(api.fetcher).not.toHaveBeenCalled();
+  });
+
+  it("accepts known OpenAI file delivery origins without permitting lookalikes", async () => {
+    const api = mockUpload();
+    await expect(
+      attachChatGPTFileV3(grant, api.fetcher as typeof fetch, "abc123", {
+        ...file,
+        download_url: "https://files.openai.com/signed/image",
+      }),
+    ).rejects.not.toThrow("CLICKUP_FILE_HOST_NOT_ALLOWED");
+    const evil = mockUpload();
+    await expect(
+      attachChatGPTFileV3(grant, evil.fetcher as typeof fetch, "abc123", {
+        ...file,
+        download_url: "https://files.openai.com.evil.example/signed",
+      }),
+    ).rejects.toThrow("CLICKUP_FILE_HOST_NOT_ALLOWED");
   });
 
   it("rejects unresolved file slots and disallowed source URLs before fetching", async () => {

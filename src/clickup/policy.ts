@@ -25,7 +25,10 @@ export interface ReadGrant {
 
 /** Only fixed, non-sensitive categories and HTTP statuses may cross the MCP error boundary. */
 export interface UpstreamDiagnostic {
-  readonly endpoint_category: "chat_message_send" | "clickup_api_read" | "clickup_api_write";
+  readonly endpoint_category:
+    "chat_message_send" | "clickup_api_read" | "clickup_api_write" | "file_source_validation";
+  /** Canonical DNS hostname only, without paths/query/signed credentials. */
+  readonly file_source_host?: string;
   readonly http_status?: number;
   readonly upstream_ecode?: string;
   readonly authorization_target?: "task" | "list" | "workspace" | "other";
