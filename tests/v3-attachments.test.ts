@@ -17,7 +17,7 @@ function grant(scope: "workspace" | "list" = "workspace"): ReadGrant {
   };
 }
 
-function fixture(options: { foreign?: boolean; rejectStorage?: boolean } = {}) {
+function fixture(options: { foreign?: boolean; rejectStorage?: boolean; v3NotFound?: boolean } = {}) {
   let fieldValue: unknown = null;
   const requests: { path: string; method: string; init?: RequestInit }[] = [];
   const f = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
@@ -34,6 +34,7 @@ function fixture(options: { foreign?: boolean; rejectStorage?: boolean } = {}) {
         name: "Synthetic QA task",
         list: { id: options.foreign ? "98765" : "12345" },
         custom_fields: [{ id: "file-field", type: "attachment", value: fieldValue }],
+        attachments: [{ id: "existing.jpg", title: "existing.jpg", size: 100, url: "https://signed-private.example.com/file" }],
       });
     if (path === "/api/v2/task/abc123/field/file-field" && method === "POST") {
       fieldValue = JSON.parse(String(init?.body)).value;
@@ -47,6 +48,7 @@ function fixture(options: { foreign?: boolean; rejectStorage?: boolean } = {}) {
         if (options.rejectStorage) return Response.json({ ECODE: "GBUSED_005" }, { status: 400 });
         return Response.json({ id: "uploaded-task", parent_id: "abc123", title: "sample.pdf" });
       }
+      if (options.v3NotFound) return Response.json({ error: "missing" }, { status: 404 });
       return Response.json({
         data: [{ id: "uploaded-task", title: "sample.pdf" }],
         next_cursor: null,
@@ -102,6 +104,24 @@ describe("v3 task and Files Custom Field attachment lifecycle", () => {
       next_attachment_cursor: null,
     });
     expect(api.requests.some((r) => r.path.includes("/attachments/abc123/attachments"))).toBe(true);
+  });
+
+  it("falls back to verified task metadata when v3 attachment GET responds 404", async () => {
+    const api = fixture({ v3NotFound: true });
+    const read = await runCatalogOperation(
+      "clickup_get_task_attachments",
+      { task_id: "abc123", max_results: 3 },
+      grant(),
+      api.f as typeof fetch,
+    );
+    expect(read).toMatchObject({
+      source: "clickup-api-v2-task-fallback",
+      attachments: [{ id: "existing.jpg", title: "existing.jpg" }],
+      next_attachment_cursor: null,
+      incomplete: true,
+    });
+    expect(JSON.stringify(read)).not.toContain("signed-private.example.com");
+    expect(api.requests.some((entry) => entry.method === "POST")).toBe(false);
   });
 
   it("uploads task and Files field bytes via v3 and requires a separate association", async () => {
