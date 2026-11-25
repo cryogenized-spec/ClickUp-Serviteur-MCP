@@ -1625,22 +1625,19 @@ export async function runCatalogOperation(
       )
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       // The Durable Object deliberately emits just ten events per page.
-      // Read up to max_results across successive pages in this single MCP call,
-      // and verify each distinct task only once. Keep the verification budget
-      // below the user's ClickUp per-minute quota; an unfinished scan is explicit.
+      // Read until storage is exhausted (or an explicitly requested page size),
+      // and verify each distinct task once. No application-imposed event,
+      // page, task-verification or requests-per-minute budget.
       const grouped = new Map<string, Json>();
       const denied = new Set<string>();
-      const attempted = new Set<string>();
+      const eventLimit = a["max_results"] === undefined ? Infinity : N;
       let cursorTime = afterTime as number | undefined;
       let cursorKey = afterKey as string | undefined;
       let eventsScanned = 0;
       let pagesScanned = 0;
       let hasMore = true;
       let interruptedReason: string | null = null;
-      // A verified task typically needs several upstream calls. Allow a useful
-      // batch while retaining headroom for other concurrent ClickUp activity.
-      const maxVerifications = 20;
-      while (hasMore && eventsScanned < N && pagesScanned < 5) {
+      while (hasMore && eventsScanned < eventLimit) {
         const url = new URL("https://internal/pending");
         if (cursorTime !== undefined && cursorKey !== undefined) {
           url.searchParams.set("after_time", String(cursorTime));
@@ -1660,7 +1657,7 @@ export async function runCatalogOperation(
         pagesScanned++;
         hasMore = body["incomplete"] === true;
         for (const raw of events) {
-          if (eventsScanned === N) {
+          if (eventsScanned === eventLimit) {
             hasMore = true;
             break;
           }
@@ -1680,12 +1677,6 @@ export async function runCatalogOperation(
           const taskId = event["task_id"];
           let group = grouped.get(taskId);
           if (!group && !denied.has(taskId)) {
-            if (attempted.size >= maxVerifications) {
-              interruptedReason = "task_verification_budget_exhausted";
-              hasMore = true;
-              break;
-            }
-            attempted.add(taskId);
             try {
               const item = await taskInWorkspace(g, f, taskId, true);
               group = {
@@ -1723,7 +1714,7 @@ export async function runCatalogOperation(
             });
           }
           // Advance only after processing this event. In particular, do not
-          // skip the event that triggered a rate limit or verification cap.
+          // skip the event that triggered an upstream rate limit.
           cursorTime = event["received_at"];
           cursorKey = event["event_key"];
           eventsScanned++;
