@@ -930,7 +930,11 @@ export async function uploadAttachmentBytes(
         // If this durable write fails, the remote upload is orphaned and must not
         // be associated from a caller-provided attachment ID.
         const registered = await filePendingLedger(
-          grant, taskId, v3Entity.id, attachment["id"], "register",
+          grant,
+          taskId,
+          v3Entity.id,
+          attachment["id"],
+          "register",
         );
         if (!registered) throw new ReadFailure("CLICKUP_FILE_PROVENANCE_REJECTED");
       }
@@ -1596,7 +1600,8 @@ export async function runCatalogOperation(
         latestValue !== undefined &&
         latestValue !== null &&
         !(Array.isArray(latestValue) && latestValue.length === 0)
-      ) throw new ReadFailure("CLICKUP_FILE_FIELD_NOT_EMPTY");
+      )
+        throw new ReadFailure("CLICKUP_FILE_FIELD_NOT_EMPTY");
       await call(
         "POST",
         v2("task/" + val(a, "task_id") + "/field/" + fieldId),
