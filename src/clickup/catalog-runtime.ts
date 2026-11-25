@@ -1344,7 +1344,11 @@ export async function runCatalogOperation(
   )
     throw new ReadFailure("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
   const W = id(g.workspaceId),
-    N = count(name === "clickup_get_pending_activity" && a["max_results"] === undefined ? { ...a, max_results: 50 } : a);
+    N = count(
+      name === "clickup_get_pending_activity" && a["max_results"] === undefined
+        ? { ...a, max_results: 50 }
+        : a,
+    );
   const workspaceScope = g.resourceScope === "workspace";
   const call = (method: Method, path: string, body?: Json, responseMode: ResponseMode = "strict") =>
     send(g, f, method, path, body, responseMode);
@@ -1626,6 +1630,7 @@ export async function runCatalogOperation(
       // below the user's ClickUp per-minute quota; an unfinished scan is explicit.
       const grouped = new Map<string, Json>();
       const denied = new Set<string>();
+      const attempted = new Set<string>();
       let cursorTime = afterTime as number | undefined;
       let cursorKey = afterKey as string | undefined;
       let eventsScanned = 0;
@@ -1674,11 +1679,12 @@ export async function runCatalogOperation(
           const taskId = event["task_id"];
           let group = grouped.get(taskId);
           if (!group && !denied.has(taskId)) {
-            if (grouped.size >= maxVerifications) {
+            if (attempted.size >= maxVerifications) {
               interruptedReason = "task_verification_budget_exhausted";
               hasMore = true;
               break;
             }
+            attempted.add(taskId);
             try {
               const item = await taskInWorkspace(g, f, taskId, true);
               group = {
