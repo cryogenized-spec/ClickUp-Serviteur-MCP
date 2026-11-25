@@ -880,7 +880,7 @@ export async function uploadAttachmentBytes(
             "/attachments",
         )
       : v2("task/" + id(taskId) + "/attachment");
-    const res = await fetcher(pathEncoded(endpoint), {
+    let res = await fetcher(pathEncoded(endpoint), {
       method: "POST",
       redirect: "manual",
       signal: abort.signal,
@@ -889,6 +889,25 @@ export async function uploadAttachmentBytes(
       headers: { Authorization: grant.apiToken },
       body: form,
     });
+    let usedV2TaskFallback = false;
+    if (v3Entity?.type === "attachments" && res.status === 404) {
+      // ClickUp's published v3 task attachment endpoint returns 404 for
+      // independently verified tasks in some Workspaces. A definitive 404
+      // is a rejected request, never an ambiguous completed upload.
+      // Only task uploads have a compatible v2 endpoint; Files fields do not.
+      // Keep the fallback form free of v3-only fields.
+      const fallbackForm = new FormData();
+      fallbackForm.append("attachment", new Blob([uploadBytes], { type: mime }), filename);
+      await quotaCall(grant, "reserve");
+      res = await fetcher(pathEncoded(v2("task/" + id(taskId) + "/attachment")), {
+        method: "POST",
+        redirect: "manual",
+        signal: abort.signal,
+        headers: { Authorization: grant.apiToken },
+        body: fallbackForm,
+      });
+      usedV2TaskFallback = true;
+    }
     if (res.status === 429) {
       const reset = res.headers.get("X-RateLimit-Reset");
       if (reset && /^\d{1,12}$/.test(reset)) {
@@ -922,6 +941,17 @@ export async function uploadAttachmentBytes(
       obj(parsed) && obj(obj(parsed)?.["data"]) ? obj(obj(parsed)?.["data"]) : obj(parsed);
     if (!attachment || typeof attachment["id"] !== "string" || !attachment["id"])
       throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+    if (usedV2TaskFallback) {
+      return {
+        source: "clickup-api-v2-task-fallback",
+        attachment_id: attachment["id"],
+        title: attachment["title"] ?? attachment["name"] ?? filename,
+        parent_id: taskId,
+        requires_task_association: false,
+        retry_safe: false,
+        note: "ClickUp v3 rejected the task attachment endpoint with HTTP 404; the established v2 task upload succeeded.",
+      };
+    }
     if (v3Entity) {
       if (attachment["parent_id"] !== undefined && String(attachment["parent_id"]) !== v3Entity.id)
         throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
