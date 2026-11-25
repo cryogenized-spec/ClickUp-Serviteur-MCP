@@ -1522,7 +1522,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Get Pending Activity",
     "reporting",
     "read",
-    "Read unacknowledged task change events grouped by freshly authorized task. Follow paired cursor fields. Reading does not acknowledge events; retrieve task comments and context for the briefing.",
+    "Read up to 50 unacknowledged events across multiple storage pages in one call, grouped by freshly authorized task. A bounded task-verification budget or ClickUp 429 returns partial results with paired continuation cursor fields (retry from start when flagged). Always continue until incomplete=false. Reading does not acknowledge events; retrieve comments for context.",
     "What changed since my last reviewed activity briefing?",
     [],
     ["max_results", "event_after_time", "event_after_key"],

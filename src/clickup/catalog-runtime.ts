@@ -1344,7 +1344,11 @@ export async function runCatalogOperation(
   )
     throw new ReadFailure("CLICKUP_WORKSPACE_SCOPE_REQUIRED");
   const W = id(g.workspaceId),
-    N = count(a);
+    N = count(
+      name === "clickup_get_pending_activity" && a["max_results"] === undefined
+        ? { ...a, max_results: 50 }
+        : a,
+    );
   const workspaceScope = g.resourceScope === "workspace";
   const call = (method: Method, path: string, body?: Json, responseMode: ResponseMode = "strict") =>
     send(g, f, method, path, body, responseMode);
@@ -1620,67 +1624,124 @@ export async function runCatalogOperation(
         (afterKey !== undefined && !validKey(afterKey))
       )
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-      const url = new URL("https://internal/pending");
-      if (afterTime !== undefined && typeof afterKey === "string") {
-        url.searchParams.set("after_time", String(afterTime));
-        url.searchParams.set("after_key", afterKey);
-      }
-      const result = await stub.fetch(new Request(url));
-      if (!result.ok) throw new ReadFailure("CLICKUP_EVENT_STORAGE_UNAVAILABLE");
-      const body = obj(await result.json());
-      const events = body?.["events"];
-      if (!Array.isArray(events) || events.length > 10)
-        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      // The Durable Object deliberately emits just ten events per page.
+      // Read up to max_results across successive pages in this single MCP call,
+      // and verify each distinct task only once. Keep the verification budget
+      // below the user's ClickUp per-minute quota; an unfinished scan is explicit.
       const grouped = new Map<string, Json>();
       const denied = new Set<string>();
-      let last: Json | null = null;
-      for (const raw of events.slice(0, N)) {
-        const event = obj(raw);
+      const attempted = new Set<string>();
+      let cursorTime = afterTime as number | undefined;
+      let cursorKey = afterKey as string | undefined;
+      let eventsScanned = 0;
+      let pagesScanned = 0;
+      let hasMore = true;
+      let interruptedReason: string | null = null;
+      const maxVerifications = 8;
+      while (hasMore && eventsScanned < N && pagesScanned < 5) {
+        const url = new URL("https://internal/pending");
+        if (cursorTime !== undefined && cursorKey !== undefined) {
+          url.searchParams.set("after_time", String(cursorTime));
+          url.searchParams.set("after_key", cursorKey);
+        }
+        const response = await stub.fetch(new Request(url));
+        if (!response.ok) throw new ReadFailure("CLICKUP_EVENT_STORAGE_UNAVAILABLE");
+        const body = obj(await response.json());
+        const events = body?.["events"];
         if (
-          !event ||
-          !validKey(event["event_key"]) ||
-          typeof event["task_id"] !== "string" ||
-          typeof event["event"] !== "string" ||
-          typeof event["received_at"] !== "number" ||
-          !Number.isSafeInteger(event["received_at"])
+          !Array.isArray(events) ||
+          events.length > 10 ||
+          typeof body?.["incomplete"] !== "boolean" ||
+          (events.length === 0 && body["incomplete"] === true)
         )
           throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-        last = event;
-        const taskId = event["task_id"];
-        if (denied.has(taskId)) continue;
-        let group = grouped.get(taskId);
-        if (!group) {
-          try {
-            const item = await taskInWorkspace(g, f, taskId, true);
-            group = {
-              task_id: item["id"],
-              name: item["name"],
-              status: clip(item["status"]),
-              url: item["url"],
-              events: [],
-            };
-            grouped.set(taskId, group);
-          } catch (error) {
-            if (!(error instanceof ReadFailure)) throw error;
-            denied.add(taskId);
-            continue;
+        pagesScanned++;
+        hasMore = body["incomplete"] === true;
+        for (const raw of events) {
+          if (eventsScanned === N) {
+            hasMore = true;
+            break;
           }
+          const event = obj(raw);
+          if (
+            !event ||
+            !validKey(event["event_key"]) ||
+            typeof event["task_id"] !== "string" ||
+            typeof event["event"] !== "string" ||
+            typeof event["received_at"] !== "number" ||
+            !Number.isSafeInteger(event["received_at"]) ||
+            (cursorTime !== undefined &&
+              (event["received_at"] < cursorTime ||
+                (event["received_at"] === cursorTime && event["event_key"] <= (cursorKey ?? ""))))
+          )
+            throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+          const taskId = event["task_id"];
+          let group = grouped.get(taskId);
+          if (!group && !denied.has(taskId)) {
+            if (attempted.size >= maxVerifications) {
+              interruptedReason = "task_verification_budget_exhausted";
+              hasMore = true;
+              break;
+            }
+            attempted.add(taskId);
+            try {
+              const item = await taskInWorkspace(g, f, taskId, true);
+              group = {
+                task_id: item["id"],
+                name: item["name"],
+                status: clip(item["status"]),
+                url: item["url"],
+                events: [],
+              };
+              grouped.set(taskId, group);
+            } catch (error) {
+              if (!(error instanceof ReadFailure)) throw error;
+              if (
+                error.code === "CLICKUP_RATE_LIMITED" ||
+                (error.code !== "CLICKUP_UPSTREAM_DENIED" &&
+                  error.code !== "CLICKUP_SCOPE_OR_SCHEMA_REJECTED" &&
+                  error.code !== "CLICKUP_WORKSPACE_SCOPE_REQUIRED")
+              ) {
+                interruptedReason =
+                  error.code === "CLICKUP_RATE_LIMITED"
+                    ? "clickup_rate_limited"
+                    : "task_verification_unavailable";
+                hasMore = true;
+                break;
+              }
+              // Inaccessible task hints must never expose titles or IDs.
+              denied.add(taskId);
+            }
+          }
+          if (group) {
+            (group["events"] as Json[]).push({
+              event_key: event["event_key"],
+              event: event["event"],
+              received_at: event["received_at"],
+            });
+          }
+          // Advance only after processing this event. In particular, do not
+          // skip the event that triggered a rate limit or verification cap.
+          cursorTime = event["received_at"];
+          cursorKey = event["event_key"];
+          eventsScanned++;
         }
-        (group["events"] as Json[]).push({
-          event_key: event["event_key"],
-          event: event["event"],
-          received_at: event["received_at"],
-        });
+        if (interruptedReason) break;
       }
-      const more = body?.["incomplete"] === true || events.length > N;
+      const incomplete = hasMore || denied.size > 0 || interruptedReason !== null;
       return {
         tasks: [...grouped.values()],
         unverified_task_count: denied.size,
-        next_event_after_time: more ? (last?.["received_at"] ?? null) : null,
-        next_event_after_key: more ? (last?.["event_key"] ?? null) : null,
-        incomplete: more || denied.size > 0,
+        events_scanned: eventsScanned,
+        pages_scanned: pagesScanned,
+        partial: incomplete,
+        interrupted_reason: interruptedReason,
+        next_event_after_time: hasMore ? (cursorTime ?? null) : null,
+        next_event_after_key: hasMore ? (cursorKey ?? null) : null,
+        resume_from_beginning: hasMore && eventsScanned === 0,
+        incomplete,
         read_only: true,
-        note: "Reading does not acknowledge events. Retrieve current comments and context before acknowledging exact reviewed keys.",
+        note: "Reading never acknowledges events. Follow both cursor fields whenever incomplete and a cursor is present; if resume_from_beginning is true, retry without a cursor. Retrieve comments for task context before briefing.",
       };
     }
     case "clickup_get_workspace_custom_fields":
