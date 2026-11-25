@@ -155,34 +155,50 @@ describe("pending activity batched pagination", () => {
     expect(f.requests).toHaveBeenCalledTimes(1);
   });
 
-  it("allows twenty distinct verified tasks before returning a resumable continuation", async () => {
+  it("verifies all distinct tasks without imposing a task-verification ceiling", async () => {
     const events = Array.from({ length: 23 }, (_, i) => makeEvent(i, `task${i}`));
     const f = fixture(events);
     const response = await runCatalogOperation(
       "clickup_get_pending_activity",
-      { max_results: 50 },
+      {},
       f.enrichedGrant,
       f.api as typeof fetch,
     );
     expect(response).toMatchObject({
-      events_scanned: 20,
-      interrupted_reason: "task_verification_budget_exhausted",
-      incomplete: true,
-      next_event_after_time: events[19]!.received_at,
-      next_event_after_key: events[19]!.event_key,
+      events_scanned: 23,
+      pages_scanned: 3,
+      interrupted_reason: null,
+      incomplete: false,
+      next_event_after_time: null,
+      next_event_after_key: null,
     });
-    expect(response["tasks"]).toHaveLength(20);
-    const next = await runCatalogOperation(
+    expect(response["tasks"]).toHaveLength(23);
+    expect(f.api.mock.calls.filter(([request]) => String(request).includes("/task/"))).toHaveLength(
+      23,
+    );
+  });
+
+  it("reads more than fifty events when no caller limit was requested", async () => {
+    const events = Array.from({ length: 57 }, (_, i) =>
+      makeEvent(i, i % 2 === 0 ? "abc123" : "def456"),
+    );
+    const f = fixture(events);
+    const response = await runCatalogOperation(
       "clickup_get_pending_activity",
-      {
-        max_results: 50,
-        event_after_time: response["next_event_after_time"],
-        event_after_key: response["next_event_after_key"],
-      },
+      {},
       f.enrichedGrant,
       f.api as typeof fetch,
     );
-    expect(next).toMatchObject({ events_scanned: 3, incomplete: false });
-    expect(next["tasks"]).toHaveLength(3);
+    expect(response).toMatchObject({
+      events_scanned: 57,
+      pages_scanned: 6,
+      interrupted_reason: null,
+      incomplete: false,
+      next_event_after_time: null,
+      next_event_after_key: null,
+    });
+    expect(response["tasks"]).toHaveLength(2);
+    expect((response["tasks"] as Array<{ events: unknown[] }>).map((task) => task.events.length))
+      .toEqual([29, 28]);
   });
 });
