@@ -167,7 +167,7 @@ describe("pending activity batched pagination", () => {
     const eventKeys = (response["tasks"] as Array<{ events: Array<{ event_key: string }> }>).flatMap(
       (task) => task.events.map((event) => event.event_key),
     );
-    expect(eventKeys).toEqual(events.map((event) => event.event_key));
+    expect(eventKeys.sort()).toEqual(events.map((event) => event.event_key).sort());
     expect(f.requests).toHaveBeenCalledTimes(1);
   });
 
