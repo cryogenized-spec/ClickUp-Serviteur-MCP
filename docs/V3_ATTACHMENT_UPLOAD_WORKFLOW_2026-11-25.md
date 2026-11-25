@@ -6,7 +6,7 @@ Implement the documented v3 REST path `/api/v3/workspaces/{workspace_id}/{entity
 
 New model-facing capabilities:
 - `clickup_upload_task_attachment` and `clickup_upload_file_field_attachment` accept caller-supplied Base64 payloads up to 500 KiB; both require a preflight of the authorized task, home List and, when applicable, Files field.
-- `clickup_get_task_attachments` corrects the previous v3 `/attachments/{task_id}/attachments` path (verified live to return 404 before this patch).
+- `clickup_get_task_attachments` uses the documented v3 path, but ClickUp returned HTTP 404 for a real company task with a visible v2 attachment; on exact v3 404 only, bounded task metadata is returned as an explicitly incomplete, unpaginated fallback.
 - `clickup_get_file_field_attachments` returns only task-associated file metadata or an explicitly requested uploaded ID; no broad enumeration of files shared by other tasks.
 - `clickup_associate_file_field_attachment` requires an exact uploaded ID, explicit owner confirmation, an empty task field, and a post-write task readback. It does not implicitly replace existing files.
 - `clickup_upload_chatgpt_file_v3` declares the ChatGPT `openai/fileParams` slot for PDF, image and safe text bytes, with optional `field_id`. It retrieves only a bounded, signed OpenAI-hosted source and never forwards ClickUp credentials. Files field uploads still require a separate association call.
