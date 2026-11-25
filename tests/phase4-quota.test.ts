@@ -5,7 +5,16 @@ import { ClickUpQuota } from "../src/clickup/quota-object.js";
 function createStorage() {
   let blockedUntil = 0;
   const statements: string[] = [];
-  const pending = new Map<string, { subject: string; clickup_user_id: string; generation: string; created_ms: number; claimed: number }>();
+  const pending = new Map<
+    string,
+    {
+      subject: string;
+      clickup_user_id: string;
+      generation: string;
+      created_ms: number;
+      claimed: number;
+    }
+  >();
   let claimedAttachment: string | null = null;
   const exec = (sql: string, ...params: (number | string)[]) => {
     statements.push(sql);
@@ -14,10 +23,10 @@ function createStorage() {
       return { one: () => ({ blocked_until_ms: blockedUntil }) };
     if (sql.startsWith("SELECT subject, clickup_user_id")) {
       const row = pending.get(String(params[0]));
-      return { toArray: () => row ? [row] : [] };
+      return { toArray: () => (row ? [row] : []) };
     }
     if (sql.startsWith("SELECT attachment_id FROM file_claim"))
-      return { toArray: () => claimedAttachment ? [{ attachment_id: claimedAttachment }] : [] };
+      return { toArray: () => (claimedAttachment ? [{ attachment_id: claimedAttachment }] : []) };
     if (sql.startsWith("DELETE FROM file_pending")) {
       for (const [key, value] of pending) {
         if (value.claimed === 0 && value.created_ms < Number(params[0])) pending.delete(key);
@@ -78,10 +87,12 @@ async function fileLedger(
   clickupUserId = "707",
   generation = "oauth-gen-1",
 ) {
-  const response = await quota.fetch(new Request("https://internal.invalid/file-pending-" + action, {
-    method: "POST",
-    body: JSON.stringify({ subject, clickupUserId, generation, attachmentId }),
-  }));
+  const response = await quota.fetch(
+    new Request("https://internal.invalid/file-pending-" + action, {
+      method: "POST",
+      body: JSON.stringify({ subject, clickupUserId, generation, attachmentId }),
+    }),
+  );
   expect(response.ok).toBe(true);
   return (await response.json()) as { allowed: boolean };
 }
@@ -140,7 +151,10 @@ describe("durable file attachment provenance and atomic one-time association", (
     expect((await fileLedger(quota, "register", "uploaded-file")).allowed).toBe(true);
     expect((await fileLedger(quota, "verify", "uploaded-file", "github:22")).allowed).toBe(false);
     expect((await fileLedger(quota, "claim", "uploaded-file", "github:22")).allowed).toBe(false);
-    expect((await fileLedger(quota, "verify", "uploaded-file", "github:11", "707", "changed-generation")).allowed).toBe(false);
+    expect(
+      (await fileLedger(quota, "verify", "uploaded-file", "github:11", "707", "changed-generation"))
+        .allowed,
+    ).toBe(false);
     expect((await fileLedger(quota, "verify", "uploaded-file")).allowed).toBe(true);
   });
 
