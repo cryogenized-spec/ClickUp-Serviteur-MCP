@@ -23,7 +23,12 @@ const makeEvent = (i: number, taskId = "abc123") => ({
   received_at: 123_400 + i,
 });
 
-function fixture(events: ReturnType<typeof makeEvent>[], rateLimitTask?: string) {
+function fixture(
+  events: ReturnType<typeof makeEvent>[],
+  rateLimitTask?: string,
+  rateLimitAttempts = 1,
+) {
+  let rateLimitFailures = 0;
   const requests = vi.fn(async (request: Request) => {
     expect(request.method).toBe("GET");
     const url = new URL(request.url);
@@ -44,7 +49,8 @@ function fixture(events: ReturnType<typeof makeEvent>[], rateLimitTask?: string)
     if (path === "/api/v2/list/12345") return Response.json({ id: "12345", space: { id: "777" } });
     const task = /^\/api\/v2\/task\/([a-zA-Z0-9_-]+)$/.exec(path)?.[1];
     if (task) {
-      if (task === rateLimitTask) return Response.json({}, { status: 429 });
+      if (task === rateLimitTask && rateLimitFailures++ < rateLimitAttempts)
+        return Response.json({}, { status: 429 });
       return Response.json({
         id: task,
         name: `Verified ${task}`,
@@ -134,24 +140,35 @@ describe("pending activity batched pagination", () => {
     expect([...firstEvents, ...secondEvents]).toEqual(events.map((e) => e.event_key));
   });
 
-  it("returns an explicit partial result and does not consume a rate-limited event", async () => {
+  it("retries the exact task after successive ClickUp 429 responses without dropping events", async () => {
     const events = [makeEvent(0), makeEvent(1, "def456"), makeEvent(2, "abc123")];
-    const f = fixture(events, "def456");
+    const f = fixture(events, "def456", 2);
+    const wait = vi.fn(async (_ms: number) => undefined);
     const response = await runCatalogOperation(
       "clickup_get_pending_activity",
       { max_results: 50 },
       f.enrichedGrant,
       f.api as typeof fetch,
+      wait,
     );
     expect(response).toMatchObject({
-      events_scanned: 1,
-      incomplete: true,
-      partial: true,
-      interrupted_reason: "clickup_rate_limited",
-      next_event_after_time: events[0]!.received_at,
-      next_event_after_key: events[0]!.event_key,
+      events_scanned: 3,
+      incomplete: false,
+      partial: false,
+      interrupted_reason: null,
+      next_event_after_time: null,
+      next_event_after_key: null,
     });
-    expect((response["tasks"] as Array<{ events: unknown[] }>)[0]!.events).toHaveLength(1);
+    expect(wait).toHaveBeenCalledTimes(2);
+    expect(wait).toHaveBeenNthCalledWith(1, 60_000);
+    expect(wait).toHaveBeenNthCalledWith(2, 60_000);
+    expect(
+      f.api.mock.calls.filter(([request]) => String(request).includes("/task/def456")),
+    ).toHaveLength(3);
+    const eventKeys = (
+      response["tasks"] as Array<{ events: Array<{ event_key: string }> }>
+    ).flatMap((task) => task.events.map((event) => event.event_key));
+    expect(eventKeys.sort()).toEqual(events.map((event) => event.event_key).sort());
     expect(f.requests).toHaveBeenCalledTimes(1);
   });
 

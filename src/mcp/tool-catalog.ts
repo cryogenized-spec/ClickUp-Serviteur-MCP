@@ -1522,7 +1522,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Get Pending Activity",
     "reporting",
     "read",
-    "Read all available unacknowledged events across storage pages with no artificial task-verification, page-count or total-event ceiling. Caller may optionally specify max_results for an intentionally bounded response. ClickUp rate limits or unavailable task verification return partial results with a safe paired continuation cursor. Reading does not acknowledge events; retrieve task comments for context.",
+    "Read all available unacknowledged events across storage pages with no artificial task-verification, page-count or total-event ceiling. Caller may optionally specify max_results for an intentionally bounded response. On a genuine ClickUp 429, the read waits 60 seconds and retries the same task without an artificial retry limit; transport disconnects do not acknowledge activity. Other unavailable task verification returns a safe paired continuation cursor. Reading does not acknowledge events; retrieve task comments for context.",
     "What changed since my last reviewed activity briefing?",
     [],
     ["max_results", "event_after_time", "event_after_key"],
