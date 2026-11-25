@@ -12,7 +12,14 @@ export interface ChatGPTProvidedFile {
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const hasUnsafeIdCharacter = (value: string): boolean =>
   Array.from(value).some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127);
-const ALLOWED_HOSTS = new Set(["chatgpt.com", "chat.openai.com"]);
+// Only provider-controlled OpenAI delivery hosts. Never accept generic S3,
+// blob stores or arbitrary URL hosts simply because they carry signed links.
+const ALLOWED_HOSTS = new Set([
+  "chatgpt.com",
+  "chat.openai.com",
+  "api.openai.com",
+  "files.openai.com",
+]);
 // OpenAI's file delivery may use regional subdomains of oaiusercontent.com.
 // Require the exact domain boundary to reject lookalikes.
 const isOpenAIFileHost = (host: string) =>
@@ -46,8 +53,16 @@ function validatedSource(file: ChatGPTProvidedFile): URL {
     url.username !== "" ||
     url.password !== "" ||
     url.hash !== ""
-  )
-    throw new ReadFailure("CLICKUP_FILE_HOST_NOT_ALLOWED");
+  ) {
+    // Report only the canonical hostname, never a signed path, query string,
+    // credentials or bearer token. This lets operators confirm a new OpenAI
+    // delivery host instead of weakening the SSRF allowlist by guesswork.
+    const host = url.hostname.toLowerCase();
+    throw new ReadFailure("CLICKUP_FILE_HOST_NOT_ALLOWED", {
+      endpoint_category: "file_source_validation",
+      file_source_host: /^[a-z0-9.-]{1,253}$/.test(host) ? host : "invalid",
+    });
+  }
   return url;
 }
 
@@ -89,10 +104,15 @@ function safeFilename(file: ChatGPTProvidedFile, ext: string): string {
     .replace(/[^a-zA-Z0-9._ ()-]/g, "_")
     .replace(/^\.+/, "")
     .slice(0, 120);
-  const name = cleaned || "chatgpt-attachment." + ext;
-  const extension = name.split(".").pop()?.toLowerCase();
+  const base = cleaned || "chatgpt-attachment." + ext;
+  const extension = base.split(".").pop()?.toLowerCase();
   const compatible = extension === ext || (ext === "jpg" && extension === "jpeg");
-  if (!compatible || !/^[a-zA-Z0-9._ ()-]{1,120}$/.test(name))
+  // The host may transcode a camera's .jpg upload into WebP bytes while
+  // preserving its original filename. The detected bytes are authoritative:
+  // preserve the readable name but correct the suffix before ClickUp POST.
+  const stem = base.replace(/\.[^.]*$/, "") || "chatgpt-attachment";
+  const name = compatible ? base : stem.slice(0, 119 - ext.length) + "." + ext;
+  if (!/^[a-zA-Z0-9._ ()-]{1,120}$/.test(name))
     throw new ReadFailure("CLICKUP_UNSUPPORTED_FILE_TYPE");
   return name;
 }
