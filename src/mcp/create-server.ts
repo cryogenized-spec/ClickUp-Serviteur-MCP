@@ -584,7 +584,8 @@ export function createServer(deps?: ReadDependencies): McpServer {
               type: "string",
               minLength: 2,
               maxLength: 100,
-              description: "Optional verified Files Custom Field ID. Omit to upload directly to the task.",
+              description:
+                "Optional verified Files Custom Field ID. Omit to upload directly to the task.",
             },
             file: {
               type: "object",
