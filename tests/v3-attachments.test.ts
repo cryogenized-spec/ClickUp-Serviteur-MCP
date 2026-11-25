@@ -24,10 +24,8 @@ function fixture(options: { foreign?: boolean; rejectStorage?: boolean } = {}) {
     const path = new URL(String(request)).pathname;
     const method = init?.method ?? "GET";
     requests.push({ path, method, init });
-    if (path === "/api/v2/team/555/space")
-      return Response.json({ spaces: [{ id: "777" }] });
-    if (path === "/api/v2/list/12345")
-      return Response.json({ id: "12345", space: { id: "777" } });
+    if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "777" }] });
+    if (path === "/api/v2/list/12345") return Response.json({ id: "12345", space: { id: "777" } });
     if (path === "/api/v2/list/12345/field")
       return Response.json({ fields: [{ id: "file-field", type: "attachment" }] });
     if (path === "/api/v2/task/abc123")
@@ -46,17 +44,23 @@ function fixture(options: { foreign?: boolean; rejectStorage?: boolean } = {}) {
         const form = init?.body as FormData;
         expect(form.get("attachment")).toBeInstanceOf(Blob);
         expect(form.get("filename")).toBe("sample.pdf");
-        if (options.rejectStorage)
-          return Response.json({ ECODE: "GBUSED_005" }, { status: 400 });
+        if (options.rejectStorage) return Response.json({ ECODE: "GBUSED_005" }, { status: 400 });
         return Response.json({ id: "uploaded-task", parent_id: "abc123", title: "sample.pdf" });
       }
-      return Response.json({ data: [{ id: "uploaded-task", title: "sample.pdf" }], next_cursor: null });
+      return Response.json({
+        data: [{ id: "uploaded-task", title: "sample.pdf" }],
+        next_cursor: null,
+      });
     }
     if (path === "/api/v3/workspaces/555/custom_fields/file-field/attachments") {
       if (method === "POST") {
         const form = init?.body as FormData;
         expect(form.get("attachment")).toBeInstanceOf(Blob);
-        return Response.json({ id: "uploaded-field", parent_id: "file-field", title: "sample.pdf" });
+        return Response.json({
+          id: "uploaded-field",
+          parent_id: "file-field",
+          title: "sample.pdf",
+        });
       }
       return Response.json({
         data: [
@@ -97,9 +101,7 @@ describe("v3 task and Files Custom Field attachment lifecycle", () => {
       attachments: [{ id: "uploaded-task" }],
       next_attachment_cursor: null,
     });
-    expect(api.requests.some((r) => r.path.includes("/attachments/abc123/attachments"))).toBe(
-      true,
-    );
+    expect(api.requests.some((r) => r.path.includes("/attachments/abc123/attachments"))).toBe(true);
   });
 
   it("uploads task and Files field bytes via v3 and requires a separate association", async () => {
@@ -175,7 +177,12 @@ describe("v3 task and Files Custom Field attachment lifecycle", () => {
   it("denies foreign or non-Files-field uploads before any v3 POST", async () => {
     const foreign = fixture({ foreign: true });
     await expect(
-      runCatalogOperation("clickup_upload_task_attachment", args, grant(), foreign.f as typeof fetch),
+      runCatalogOperation(
+        "clickup_upload_task_attachment",
+        args,
+        grant(),
+        foreign.f as typeof fetch,
+      ),
     ).rejects.toThrow("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
     expect(foreign.requests.some((r) => r.method === "POST")).toBe(false);
     const api = fixture();
