@@ -1336,6 +1336,9 @@ export async function runCatalogOperation(
   a: Json,
   g: ReadGrant,
   f: typeof fetch,
+  // Test seam: the live MCP uses a real asynchronous delay, never a spin-loop.
+  waitAfterRateLimit: (ms: number) => Promise<void> = (ms) =>
+    new Promise<void>((resolve) => setTimeout(resolve, ms)),
 ): Promise<Json> {
   if (
     g.resourceScope !== "workspace" &&
@@ -1677,35 +1680,44 @@ export async function runCatalogOperation(
           const taskId = event["task_id"];
           let group = grouped.get(taskId);
           if (!group && !denied.has(taskId)) {
-            try {
-              const item = await taskInWorkspace(g, f, taskId, true);
-              group = {
-                task_id: item["id"],
-                name: item["name"],
-                status: clip(item["status"]),
-                url: item["url"],
-                events: [],
-              };
-              grouped.set(taskId, group);
-            } catch (error) {
-              if (!(error instanceof ReadFailure)) throw error;
-              if (
-                error.code === "CLICKUP_RATE_LIMITED" ||
-                (error.code !== "CLICKUP_UPSTREAM_DENIED" &&
+            // GET-only verification is safe to retry. A genuine ClickUp 429
+            // pauses this read, then resumes the *same* event; there is no
+            // artificial retry-count or request-rate ceiling. If the MCP
+            // caller disconnects, unacknowledged storage remains untouched.
+            for (;;) {
+              try {
+                const item = await taskInWorkspace(g, f, taskId, true);
+                group = {
+                  task_id: item["id"],
+                  name: item["name"],
+                  status: clip(item["status"]),
+                  url: item["url"],
+                  events: [],
+                };
+                grouped.set(taskId, group);
+                break;
+              } catch (error) {
+                if (!(error instanceof ReadFailure)) throw error;
+                if (error.code === "CLICKUP_RATE_LIMITED") {
+                  await waitAfterRateLimit(60_000);
+                  continue;
+                }
+                if (
+                  error.code !== "CLICKUP_UPSTREAM_DENIED" &&
                   error.code !== "CLICKUP_SCOPE_OR_SCHEMA_REJECTED" &&
-                  error.code !== "CLICKUP_WORKSPACE_SCOPE_REQUIRED")
-              ) {
-                interruptedReason =
-                  error.code === "CLICKUP_RATE_LIMITED"
-                    ? "clickup_rate_limited"
-                    : "task_verification_unavailable";
-                hasMore = true;
+                  error.code !== "CLICKUP_WORKSPACE_SCOPE_REQUIRED"
+                ) {
+                  interruptedReason = "task_verification_unavailable";
+                  hasMore = true;
+                  break;
+                }
+                // Inaccessible task hints must never expose titles or IDs.
+                denied.add(taskId);
                 break;
               }
-              // Inaccessible task hints must never expose titles or IDs.
-              denied.add(taskId);
             }
           }
+          if (interruptedReason) break;
           if (group) {
             (group["events"] as Json[]).push({
               event_key: event["event_key"],
@@ -1714,7 +1726,7 @@ export async function runCatalogOperation(
             });
           }
           // Advance only after processing this event. In particular, do not
-          // skip the event that triggered an upstream rate limit.
+          // skip the event if a read was interrupted by an upstream error.
           cursorTime = event["received_at"];
           cursorKey = event["event_key"];
           eventsScanned++;
