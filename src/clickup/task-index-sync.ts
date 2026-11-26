@@ -33,9 +33,7 @@ export async function grantForSignedWebhook(
     throw new ReadFailure("CLICKUP_ACCESS_DENIED");
   // The Durable Object refresh operates on its own TaskIndexStore, avoiding
   // re-entrant self-RPC from ordinary capture hooks during alarm processing.
-  const uncached: ReadGrant = { ...grant };
-  delete uncached.taskIndex;
-  delete uncached.webhookEvents;
+  const { taskIndex: _index, webhookEvents: _events, ...uncached } = grant;
   return uncached;
 }
 
@@ -78,11 +76,14 @@ export async function synchronizeDirtyTask(
     if (!Array.isArray(page["comments"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
     const comments = page["comments"].map(projectCommentSnapshot);
     if (comments.some((comment) => comment === null)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+    const verifiedComments = comments.filter(
+      (comment): comment is NonNullable<typeof comment> => comment !== null,
+    );
     const complete =
       page["incomplete"] === false &&
       page["continuation_unavailable"] !== true &&
       page["content_truncated"] !== true;
-    store.storeComments(item.task_id, comments, startedAt, complete);
+    store.storeComments(item.task_id, verifiedComments, startedAt, complete);
     return { complete, indexed_comments: comments.length };
   } catch (error) {
     // Never let a formerly accessible task leak through a later cached read
