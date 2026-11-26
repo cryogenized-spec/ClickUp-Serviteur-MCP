@@ -229,6 +229,16 @@ const F = {
     1,
     1_000_000_000,
   ),
+  followup_due_before_ms: integer(
+    "Overdue cutoff in Unix epoch milliseconds; defaults to current server time.",
+    0,
+    9_000_000_000_000,
+  ),
+  followup_due_offset: integer(
+    "Temporary numeric offset from an earlier due-query page; not a durable checkpoint.",
+    0,
+    100_000_000,
+  ),
   activity_event_types: arrayOf(
     "Only investigate these event types; other events remain unprocessed.",
     str("Exact ClickUp task event name.", 80),
@@ -1614,6 +1624,16 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
   ),
 
   // ACTOR-LOCAL FOLLOW-UP LEDGER (NO CLICKUP TASK WRITES)
+  tool(
+    "clickup_get_overdue_followups",
+    "Get Overdue Follow-Ups",
+    "reporting",
+    "read",
+    "Find due obligations from this actor's private ledger, revalidating every task against their live ClickUp OAuth rights before returning current status, assignees or follow-up state. Partial and denied coverage is disclosed.",
+    "What follow-up cases are due for me to check?",
+    [],
+    ["max_results", "list_id", "followup_due_before_ms", "followup_due_offset"],
+  ),
   tool(
     "clickup_get_followup_state",
     "Get Follow-Up State",
