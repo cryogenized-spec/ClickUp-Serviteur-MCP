@@ -47,13 +47,15 @@ export class ClickUpWebhookEvents {
     // The caller must have completed its own ClickUp OAuth task verification.
     if (request.method === "POST" && path === "/index/task") {
       const raw: unknown = await request.json().catch(() => null);
-      const args = raw !== null && typeof raw === "object" && !Array.isArray(raw)
-        ? (raw as Record<string, unknown>)
-        : null;
+      const args =
+        raw !== null && typeof raw === "object" && !Array.isArray(raw)
+          ? (raw as Record<string, unknown>)
+          : null;
       const input = args?.["snapshot"];
-      const item = input !== null && typeof input === "object" && !Array.isArray(input)
-        ? (input as Record<string, unknown>)
-        : null;
+      const item =
+        input !== null && typeof input === "object" && !Array.isArray(input)
+          ? (input as Record<string, unknown>)
+          : null;
       const observed = args?.["observed_at"];
       if (!item || typeof observed !== "number" || !Number.isSafeInteger(observed) || observed <= 0)
         return new Response(null, { status: 400 });
@@ -78,9 +80,10 @@ export class ClickUpWebhookEvents {
     }
     if (request.method === "POST" && path === "/index/comments") {
       const raw: unknown = await request.json().catch(() => null);
-      const args = raw !== null && typeof raw === "object" && !Array.isArray(raw)
-        ? (raw as Record<string, unknown>)
-        : null;
+      const args =
+        raw !== null && typeof raw === "object" && !Array.isArray(raw)
+          ? (raw as Record<string, unknown>)
+          : null;
       const id = args?.["task_id"];
       const observed = args?.["observed_at"];
       const entries = args?.["comments"];
@@ -93,7 +96,8 @@ export class ClickUpWebhookEvents {
         !Array.isArray(entries) ||
         entries.length > 50 ||
         typeof args?.["complete"] !== "boolean"
-      ) return new Response(null, { status: 400 });
+      )
+        return new Response(null, { status: 400 });
       const comments: CommentSnapshot[] = [];
       for (const value of entries) {
         if (value === null || typeof value !== "object" || Array.isArray(value))
@@ -119,8 +123,7 @@ export class ClickUpWebhookEvents {
     }
     if (request.method === "GET" && path === "/index/task") {
       const id = url.searchParams.get("task_id");
-      if (!id || !/^[a-zA-Z0-9_-]{1,80}$/.test(id))
-        return new Response(null, { status: 400 });
+      if (!id || !/^[a-zA-Z0-9_-]{1,80}$/.test(id)) return new Response(null, { status: 400 });
       const indexed = this.taskIndex.lookup(id);
       return indexed ? Response.json(indexed) : new Response(null, { status: 404 });
     }
@@ -202,7 +205,12 @@ export class ClickUpWebhookEvents {
           Date.now() - WEEK,
         )
         .one();
-      return Response.json({ ...counts, retention_days: 7, capacity: 5000, task_index: this.taskIndex.diagnostics() });
+      return Response.json({
+        ...counts,
+        retention_days: 7,
+        capacity: 5000,
+        task_index: this.taskIndex.diagnostics(),
+      });
     }
     if (request.method === "POST" && (path === "/acknowledge" || path === "/consumer-processed")) {
       const raw: unknown = await request.json().catch(() => null);
