@@ -16,6 +16,7 @@ const kinds = new Set([
   "observation",
   "draft_prepared",
   "instruction_sent",
+  "verified_comment_posted",
   "response_received",
   "followup_checked",
   "resolution_confirmed",
@@ -122,8 +123,11 @@ export class FollowupLedger {
 
     // The "sent" designation must always have a concrete comment reference.
     // The MCP adapter independently verifies it against current ClickUp.
-    if (a["action_kind"] === "instruction_sent" && !a["evidence_comment_id"])
-      throw new FollowupLedgerError("invalid");
+    if (
+      (a["action_kind"] === "instruction_sent" ||
+        a["action_kind"] === "verified_comment_posted") &&
+      !a["evidence_comment_id"]
+    ) throw new FollowupLedgerError("invalid");
 
     const item = {
       task_id: a["task_id"] as string,
