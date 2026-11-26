@@ -16,6 +16,8 @@ export interface ReadGrant {
   readonly workspaceId: string;
   readonly apiToken: string;
   readonly webhookEvents?: ReadGrant["quota"];
+  /** Private actor-scoped task index, available even for List-only OAuth grants. */
+  readonly taskIndex?: ReadGrant["quota"];
   readonly webhookOrigin?: string;
   readonly quota: {
     readonly idFromName: (name: string) => unknown;
@@ -182,16 +184,21 @@ export async function requireReadGrant(auth: unknown, bindings: unknown): Promis
   if (effectiveScope === "workspace" && user.workspaceExclusive !== true)
     throw new ReadFailure("CLICKUP_WORKSPACE_RECONSENT_REQUIRED");
   const eventBinding = record(env["CLICKUP_WEBHOOK_EVENTS"]);
-  const webhookEvents =
-    env["CLICKUP_WEBHOOK_ENABLED"] === "true" &&
-    effectiveScope === "workspace" &&
+  const taskIndex =
     eventBinding &&
     typeof eventBinding["idFromName"] === "function" &&
     typeof eventBinding["get"] === "function"
       ? (eventBinding as unknown as ReadGrant["quota"])
       : undefined;
+  // The internal index binding conveys no additional ClickUp access.
+  // Workspace-only webhook consumer tools retain their original scope gate.
+  const webhookEvents =
+    env["CLICKUP_WEBHOOK_ENABLED"] === "true" && effectiveScope === "workspace"
+      ? taskIndex
+      : undefined;
   return {
     ...(webhookEvents ? { webhookEvents } : {}),
+    ...(taskIndex ? { taskIndex } : {}),
     ...(webhookEvents && typeof env["MCP_PUBLIC_ORIGIN"] === "string"
       ? { webhookOrigin: env["MCP_PUBLIC_ORIGIN"] }
       : {}),
