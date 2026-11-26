@@ -260,6 +260,65 @@ export class FollowupLedger {
     };
   }
 
+  /**
+   * Private keyset-paginated due candidates. Never forward rows directly:
+   * every task must pass a fresh user-OAuth ClickUp task + parent-list preflight.
+   * A due cutoff is carried across pages; this is still a live view, not a
+   * durable snapshot or webhook checkpoint.
+   */
+  dueCandidates(
+    at: number,
+    limit = 20,
+    afterDueMs?: number,
+    afterTaskId?: string,
+  ): {
+    candidates: Array<{
+      task_id: string;
+      state: string;
+      waiting_on_user_id: string | null;
+      next_check_at_ms: number;
+      revision: number;
+    }>;
+    incomplete: boolean;
+    next_after_due_ms: number | null;
+    next_after_task_id: string | null;
+  } {
+    if (
+      !Number.isSafeInteger(at) ||
+      at < 0 ||
+      at > 9_000_000_000_000 ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 50 ||
+      (afterDueMs === undefined) !== (afterTaskId === undefined) ||
+      (afterDueMs !== undefined &&
+        (!Number.isSafeInteger(afterDueMs) || afterDueMs < 0 || afterDueMs > at)) ||
+      (afterTaskId !== undefined && !taskId(afterTaskId))
+    ) throw new FollowupLedgerError("invalid");
+
+    const cursorDue = afterDueMs ?? 0;
+    const cursorTask = afterTaskId ?? "";
+    const rows = this.run(
+      "SELECT task_id, state, waiting_on_user_id, next_check_at_ms, revision FROM followup_current WHERE next_check_at_ms IS NOT NULL AND next_check_at_ms <= ? AND state != 'resolved' AND (next_check_at_ms > ? OR (next_check_at_ms = ? AND task_id > ?)) ORDER BY next_check_at_ms, task_id LIMIT ?",
+      at, cursorDue, cursorDue, cursorTask, limit + 1,
+    ).toArray() as Array<{
+      task_id: string;
+      state: string;
+      waiting_on_user_id: string | null;
+      next_check_at_ms: number;
+      revision: number;
+    }>;
+    const incomplete = rows.length > limit;
+    const candidates = rows.slice(0, limit);
+    const last = candidates[candidates.length - 1];
+    return {
+      candidates,
+      incomplete,
+      next_after_due_ms: incomplete && last ? last.next_check_at_ms : null,
+      next_after_task_id: incomplete && last ? last.task_id : null,
+    };
+  }
+
   /** Candidate IDs only. Each item MUST be re-authorized by an upstream
    * ClickUp task GET before returning any details to an MCP consumer. */
   dueTaskIds(at: number, limit = 20): string[] {
