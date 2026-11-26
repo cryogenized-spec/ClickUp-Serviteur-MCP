@@ -151,6 +151,66 @@ describe("real SQLite task-index regressions", () => {
     expect(store.lookup("task123")).toBeNull();
   });
 
+  it("discovers missing and changed tasks without resetting an outstanding retry", () => {
+    const store = make();
+    const older = { task_id: "task123", list_id: "901202442802", source_updated_at_ms: 100 };
+    expect(store.observeDiscoveredTasks([older], 150)).toEqual({
+      enqueued: 1,
+      already_pending: 0,
+      unchanged: 0,
+    });
+    expect(store.dirtyTasks(160)).toEqual([
+      { task_id: "task123", task_dirty: true, comments_dirty: true, attempts: 0 },
+    ]);
+    store.deferTask("task123", 5000, 1);
+    expect(store.observeDiscoveredTasks([older], 200)).toMatchObject({
+      already_pending: 1,
+      enqueued: 0,
+    });
+    expect(store.dirtyTasks(300)).toHaveLength(0);
+    expect(store.nextDirtyDue()).toBe(5000);
+    store.storeTask(indexedTask(100, "Authorized full read"), 5500);
+    store.storeComments("task123", [], 5500, true);
+    expect(store.observeDiscoveredTasks([older], 5600)).toMatchObject({
+      unchanged: 1,
+      enqueued: 0,
+    });
+    expect(
+      store.observeDiscoveredTasks(
+        [{ ...older, source_updated_at_ms: 200 }],
+        5800,
+      ),
+    ).toMatchObject({ enqueued: 1 });
+    expect(store.dirtyTasks(5900)[0]).toMatchObject({
+      task_id: "task123",
+      task_dirty: true,
+      comments_dirty: true,
+    });
+  });
+
+  it("never requeues an older list page across a confirmed access-denial barrier", () => {
+    const store = make();
+    store.discardSnapshots("task123", 300);
+    expect(
+      store.observeDiscoveredTasks(
+        [{ task_id: "task123", list_id: "901202442802", source_updated_at_ms: 100 }],
+        200,
+      ),
+    ).toMatchObject({ enqueued: 0, unchanged: 1 });
+    expect(store.dirtyTasks(500)).toEqual([]);
+  });
+
+  it("rejects duplicate or malformed discovery summaries", () => {
+    const store = make();
+    const discovered = { task_id: "task123", list_id: "901202442802", source_updated_at_ms: 100 };
+    expect(() => store.observeDiscoveredTasks([discovered, discovered], 200)).toThrow(
+      "INVALID_DISCOVERY_BATCH",
+    );
+    expect(() =>
+      store.observeDiscoveredTasks([{ ...discovered, source_updated_at_ms: 0 }], 200),
+    ).toThrow("INVALID_DISCOVERY_BATCH");
+  });
+
   it("keeps task and comment pending-refresh indicators independent", () => {
     const store = make();
     store.storeTask(indexedTask(100, "A"), 100);
