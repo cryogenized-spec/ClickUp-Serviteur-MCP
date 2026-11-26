@@ -9,8 +9,7 @@ const taskId = (value: unknown): string | null =>
     ? String(value)
     : null;
 const numericId = (value: unknown): string | null =>
-  (typeof value === "string" || typeof value === "number") &&
-  /^[1-9]\d{0,23}$/.test(String(value))
+  (typeof value === "string" || typeof value === "number") && /^[1-9]\d{0,23}$/.test(String(value))
     ? String(value)
     : null;
 const milliseconds = (value: unknown): number =>
@@ -33,7 +32,11 @@ export function projectTaskSnapshot(value: unknown) {
   const status = object(task["status"]);
   const assignees = task["assignees"];
   const ids = Array.isArray(assignees)
-    ? [...new Set(assignees.map((item) => numericId(object(item)?.["id"])).filter((n) => n !== null))]
+    ? [
+        ...new Set(
+          assignees.map((item) => numericId(object(item)?.["id"])).filter((n) => n !== null),
+        ),
+      ]
     : [];
   const priority = Number(object(task["priority"])?.["id"]);
   const markdown = task["markdown_description"];
@@ -122,11 +125,14 @@ export class TaskIndexStore {
   }
 
   storeTask(snapshot: TaskSnapshot, observedAt: number): void {
-    if (!validObserved(observedAt) || !projectTaskSnapshot({
-      id: snapshot.task_id,
-      list: { id: snapshot.list_id },
-      name: snapshot.title,
-    }))
+    if (
+      !validObserved(observedAt) ||
+      !projectTaskSnapshot({
+        id: snapshot.task_id,
+        list: { id: snapshot.list_id },
+        name: snapshot.title,
+      })
+    )
       throw new Error("INVALID_TASK_SNAPSHOT");
     this.sql.exec(
       "INSERT INTO task_snapshots(task_id, list_id, snapshot_json, source_updated_at, observed_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET list_id = excluded.list_id, snapshot_json = excluded.snapshot_json, source_updated_at = excluded.source_updated_at, observed_at = excluded.observed_at WHERE excluded.observed_at >= task_snapshots.observed_at AND excluded.source_updated_at >= task_snapshots.source_updated_at",
@@ -173,13 +179,17 @@ export class TaskIndexStore {
   }
 
   diagnostics(): Json {
-    const tasks = this.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM task_snapshots").one();
-    const comments = this.sql.exec<{ count: number }>(
-      "SELECT COUNT(*) AS count FROM comment_snapshots",
-    ).one();
-    const dirty = this.sql.exec<{ tasks: number; comments: number }>(
-      "SELECT COUNT(CASE WHEN task_dirty_at > task_checked_at THEN 1 END) AS tasks, COUNT(CASE WHEN comments_dirty_at > comments_checked_at THEN 1 END) AS comments FROM task_refresh",
-    ).one();
+    const tasks = this.sql
+      .exec<{ count: number }>("SELECT COUNT(*) AS count FROM task_snapshots")
+      .one();
+    const comments = this.sql
+      .exec<{ count: number }>("SELECT COUNT(*) AS count FROM comment_snapshots")
+      .one();
+    const dirty = this.sql
+      .exec<{ tasks: number; comments: number }>(
+        "SELECT COUNT(CASE WHEN task_dirty_at > task_checked_at THEN 1 END) AS tasks, COUNT(CASE WHEN comments_dirty_at > comments_checked_at THEN 1 END) AS comments FROM task_refresh",
+      )
+      .one();
     return {
       indexed_tasks: tasks.count,
       indexed_comments: comments.count,
@@ -190,21 +200,25 @@ export class TaskIndexStore {
 
   lookup(id: string): Json | null {
     if (!taskId(id)) return null;
-    const rows = this.sql.exec<{ snapshot_json: string; observed_at: number }>(
-      "SELECT snapshot_json, observed_at FROM task_snapshots WHERE task_id = ?",
-      id,
-    ).toArray();
+    const rows = this.sql
+      .exec<{ snapshot_json: string; observed_at: number }>(
+        "SELECT snapshot_json, observed_at FROM task_snapshots WHERE task_id = ?",
+        id,
+      )
+      .toArray();
     const row = rows[0];
     if (!row) return null;
-    const refresh = this.sql.exec<{
-      task_dirty_at: number;
-      comments_dirty_at: number;
-      task_checked_at: number;
-      comments_checked_at: number;
-    }>(
-      "SELECT task_dirty_at, comments_dirty_at, task_checked_at, comments_checked_at FROM task_refresh WHERE task_id = ?",
-      id,
-    ).toArray()[0];
+    const refresh = this.sql
+      .exec<{
+        task_dirty_at: number;
+        comments_dirty_at: number;
+        task_checked_at: number;
+        comments_checked_at: number;
+      }>(
+        "SELECT task_dirty_at, comments_dirty_at, task_checked_at, comments_checked_at FROM task_refresh WHERE task_id = ?",
+        id,
+      )
+      .toArray()[0];
     return {
       task: JSON.parse(row.snapshot_json) as unknown,
       observed_at_ms: row.observed_at,
