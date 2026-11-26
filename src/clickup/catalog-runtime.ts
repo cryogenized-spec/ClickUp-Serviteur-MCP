@@ -2073,21 +2073,17 @@ export async function runCatalogOperation(
         let afterStart: number | undefined;
         let afterId: string | undefined;
         for (;;) {
-          const page = await runCatalogOperation(
-            "clickup_get_task_comments",
-            {
-              task_id: taskId,
-              max_results: 50,
-              ...(afterStart !== undefined && afterId !== undefined
-                ? { comment_start: afterStart, comment_start_id: afterId }
-                : {}),
-            },
-            g,
-            f,
-            waitAfterRateLimit,
+          // The task has already passed the current user's authorized
+          // preflight. Use the same native comment page adapter directly;
+          // nested catalogue invocation would incorrectly impose Workspace
+          // scope on otherwise-authorized List-only users.
+          const comments = await taskCommentPage(
+            (path) => call("GET", path),
+            taskId,
+            afterStart !== undefined && afterId !== undefined
+              ? { start: afterStart, startId: afterId }
+              : null,
           );
-          const comments = page["comments"];
-          if (!Array.isArray(comments)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
           const matchingComment = comments.find((row) => obj(row)?.["id"] === commentId);
           if (matchingComment !== undefined) {
             // A posted-comment assertion must refer to an actual comment by
@@ -2100,15 +2096,14 @@ export async function runCatalogOperation(
             evidenceVerified = true;
             break;
           }
-          if (page["incomplete"] !== true) break;
-          const start = page["next_comment_start"];
-          const nextId = page["next_comment_start_id"];
-          const cursor = String(start) + ":" + String(nextId);
-          if (!Number.isSafeInteger(start) || typeof nextId !== "string" || visited.has(cursor))
-            throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
-          visited.add(cursor);
-          afterStart = start as number;
-          afterId = nextId;
+          if (comments.length < 25) break;
+          const next = commentCursorFrom(comments[comments.length - 1]!);
+          if (!next) throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
+          const key = next.start + ":" + next.startId;
+          if (visited.has(key)) throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
+          visited.add(key);
+          afterStart = next.start;
+          afterId = next.startId;
         }
         if (!evidenceVerified) throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
       }
