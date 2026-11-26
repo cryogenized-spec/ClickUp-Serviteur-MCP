@@ -181,11 +181,12 @@ const F = {
   followup_action_kind: {
     type: "string",
     description:
-      "Actually observed or performed; instruction_sent requires a ClickUp comment ID verified live.",
+      "Actually observed or performed; instruction_sent and verified_comment_posted require a ClickUp comment ID authored by the connected user and verified live.",
     enum: [
       "observation",
       "draft_prepared",
       "instruction_sent",
+      "verified_comment_posted",
       "response_received",
       "followup_checked",
       "resolution_confirmed",
