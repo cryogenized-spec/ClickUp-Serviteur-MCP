@@ -2,6 +2,10 @@ import { sanitizeWebhookMetadata, type WebhookHint } from "./webhook-ingress.js"
 
 const WEEK = 7 * 24 * 60 * 60 * 1000;
 
+export const validActivityConsumer = (value: unknown): value is string =>
+  typeof value === "string" && /^[a-z][a-z0-9_-]{0,63}$/.test(value);
+
+
 /** Internal binding only. Partition by approved Workspace and authenticated actor. */
 export class ClickUpWebhookEvents {
   constructor(
@@ -12,6 +16,9 @@ export class ClickUpWebhookEvents {
       "CREATE TABLE IF NOT EXISTS hints (event_key TEXT PRIMARY KEY, task_id TEXT NOT NULL, event TEXT NOT NULL, received_at INTEGER NOT NULL)",
     );
     state.storage.sql.exec("CREATE INDEX IF NOT EXISTS hints_received ON hints(received_at)");
+    state.storage.sql.exec(
+      "CREATE TABLE IF NOT EXISTS consumer_processed (consumer TEXT NOT NULL, event_key TEXT NOT NULL, processed_at INTEGER NOT NULL, PRIMARY KEY(consumer, event_key))",
+    );
     state.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS hint_metadata (event_key TEXT PRIMARY KEY, metadata TEXT NOT NULL)",
     );
@@ -27,7 +34,9 @@ export class ClickUpWebhookEvents {
     if (request.method === "GET" && path === "/pending") {
       const since = url.searchParams.get("after_time");
       const key = url.searchParams.get("after_key");
+      const consumer = url.searchParams.get("consumer");
       if (
+        (consumer !== null && !validActivityConsumer(consumer)) ||
         (since === null) !== (key === null) ||
         (since !== null && (!/^\d{1,16}$/.test(since) || !Number.isSafeInteger(Number(since)))) ||
         (key !== null && !/^[a-f0-9-]{36}:[a-zA-Z0-9_-]{1,100}$/i.test(key))
@@ -41,7 +50,10 @@ export class ClickUpWebhookEvents {
           received_at: number;
           metadata_json: string | null;
         }>(
-          "SELECT h.event_key, h.task_id, h.event, h.received_at, m.metadata AS metadata_json FROM hints h LEFT JOIN hint_metadata m ON h.event_key = m.event_key LEFT JOIN reviewed r ON h.event_key = r.event_key WHERE r.event_key IS NULL AND h.received_at >= ? AND (h.received_at > ? OR (h.received_at = ? AND h.event_key > ?)) ORDER BY h.received_at, h.event_key LIMIT 11",
+          consumer === null
+            ? "SELECT h.event_key, h.task_id, h.event, h.received_at, m.metadata AS metadata_json FROM hints h LEFT JOIN hint_metadata m ON h.event_key = m.event_key LEFT JOIN reviewed r ON h.event_key = r.event_key WHERE r.event_key IS NULL AND h.received_at >= ? AND (h.received_at > ? OR (h.received_at = ? AND h.event_key > ?)) ORDER BY h.received_at, h.event_key LIMIT 11"
+            : "SELECT h.event_key, h.task_id, h.event, h.received_at, m.metadata AS metadata_json FROM hints h LEFT JOIN hint_metadata m ON h.event_key = m.event_key LEFT JOIN consumer_processed p ON h.event_key = p.event_key AND p.consumer = ? WHERE p.event_key IS NULL AND h.received_at >= ? AND (h.received_at > ? OR (h.received_at = ? AND h.event_key > ?)) ORDER BY h.received_at, h.event_key LIMIT 11",
+          ...(consumer === null ? [] : [consumer]),
           Date.now() - WEEK,
           Number(since ?? 0),
           Number(since ?? 0),
@@ -99,14 +111,16 @@ export class ClickUpWebhookEvents {
         .one();
       return Response.json({ ...counts, retention_days: 7, capacity: 5000 });
     }
-    if (request.method === "POST" && path === "/acknowledge") {
+    if (request.method === "POST" && (path === "/acknowledge" || path === "/consumer-processed")) {
       const raw: unknown = await request.json().catch(() => null);
       if (raw === null || typeof raw !== "object" || Array.isArray(raw))
         return new Response(null, { status: 400 });
       const args = raw as Record<string, unknown>;
       const taskId = args["task_id"];
       const keys = args["event_keys"];
+      const consumer = path === "/consumer-processed" ? args["consumer"] : null;
       if (
+        (path === "/consumer-processed" && !validActivityConsumer(consumer)) ||
         typeof taskId !== "string" ||
         !/^[a-zA-Z0-9_-]{1,80}$/.test(taskId) ||
         !Array.isArray(keys) ||
@@ -132,16 +146,29 @@ export class ClickUpWebhookEvents {
             .toArray();
           if (match.length !== 1) return false;
         }
-        for (const key of unique)
-          this.state.storage.sql.exec(
-            "INSERT OR IGNORE INTO reviewed(event_key, acknowledged_at) VALUES (?, ?)",
-            key,
-            now,
-          );
+        for (const key of unique) {
+          if (typeof consumer === "string")
+            this.state.storage.sql.exec(
+              "INSERT OR IGNORE INTO consumer_processed(consumer, event_key, processed_at) VALUES (?, ?, ?)",
+              consumer,
+              key,
+              now,
+            );
+          else
+            this.state.storage.sql.exec(
+              "INSERT OR IGNORE INTO reviewed(event_key, acknowledged_at) VALUES (?, ?)",
+              key,
+              now,
+            );
+        }
         return true;
       });
       return acknowledged
-        ? Response.json({ acknowledged_event_keys: unique })
+        ? Response.json(
+            typeof consumer === "string"
+              ? { consumer, processed_event_keys: unique }
+              : { acknowledged_event_keys: unique },
+          )
         : new Response(null, { status: 409 });
     }
     if (request.method === "GET" && path === "/recent") {
@@ -214,6 +241,9 @@ export class ClickUpWebhookEvents {
       );
       this.state.storage.sql.exec(
         "DELETE FROM hint_metadata WHERE event_key NOT IN (SELECT event_key FROM hints)",
+      );
+      this.state.storage.sql.exec(
+        "DELETE FROM consumer_processed WHERE event_key NOT IN (SELECT event_key FROM hints)",
       );
     });
     const earliest = this.state.storage.sql
@@ -299,6 +329,9 @@ export class ClickUpWebhookEvents {
     );
     this.state.storage.sql.exec(
       "DELETE FROM hint_metadata WHERE event_key NOT IN (SELECT event_key FROM hints)",
+    );
+    this.state.storage.sql.exec(
+      "DELETE FROM consumer_processed WHERE event_key NOT IN (SELECT event_key FROM hints)",
     );
     const remaining = this.state.storage.sql
       .exec<{ earliest: number | null }>("SELECT MIN(received_at) AS earliest FROM hints")
