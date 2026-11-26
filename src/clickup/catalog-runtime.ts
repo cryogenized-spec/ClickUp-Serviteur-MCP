@@ -2230,7 +2230,10 @@ export async function runCatalogOperation(
           (typeof commentId !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(commentId)))
       )
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-      if (kind === "instruction_sent" && commentId === undefined)
+      if (
+        (kind === "instruction_sent" || kind === "verified_comment_posted") &&
+        commentId === undefined
+      )
         throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_REQUIRED");
       const normalizedAction = {
         task_id: taskId,
@@ -2290,7 +2293,7 @@ export async function runCatalogOperation(
             // A posted-comment assertion must refer to an actual comment by
             // this connected ClickUp actor, not another colleague's reply.
             if (
-              kind === "instruction_sent" &&
+              (kind === "instruction_sent" || kind === "verified_comment_posted") &&
               String(obj(obj(matchingComment)?.["user"])?.["id"]) !== g.clickupUserId
             )
               throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
