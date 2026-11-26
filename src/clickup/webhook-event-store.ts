@@ -78,6 +78,35 @@ export class ClickUpWebhookEvents {
         throw error;
       }
     }
+    if (request.method === "GET" && path === "/followups/due") {
+      // Only the private Durable Object returns these raw actor-local rows.
+      // The MCP adapter must independently verify each task's current ClickUp
+      // permissions before disclosing any item or associated metadata.
+      const cutoff = url.searchParams.get("cutoff_ms");
+      const limit = url.searchParams.get("limit") ?? "20";
+      const afterDue = url.searchParams.get("after_due_ms");
+      const afterTask = url.searchParams.get("after_task_id");
+      if (
+        cutoff === null ||
+        !/^\d{1,13}$/.test(cutoff) ||
+        !/^(?:[1-9]|[1-4]\d|50)$/.test(limit) ||
+        (afterDue === null) !== (afterTask === null) ||
+        (afterDue !== null && !/^\d{1,13}$/.test(afterDue))
+      ) return new Response(null, { status: 400 });
+      try {
+        const page = this.followups.dueCandidates(
+          Number(cutoff),
+          Number(limit),
+          afterDue === null ? undefined : Number(afterDue),
+          afterTask === null ? undefined : afterTask,
+        );
+        return Response.json(page, { headers: { "Cache-Control": "no-store" } });
+      } catch (error) {
+        if (error instanceof FollowupLedgerError)
+          return new Response(null, { status: 400 });
+        throw error;
+      }
+    }
     if (request.method === "GET" && path === "/followups/receipt") {
       const taskId = url.searchParams.get("task_id") ?? "";
       const actionKey = url.searchParams.get("action_key") ?? "";
