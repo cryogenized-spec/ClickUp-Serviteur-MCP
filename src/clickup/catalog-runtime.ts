@@ -1514,6 +1514,58 @@ export async function runCatalogOperation(
     name === "clickup_get_task_activity_timeline" ||
     name === "clickup_create_task_comment";
   const task = async (k: string) => taskInWorkspace(g, f, a[k], allowSharedTask);
+  const readTaskComments = async (taskId: string): Promise<Json> => {
+    const read = (path: string) => call("GET", path);
+    let cursor = inputCommentCursor(a);
+    const comments: Json[] = [];
+    const seen = new Set<string>();
+    let pagesScanned = 0;
+    let incomplete = false;
+    let continuationUnavailable = false;
+    let next: CommentCursor | null = null;
+    // The API returns at most 25 comments per page; 3 reads suffice for
+    // max_results <= 50, with a hard bound against unexpected upstream loops.
+    for (let pageIndex = 0; pageIndex < 3; pageIndex++) {
+      const batch = await taskCommentPage(read, taskId, cursor);
+      pagesScanned++;
+      for (const comment of batch) {
+        const key = String(comment["id"]);
+        if (seen.has(key)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        seen.add(key);
+      }
+      const visible = batch.slice(0, N - comments.length);
+      comments.push(...visible);
+      const mayHaveMore = batch.length === 25 || batch.length > visible.length;
+      if (mayHaveMore) {
+        next = commentCursorFrom(visible[visible.length - 1]!);
+        if (!next) continuationUnavailable = true;
+      } else {
+        next = null;
+      }
+      incomplete = mayHaveMore;
+      if (comments.length === N || batch.length < 25 || !next) break;
+      cursor = next;
+    }
+    // Pagination completeness and rich-content completeness are distinct:
+    // a short upstream page may still contain text or formatted spans that
+    // exceed the existing safe response bounds.
+    const richCommentsClipped = comments.some((entry) => {
+      const spans = obj(entry)?.["comment"];
+      return Array.isArray(spans) && spans.length > 100;
+    });
+    const payloadClipped = hasClippedText({ comments }) || richCommentsClipped;
+    return {
+      source: "clickup-api-v2",
+      comments: clip(comments),
+      pages_scanned: pagesScanned,
+      next_comment_start: next?.start ?? null,
+      next_comment_start_id: next?.startId ?? null,
+      incomplete: incomplete || payloadClipped,
+      content_truncated: payloadClipped,
+      continuation_unavailable: continuationUnavailable,
+      first_page_only: pagesScanned === 1,
+    };
+  };
   const updateVerifiedTask = async (taskId: unknown, before: Json, patch: Json): Promise<Json> => {
     const path = v2("task/" + id(taskId));
     const response = await call("PUT", path, taskBody(patch, true, before));
@@ -4028,13 +4080,7 @@ export async function runCatalogOperation(
       addAnchor("date_updated", "task_last_updated");
       addAnchor("date_closed", "task_closed");
       addAnchor("date_done", "task_done");
-      const comments = await runCatalogOperation(
-        "clickup_get_task_comments",
-        a,
-        g,
-        f,
-        waitAfterRateLimit,
-      ).catch((error: unknown) => {
+      const comments = await readTaskComments(taskId).catch((error: unknown) => {
         issues.push(error instanceof ReadFailure ? error.code : "comment_read_unavailable");
         return null;
       });
@@ -4179,57 +4225,7 @@ export async function runCatalogOperation(
     }
     case "clickup_get_task_comments": {
       await task("task_id");
-      const taskId = String(a["task_id"]);
-      const read = (path: string) => call("GET", path);
-      let cursor = inputCommentCursor(a);
-      const comments: Json[] = [];
-      const seen = new Set<string>();
-      let pagesScanned = 0;
-      let incomplete = false;
-      let continuationUnavailable = false;
-      let next: CommentCursor | null = null;
-      // The API returns at most 25 comments per page; 3 reads suffice for
-      // max_results <= 50, with a hard bound against unexpected upstream loops.
-      for (let pageIndex = 0; pageIndex < 3; pageIndex++) {
-        const batch = await taskCommentPage(read, taskId, cursor);
-        pagesScanned++;
-        for (const comment of batch) {
-          const key = String(comment["id"]);
-          if (seen.has(key)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-          seen.add(key);
-        }
-        const visible = batch.slice(0, N - comments.length);
-        comments.push(...visible);
-        const mayHaveMore = batch.length === 25 || batch.length > visible.length;
-        if (mayHaveMore) {
-          next = commentCursorFrom(visible[visible.length - 1]!);
-          if (!next) continuationUnavailable = true;
-        } else {
-          next = null;
-        }
-        incomplete = mayHaveMore;
-        if (comments.length === N || batch.length < 25 || !next) break;
-        cursor = next;
-      }
-      // Pagination completeness and rich-content completeness are distinct:
-      // a short upstream page may still contain text or formatted spans that
-      // exceed the existing safe response bounds.
-      const richCommentsClipped = comments.some((entry) => {
-        const spans = obj(entry)?.["comment"];
-        return Array.isArray(spans) && spans.length > 100;
-      });
-      const payloadClipped = hasClippedText({ comments }) || richCommentsClipped;
-      return {
-        source: "clickup-api-v2",
-        comments: clip(comments),
-        pages_scanned: pagesScanned,
-        next_comment_start: next?.start ?? null,
-        next_comment_start_id: next?.startId ?? null,
-        incomplete: incomplete || payloadClipped,
-        content_truncated: payloadClipped,
-        continuation_unavailable: continuationUnavailable,
-        first_page_only: pagesScanned === 1,
-      };
+      return readTaskComments(String(a["task_id"]));
     }
     case "clickup_get_threaded_replies": {
       await task("task_id");
