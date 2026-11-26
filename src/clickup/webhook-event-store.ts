@@ -533,13 +533,17 @@ export class ClickUpWebhookEvents {
         }
       }
     }
-    await this.scheduleAlarm(Date.now(), pauseUntil);
+    await this.scheduleAlarm(Date.now(), pauseUntil, true);
   }
 
   /** Preserve the legacy seven-day event-expiry alarm and choose the earlier
    * task refresh deadline when automatic synchronization is enabled.
    */
-  private async scheduleAlarm(now: number, pausedUntil: number | null = null): Promise<void> {
+  private async scheduleAlarm(
+    now: number,
+    pausedUntil: number | null = null,
+    afterAlarm = false,
+  ): Promise<void> {
     const earliest = this.state.storage.sql
       .exec<{ earliest: number | null }>("SELECT MIN(received_at) AS earliest FROM hints")
       .one().earliest;
@@ -559,7 +563,8 @@ export class ClickUpWebhookEvents {
     if (candidates.length > 0) {
       const next = Math.min(...candidates);
       const existing = await this.state.storage.getAlarm();
-      if (existing === null || existing > next) await this.state.storage.setAlarm(next);
+      if (afterAlarm || existing === null || existing > next)
+        await this.state.storage.setAlarm(next);
     }
   }
 
