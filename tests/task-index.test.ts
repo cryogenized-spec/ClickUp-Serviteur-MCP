@@ -89,7 +89,9 @@ describe("actor-local SQLite index operations", () => {
 
   it("creates unique task/comment keys and records task and comment invalidations separately", () => {
     const { executed, store } = fixture();
-    expect(executed.map((item) => item.sql).join("\n")).toContain("PRIMARY KEY(task_id, comment_id)");
+    expect(executed.map((item) => item.sql).join("\n")).toContain(
+      "PRIMARY KEY(task_id, comment_id)",
+    );
     store.markDirty("task123", "taskCommentPosted", 1795680000000);
     store.markDirty("task123", "taskStatusUpdated", 1795680000001);
     const dirty = executed.filter((item) => item.sql.startsWith("INSERT INTO task_refresh"));
@@ -100,16 +102,32 @@ describe("actor-local SQLite index operations", () => {
   it("uses monotonic snapshot upserts and only clears comment dirtiness after complete scans", () => {
     const { executed, store } = fixture();
     const task = projectTaskSnapshot(upstreamTask);
-    const comment = projectCommentSnapshot({ id: "comment2", date: "1795680000000", comment_text: "OK" });
+    const comment = projectCommentSnapshot({
+      id: "comment2",
+      date: "1795680000000",
+      comment_text: "OK",
+    });
     expect(task).not.toBeNull();
     expect(comment).not.toBeNull();
     store.storeTask(task!, 1795681000000);
     store.storeComments("task123", [comment!], 1795681000100, false);
-    expect(executed.some((item) => item.sql.includes("excluded.source_updated_at >= task_snapshots.source_updated_at"))).toBe(true);
-    expect(executed.some((item) => item.sql.includes("comment_snapshots") && item.params[1] === "comment2")).toBe(true);
+    expect(
+      executed.some((item) =>
+        item.sql.includes("excluded.source_updated_at >= task_snapshots.source_updated_at"),
+      ),
+    ).toBe(true);
+    expect(
+      executed.some(
+        (item) => item.sql.includes("comment_snapshots") && item.params[1] === "comment2",
+      ),
+    ).toBe(true);
     expect(executed.filter((item) => item.sql.includes("comments_checked_at"))).toHaveLength(1);
     store.storeComments("task123", [comment!], 1795681000200, true);
-    expect(executed.filter((item) => item.sql.startsWith("INSERT INTO task_refresh(task_id, comments_checked_at)"))).toHaveLength(1);
+    expect(
+      executed.filter((item) =>
+        item.sql.startsWith("INSERT INTO task_refresh(task_id, comments_checked_at)"),
+      ),
+    ).toHaveLength(1);
   });
 });
 
