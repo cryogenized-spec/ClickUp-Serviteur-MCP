@@ -193,14 +193,17 @@ describe("append-only actor-local follow-up ledger with real SQLite", () => {
       ["taskD", 1795800000001],
       ["taskE", 1795900000000],
     ] as const) {
-      ledger.record({
-        task_id: id,
-        action_key: "observation:one",
-        action_kind: "observation",
-        state_after: "awaiting_response",
-        expected_revision: 0,
-        next_check_at_ms: due,
-      }, 1795680000000);
+      ledger.record(
+        {
+          task_id: id,
+          action_key: "observation:one",
+          action_kind: "observation",
+          state_after: "awaiting_response",
+          expected_revision: 0,
+          next_check_at_ms: due,
+        },
+        1795680000000,
+      );
     }
     const one = ledger.dueCandidates(1795800000001, 2);
     expect(one).toMatchObject({
@@ -209,8 +212,12 @@ describe("append-only actor-local follow-up ledger with real SQLite", () => {
       next_after_due_ms: 1795800000000,
       next_after_task_id: "taskB",
     });
-    const two = ledger.dueCandidates(1795800000001, 2,
-      one.next_after_due_ms!, one.next_after_task_id!);
+    const two = ledger.dueCandidates(
+      1795800000001,
+      2,
+      one.next_after_due_ms!,
+      one.next_after_task_id!,
+    );
     expect(two).toMatchObject({
       candidates: [{ task_id: "taskC" }, { task_id: "taskD" }],
       incomplete: false,
@@ -223,18 +230,30 @@ describe("append-only actor-local follow-up ledger with real SQLite", () => {
     const ledger = make().create();
     ledger.record(first, 1795680000000);
     expect(ledger.dueCandidates(1795800000000).candidates).toHaveLength(1);
-    ledger.record({
-      task_id: "task123", action_key: "followup:rescheduled",
-      action_kind: "followup_checked", state_after: "awaiting_response",
-      expected_revision: 1, next_check_at_ms: 1796000000000,
-    }, 1795700000000);
+    ledger.record(
+      {
+        task_id: "task123",
+        action_key: "followup:rescheduled",
+        action_kind: "followup_checked",
+        state_after: "awaiting_response",
+        expected_revision: 1,
+        next_check_at_ms: 1796000000000,
+      },
+      1795700000000,
+    );
     expect(ledger.dueCandidates(1795800000000).candidates).toHaveLength(0);
     expect(ledger.dueCandidates(1796000000000).candidates).toHaveLength(1);
-    ledger.record({
-      task_id: "task123", action_key: "resolution:confirmed",
-      action_kind: "resolution_confirmed", state_after: "resolved",
-      expected_revision: 2, next_check_at_ms: 1795800000000,
-    }, 1795701000000);
+    ledger.record(
+      {
+        task_id: "task123",
+        action_key: "resolution:confirmed",
+        action_kind: "resolution_confirmed",
+        state_after: "resolved",
+        expected_revision: 2,
+        next_check_at_ms: 1795800000000,
+      },
+      1795701000000,
+    );
     expect(ledger.dueCandidates(1796000000000).candidates).toHaveLength(0);
   });
 
@@ -244,7 +263,8 @@ describe("append-only actor-local follow-up ledger with real SQLite", () => {
     expect(() => ledger.dueCandidates(100, 2, 101, "task123")).toThrowError(FollowupLedgerError);
     expect(() => ledger.dueCandidates(100, 2, 50, "../other")).toThrowError(FollowupLedgerError);
     expect(() => ledger.dueCandidates(100, 0)).toThrowError(FollowupLedgerError);
-    expect(() => ledger.dueCandidates(Number.MAX_SAFE_INTEGER, 2)).toThrowError(FollowupLedgerError);
+    expect(() => ledger.dueCandidates(Number.MAX_SAFE_INTEGER, 2)).toThrowError(
+      FollowupLedgerError,
+    );
   });
-
 });
