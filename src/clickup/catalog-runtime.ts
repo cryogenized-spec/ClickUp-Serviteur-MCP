@@ -4220,7 +4220,7 @@ export async function runCatalogOperation(
         webhook,
         issues,
         incomplete: issues.length > 0,
-        note: "UTC day buckets since instrumentation was deployed. Allowed reservations are not confirmed upstream responses; cooldowns count recorded reset signals, not every 429. No request bodies, credentials, URLs or latency measurements are retained.",
+        note: "UTC day buckets since instrumentation was deployed. Allowed reservations are not confirmed upstream responses; cooldowns count recorded reset signals, not every 429. Upstream outcomes cover instrumented catalogue invocations only; status 0 means no HTTP response. Latency is time to response headers. Telemetry is best-effort. No request bodies, credentials or URLs are retained.",
       };
     }
     case "clickup_get_task_comments": {
