@@ -170,6 +170,22 @@ const F = {
     enum: ["PUBLIC", "PRIVATE"],
   },
 
+  activity_consumer: str("Stable name for one independent event consumer, such as hourly-watch.", 64),
+  activity_event_types: arrayOf(
+    "Only investigate these event types; other events remain unprocessed.",
+    str("Exact ClickUp task event name.", 80),
+    20,
+  ),
+  activity_received_since_ms: integer(
+    "Optional lower bound on webhook receipt time, in Unix epoch milliseconds.",
+    0,
+    9_007_199_254_740_991,
+  ),
+  activity_actor_user_id: str("Exact event actor ID; excludes unknown actor metadata.", 24),
+  activity_mentioned_user_id: str(
+    "Exact structured mention ID; excludes events without a matching known mention.",
+    24,
+  ),
   event_after_time: integer(
     "Timestamp from the previous pending activity cursor.",
     0,
@@ -1548,7 +1564,25 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Read all available unacknowledged events across storage pages with no artificial task-verification, page-count or total-event ceiling. Caller may optionally specify max_results for an intentionally bounded response. On a genuine ClickUp 429, the read waits 60 seconds and retries the same task without an artificial retry limit; transport disconnects do not acknowledge activity. Other unavailable task verification returns a safe paired continuation cursor. Reading does not acknowledge events; retrieve task comments for context.",
     "What changed since my last reviewed activity briefing?",
     [],
-    ["max_results", "event_after_time", "event_after_key"],
+    [
+      "max_results",
+      "event_after_time",
+      "event_after_key",
+      "activity_consumer",
+      "activity_event_types",
+      "activity_received_since_ms",
+      "activity_actor_user_id",
+      "activity_mentioned_user_id",
+    ],
+  ),
+  tool(
+    "clickup_mark_consumer_activity_processed",
+    "Mark Consumer Activity Processed",
+    "reporting",
+    "write",
+    "Record exact reviewed events for one independent named consumer. Call only after that consumer has completed its review or safely handed off the events. Idempotent; does not acknowledge globally or change ClickUp.",
+    "Record events already assessed by the hourly watch without affecting the afternoon watch.",
+    ["task_id", "activity_consumer", "event_keys"],
   ),
   tool(
     "clickup_acknowledge_activity",
