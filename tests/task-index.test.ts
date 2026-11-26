@@ -97,8 +97,8 @@ describe("actor-local SQLite index operations", () => {
     store.markDirty("task123", "taskCommentPosted", 1795680000000);
     store.markDirty("task123", "taskStatusUpdated", 1795680000001);
     const dirty = executed.filter((item) => item.sql.startsWith("INSERT INTO task_refresh"));
-    expect(dirty[0]?.params).toEqual(["task123", 0, 1795680000000]);
-    expect(dirty[1]?.params).toEqual(["task123", 1795680000001, 0]);
+    expect(dirty[0]?.params).toEqual(["task123", 0, 1795680000001]);
+    expect(dirty[1]?.params).toEqual(["task123", 1795680000002, 0]);
   });
 
   it("uses monotonic snapshot upserts and only clears comment dirtiness after complete scans", () => {
