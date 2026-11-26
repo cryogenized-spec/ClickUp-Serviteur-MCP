@@ -24,7 +24,7 @@ const makeEvent = (i: number, taskId = "abc123") => ({
 });
 
 function fixture(
-  events: ReturnType<typeof makeEvent>[],
+  events: (ReturnType<typeof makeEvent> & { metadata?: Record<string, unknown> })[],
   rateLimitTask?: string,
   rateLimitAttempts = 1,
   taskFailures: Record<string, number[]> = {},
