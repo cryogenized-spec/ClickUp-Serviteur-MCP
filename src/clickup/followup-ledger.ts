@@ -69,6 +69,14 @@ export class FollowupLedger {
     run(
       "CREATE INDEX IF NOT EXISTS followup_task_history ON followup_actions(task_id, revision DESC)",
     );
+    // Short-lived, cryptographically random continuation handles; never
+    // expose private task IDs or keyset dates through a model-facing cursor.
+    run(
+      "CREATE TABLE IF NOT EXISTS followup_due_cursors (token TEXT PRIMARY KEY, cutoff_ms INTEGER NOT NULL, scope_key TEXT NOT NULL, after_due_ms INTEGER NOT NULL, after_task_id TEXT NOT NULL, expires_at_ms INTEGER NOT NULL)",
+    );
+    run(
+      "CREATE INDEX IF NOT EXISTS followup_due_cursor_expiry ON followup_due_cursors(expires_at_ms)",
+    );
   }
 
   /** Explicit, optimistic revision prevents concurrent agents from overwriting
@@ -258,6 +266,143 @@ export class FollowupLedger {
       incomplete,
       next_before_revision: incomplete ? Number(history[history.length - 1]!["revision"]) : null,
     };
+  }
+
+  /**
+   * Private keyset-paginated due candidates. Never forward rows directly:
+   * every task must pass a fresh user-OAuth ClickUp task + parent-list preflight.
+   * A due cutoff is carried across pages; this is still a live view, not a
+   * durable snapshot or webhook checkpoint.
+   */
+  dueCandidates(
+    at: number,
+    limit = 20,
+    afterDueMs?: number,
+    afterTaskId?: string,
+  ): {
+    candidates: Array<{
+      task_id: string;
+      state: string;
+      waiting_on_user_id: string | null;
+      next_check_at_ms: number;
+      revision: number;
+    }>;
+    incomplete: boolean;
+    next_after_due_ms: number | null;
+    next_after_task_id: string | null;
+  } {
+    if (
+      !Number.isSafeInteger(at) ||
+      at < 0 ||
+      at > 9_000_000_000_000 ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 50 ||
+      (afterDueMs === undefined) !== (afterTaskId === undefined) ||
+      (afterDueMs !== undefined &&
+        (!Number.isSafeInteger(afterDueMs) || afterDueMs < 0 || afterDueMs > at)) ||
+      (afterTaskId !== undefined && !taskId(afterTaskId))
+    )
+      throw new FollowupLedgerError("invalid");
+
+    const cursorDue = afterDueMs ?? 0;
+    const cursorTask = afterTaskId ?? "";
+    const rows = this.run(
+      "SELECT task_id, state, waiting_on_user_id, next_check_at_ms, revision FROM followup_current WHERE next_check_at_ms IS NOT NULL AND next_check_at_ms <= ? AND state != 'resolved' AND (next_check_at_ms > ? OR (next_check_at_ms = ? AND task_id > ?)) ORDER BY next_check_at_ms, task_id LIMIT ?",
+      at,
+      cursorDue,
+      cursorDue,
+      cursorTask,
+      limit + 1,
+    ).toArray() as Array<{
+      task_id: string;
+      state: string;
+      waiting_on_user_id: string | null;
+      next_check_at_ms: number;
+      revision: number;
+    }>;
+    const incomplete = rows.length > limit;
+    const candidates = rows.slice(0, limit);
+    const last = candidates[candidates.length - 1];
+    return {
+      candidates,
+      incomplete,
+      next_after_due_ms: incomplete && last ? last.next_check_at_ms : null,
+      next_after_task_id: incomplete && last ? last.task_id : null,
+    };
+  }
+
+  /** A random, actor-local cursor is a private SQLite lookup capability,
+   * not a serialized task ID or an unsigned, editable keyset. All callers
+   * must still revalidate every returned candidate through live ClickUp.
+   */
+  issueDueCursor(
+    cutoff: number,
+    scopeKey: string,
+    afterDue: number,
+    afterTask: string,
+    now: number,
+  ): string {
+    if (
+      !Number.isSafeInteger(cutoff) ||
+      cutoff < 0 ||
+      cutoff > 9_000_000_000_000 ||
+      !/^[a-zA-Z0-9:_-]{1,160}$/.test(scopeKey) ||
+      !Number.isSafeInteger(afterDue) ||
+      afterDue < 0 ||
+      afterDue > cutoff ||
+      !taskId(afterTask) ||
+      !Number.isSafeInteger(now) ||
+      now <= 0
+    )
+      throw new FollowupLedgerError("invalid");
+    const token = crypto.randomUUID();
+    this.run("DELETE FROM followup_due_cursors WHERE expires_at_ms < ?", now);
+    this.run(
+      "INSERT INTO followup_due_cursors(token, cutoff_ms, scope_key, after_due_ms, after_task_id, expires_at_ms) VALUES (?, ?, ?, ?, ?, ?)",
+      token,
+      cutoff,
+      scopeKey,
+      afterDue,
+      afterTask,
+      now + 24 * 60 * 60 * 1000,
+    );
+    return token;
+  }
+
+  resolveDueCursor(
+    token: string,
+    cutoff: number,
+    scopeKey: string,
+    now: number,
+  ): { after_due_ms: number; after_task_id: string } {
+    if (
+      !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(token) ||
+      !Number.isSafeInteger(cutoff) ||
+      cutoff < 0 ||
+      cutoff > 9_000_000_000_000 ||
+      !/^[a-zA-Z0-9:_-]{1,160}$/.test(scopeKey) ||
+      !Number.isSafeInteger(now) ||
+      now <= 0
+    )
+      throw new FollowupLedgerError("invalid");
+    const row = this.run(
+      "SELECT cutoff_ms, scope_key, after_due_ms, after_task_id FROM followup_due_cursors WHERE token = ? AND expires_at_ms >= ?",
+      token,
+      now,
+    ).toArray()[0] as
+      | {
+          cutoff_ms: number;
+          scope_key: string;
+          after_due_ms: number;
+          after_task_id: string;
+        }
+      | undefined;
+    // An old/tampered token, changed cutoff or changed authorization filter
+    // must never silently restart the scan from the beginning.
+    if (!row || row.cutoff_ms !== cutoff || row.scope_key !== scopeKey)
+      throw new FollowupLedgerError("invalid");
+    return { after_due_ms: row.after_due_ms, after_task_id: row.after_task_id };
   }
 
   /** Candidate IDs only. Each item MUST be re-authorized by an upstream

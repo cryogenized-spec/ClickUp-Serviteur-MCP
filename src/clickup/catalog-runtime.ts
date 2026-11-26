@@ -413,8 +413,7 @@ async function listInWorkspace(grant: ReadGrant, f: typeof fetch, listId: unknow
   if (grant.resourceScope !== "workspace" && String(listId) !== grant.listId)
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   const list = await send(grant, f, "GET", v2("list/" + id(listId)));
-  if (String(list["id"]) !== String(listId))
-    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  if (String(list["id"]) !== String(listId)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
   try {
     await inWorkspace(grant, f, obj(list["space"])?.["id"]);
   } catch (error) {
@@ -504,8 +503,9 @@ async function taskInWorkspace(
       throw new ReadFailure("CLICKUP_PENDING_TASK_NOT_FOUND", error.diagnostic);
     throw error;
   }
-  if (String(task["id"]) !== String(taskId))
-    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+  // A successful 200 response with a missing or wrong ID is a malformed
+  // provider result, not evidence that the actor cannot access this task.
+  if (String(task["id"]) !== String(taskId)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
   const homeList = obj(task["list"])?.["id"];
   try {
     if (pendingVerifiedLists) {
@@ -1274,6 +1274,7 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_create_chat_channel",
   "clickup_update_goal_name",
   "clickup_update_key_result_progress",
+  "clickup_get_overdue_followups",
   "clickup_get_followup_state",
   "clickup_record_followup_action",
   "clickup_get_pending_activity",
@@ -1972,6 +1973,206 @@ export async function runCatalogOperation(
       );
       // The response acknowledges a native merge; never repeat after uncertainty.
       return { acknowledgement: clip(result), readback_verified: false, retry_safe: false };
+    }
+    case "clickup_get_overdue_followups": {
+      if (!g.taskIndex) throw new ReadFailure("CLICKUP_FOLLOWUP_STORAGE_UNAVAILABLE");
+      const cutoff = a["followup_due_before_ms"] ?? Date.now();
+      const cursor = a["followup_cursor"];
+      if (
+        !Number.isSafeInteger(cutoff) ||
+        Number(cutoff) < 0 ||
+        Number(cutoff) > 9_000_000_000_000 ||
+        (cursor !== undefined &&
+          (typeof cursor !== "string" ||
+            !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(cursor)))
+      )
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+
+      // Enforce the configured List/Workspace scope before exposing even
+      // actor-private candidate metadata. For workspace scope the caller may
+      // narrow to a specific, currently verified List.
+      const onlyList = a["list_id"];
+      if (onlyList !== undefined) await listInWorkspace(g, f, onlyList);
+      const binding = g.taskIndex;
+      const stub = binding.get(binding.idFromName(W + ":" + g.subject) as never);
+      const url = new URL("https://internal/followups/due");
+      url.searchParams.set("cutoff_ms", String(cutoff));
+      url.searchParams.set("limit", String(N));
+      // Bind the opaque cursor to the verified actor's current resource scope
+      // and optional List filter, never expose its private keyset to callers.
+      const scopeKey =
+        (workspaceScope ? "workspace" : "list") +
+        ":" +
+        W +
+        ":" +
+        (onlyList === undefined ? (workspaceScope ? "all" : g.listId) : String(onlyList));
+      url.searchParams.set("scope_key", scopeKey);
+      if (cursor !== undefined) url.searchParams.set("cursor", cursor as string);
+      const privateResponse = await stub.fetch(new Request(url));
+      if (privateResponse.status === 400) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (!privateResponse.ok) throw new ReadFailure("CLICKUP_FOLLOWUP_STORAGE_UNAVAILABLE");
+      const page = obj(await privateResponse.json());
+      const candidates = page?.["candidates"];
+      if (
+        !Array.isArray(candidates) ||
+        candidates.length > N ||
+        typeof page?.["incomplete"] !== "boolean"
+      )
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+
+      const startDue = page["start_after_due_ms"];
+      const startTask = page["start_after_task_id"];
+      if (
+        (startDue === null) !== (startTask === null) ||
+        (cursor === undefined && (startDue !== null || startTask !== null)) ||
+        (cursor !== undefined &&
+          (!Number.isSafeInteger(startDue) ||
+            Number(startDue) < 0 ||
+            Number(startDue) > Number(cutoff) ||
+            typeof startTask !== "string" ||
+            !/^[a-zA-Z0-9_-]{1,80}$/.test(startTask)))
+      )
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      let previousDue = startDue === null ? 0 : Number(startDue);
+      let previousTask = startTask === null ? "" : (startTask as string);
+      const validated: Array<{
+        task_id: string;
+        state: string;
+        next_check_at_ms: number;
+        revision: number;
+      }> = [];
+      for (const raw of candidates) {
+        const row = obj(raw);
+        const taskId = row?.["task_id"];
+        const due = row?.["next_check_at_ms"];
+        const revision = row?.["revision"];
+        if (
+          typeof taskId !== "string" ||
+          !/^[a-zA-Z0-9_-]{1,80}$/.test(taskId) ||
+          typeof row?.["state"] !== "string" ||
+          row["state"] === "resolved" ||
+          !Number.isSafeInteger(due) ||
+          Number(due) < 0 ||
+          Number(due) > Number(cutoff) ||
+          !Number.isSafeInteger(revision) ||
+          Number(revision) < 1 ||
+          Number(due) < previousDue ||
+          (Number(due) === previousDue && taskId <= previousTask)
+        )
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        previousDue = due as number;
+        previousTask = taskId;
+        validated.push({
+          task_id: taskId,
+          state: row["state"] as string,
+          next_check_at_ms: due as number,
+          revision: revision as number,
+        });
+      }
+      const incomplete = page["incomplete"] === true;
+      const nextDue = page["next_after_due_ms"];
+      const nextTask = page["next_after_task_id"];
+      const nextCursor = page["next_cursor"];
+      if (
+        incomplete &&
+        (validated.length === 0 ||
+          nextDue !== previousDue ||
+          nextTask !== previousTask ||
+          typeof nextCursor !== "string" ||
+          !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(
+            nextCursor,
+          ))
+      )
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      if (!incomplete && (nextDue !== null || nextTask !== null || nextCursor !== null))
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+
+      const authorizedLists = new Map<string, number>();
+      const items: Json[] = [];
+      let inaccessible = 0;
+      let otherList = 0;
+      let changed = 0;
+      for (const candidate of validated) {
+        let current: Json;
+        try {
+          // Sequential native GETs use each user's OAuth credential and the
+          // existing quota/cooldown. Never return private rows without this.
+          current = await taskInWorkspace(g, f, candidate.task_id, true, authorizedLists);
+        } catch (error) {
+          const excluded =
+            error instanceof ReadFailure &&
+            (error.code === "CLICKUP_PENDING_TASK_NOT_FOUND" ||
+              error.code === "CLICKUP_SCOPE_OR_SCHEMA_REJECTED" ||
+              (error.code === "CLICKUP_UPSTREAM_DENIED" &&
+                error.diagnostic?.http_status === 403 &&
+                (error.diagnostic.authorization_target === "task" ||
+                  error.diagnostic.authorization_target === "list")));
+          if (!excluded) throw error; // 401, 429, transient errors: incomplete, never "all clear".
+          inaccessible++;
+          continue;
+        }
+        const homeList = obj(current["list"])?.["id"];
+        if (onlyList !== undefined && String(homeList) !== String(onlyList)) {
+          otherList++;
+          continue;
+        }
+        // A source-independent obligation may be resolved or rescheduled
+        // during our sequential task verification. Re-read the latest private
+        // projection and suppress superseded due candidates.
+        const stateUrl = new URL("https://internal/followups/task");
+        stateUrl.searchParams.set("task_id", candidate.task_id);
+        stateUrl.searchParams.set("limit", "1");
+        const stateResponse = await stub.fetch(new Request(stateUrl));
+        if (!stateResponse.ok) throw new ReadFailure("CLICKUP_FOLLOWUP_STORAGE_UNAVAILABLE");
+        const snapshot = obj(await stateResponse.json());
+        const state = obj(snapshot?.["state"]);
+        if (!snapshot || snapshot["task_id"] !== candidate.task_id || !state)
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        if (
+          state["revision"] !== candidate.revision ||
+          state["next_check_at_ms"] !== candidate.next_check_at_ms ||
+          state["state"] === "resolved"
+        ) {
+          changed++;
+          continue;
+        }
+        const last = Array.isArray(snapshot["history"]) ? obj(snapshot["history"][0]) : null;
+        items.push({
+          task_id: candidate.task_id,
+          title: current["name"],
+          status: obj(current["status"])?.["status"] ?? null,
+          home_list_id: homeList,
+          assignee_user_ids: Array.isArray(current["assignees"])
+            ? current["assignees"]
+                .map((user) => obj(user)?.["id"])
+                .filter((userId) => userId !== undefined)
+            : [],
+          followup_state: state["state"],
+          waiting_on_user_id: state["waiting_on_user_id"] ?? null,
+          next_check_at_ms: state["next_check_at_ms"],
+          followup_revision: state["revision"],
+          last_action_kind: last?.["action_kind"] ?? null,
+          last_action_at_ms: last?.["recorded_at_ms"] ?? null,
+          last_action_note:
+            typeof last?.["note"] === "string" ? (last["note"] as string).slice(0, 500) : null,
+        });
+      }
+      return {
+        source: "serviteur-private-followup-ledger",
+        due_before_ms: cutoff,
+        followups: items,
+        candidates_scanned: validated.length,
+        filtered_inaccessible_or_out_of_scope: inaccessible,
+        filtered_other_list: otherList,
+        filtered_changed_since_read: changed,
+        incomplete,
+        // Only an opaque, private-DB-backed cursor is model visible.
+        // Never reveal an inaccessible final candidate's ID or timestamp.
+        next_cursor: incomplete ? nextCursor : null,
+        list_filter: onlyList ?? null,
+        coverage_note:
+          "One live candidate page, not the ClickUp Inbox. Continue the opaque cursor with the same due_before_ms and List filter while incomplete; cursor expires after 24 hours. Notes are curated, not evidence of customer contact.",
+      };
     }
     case "clickup_get_followup_state":
     case "clickup_record_followup_action": {
