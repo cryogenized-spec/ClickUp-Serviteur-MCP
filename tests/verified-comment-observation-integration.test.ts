@@ -197,35 +197,33 @@ describe("factual private ledger capture after own ClickUp comments", () => {
     }
   });
 
-  it.each([
-    "/followups/receipt",
-    "/followups/task",
-    "/followups/record",
-  ] as const)("returns ClickUp's confirmed result on a stalled %s private RPC", async (privateStallAt) => {
-    vi.useFakeTimers();
-    try {
-      const { api, grant, providerCalls, privateCalls } = fixture({ privateStallAt });
-      const operation = runCatalogOperation(
-        "clickup_create_task_comment",
-        { task_id: "task123", text: "Please check the supplier's quotation." },
-        grant,
-        api as typeof fetch,
-      );
-      await vi.advanceTimersByTimeAsync(4_050);
-      const result = await operation;
-      expect(result).toMatchObject({
-        id: "1500260000111534",
-        verified_by_readback: true,
-        followup_observation: {
-          recorded: false,
-          reason: "private_storage_timeout",
-        },
-      });
-      expect(providerCalls.filter((x) => x.method === "POST")).toHaveLength(1);
-      expect(privateCalls.some((c) => c.path === privateStallAt)).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
+  it.each(["/followups/receipt", "/followups/task", "/followups/record"] as const)(
+    "returns ClickUp's confirmed result on a stalled %s private RPC",
+    async (privateStallAt) => {
+      vi.useFakeTimers();
+      try {
+        const { api, grant, providerCalls, privateCalls } = fixture({ privateStallAt });
+        const operation = runCatalogOperation(
+          "clickup_create_task_comment",
+          { task_id: "task123", text: "Please check the supplier's quotation." },
+          grant,
+          api as typeof fetch,
+        );
+        await vi.advanceTimersByTimeAsync(4_050);
+        const result = await operation;
+        expect(result).toMatchObject({
+          id: "1500260000111534",
+          verified_by_readback: true,
+          followup_observation: {
+            recorded: false,
+            reason: "private_storage_timeout",
+          },
+        });
+        expect(providerCalls.filter((x) => x.method === "POST")).toHaveLength(1);
+        expect(privateCalls.some((c) => c.path === privateStallAt)).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 });
