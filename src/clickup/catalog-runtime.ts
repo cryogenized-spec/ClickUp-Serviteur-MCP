@@ -4774,7 +4774,9 @@ export async function runCatalogOperation(
       const observeAuthorVerified = async (posted: Json, commentId: string): Promise<Json> => ({
         ...posted,
         followup_observation: await recordVerifiedCommentObservation(
-          g, String(a["task_id"]), commentId,
+          g,
+          String(a["task_id"]),
+          commentId,
         ),
       });
       const richRequested = a["mention_segments"] !== undefined || a["rich_segments"] !== undefined;
@@ -4916,21 +4918,24 @@ export async function runCatalogOperation(
           // The POST returned a valid ID, but readback could not verify it.
           return uncertain(String(commentId));
         }
-        return observeAuthorVerified({
-          ...posted,
-          write_acknowledged: true,
-          requested_mention_user_ids: requestedIds,
-          ...(mentionIdsVerified ? { genuine_mentions: requestedIds } : {}),
-          verified_tag_structure_by_readback: requestedIds.length > 0,
-          native_rich_structure_verified_by_readback: true,
-          ...(dividerFallback ? { divider_fallback: "unicode_text", native_divider: false } : {}),
-          // A tag with no returned user.id proves structure, NOT its target.
-          mention_identity_verified_by_readback: mentionIdsVerified,
-          verified_by_readback: mentionIdsVerified,
-          readback_status: mentionIdsVerified ? "full" : "structure_only",
-          // ClickUp may notify tagged people even though notify_all is false.
-          notification_delivery_unverified: true,
-        }, String(commentId));
+        return observeAuthorVerified(
+          {
+            ...posted,
+            write_acknowledged: true,
+            requested_mention_user_ids: requestedIds,
+            ...(mentionIdsVerified ? { genuine_mentions: requestedIds } : {}),
+            verified_tag_structure_by_readback: requestedIds.length > 0,
+            native_rich_structure_verified_by_readback: true,
+            ...(dividerFallback ? { divider_fallback: "unicode_text", native_divider: false } : {}),
+            // A tag with no returned user.id proves structure, NOT its target.
+            mention_identity_verified_by_readback: mentionIdsVerified,
+            verified_by_readback: mentionIdsVerified,
+            readback_status: mentionIdsVerified ? "full" : "structure_only",
+            // ClickUp may notify tagged people even though notify_all is false.
+            notification_delivery_unverified: true,
+          },
+          String(commentId),
+        );
       }
       const comment = {
         comment_text: txt(a["text"], 6000),
@@ -4945,24 +4950,25 @@ export async function runCatalogOperation(
           if (
             (typeof newId !== "string" && typeof newId !== "number") ||
             !/^[0-9]{1,24}$/.test(String(newId))
-          ) return {
-            ...posted,
-            followup_observation: { recorded: false, reason: "invalid_evidence" },
-          };
+          )
+            return {
+              ...posted,
+              followup_observation: { recorded: false, reason: "invalid_evidence" },
+            };
           try {
             // The POST response alone is not proof of the comment's author.
             // Read once using the connected user's ClickUp OAuth credential.
             const after = await call("GET", v2("task/" + taskId + "/comment"));
-            if (!Array.isArray(after["comments"]))
-              throw new Error("comment readback unavailable");
-            const created = after["comments"].map(obj).find(
-              (row) => String(row?.["id"]) === String(newId),
-            );
+            if (!Array.isArray(after["comments"])) throw new Error("comment readback unavailable");
+            const created = after["comments"]
+              .map(obj)
+              .find((row) => String(row?.["id"]) === String(newId));
             if (
               !created ||
               String(obj(created["user"])?.["id"]) !== g.clickupUserId ||
               created["comment_text"] !== comment.comment_text
-            ) throw new Error("comment author/body readback unverified");
+            )
+              throw new Error("comment author/body readback unverified");
           } catch {
             // Never hide a successful ClickUp comment behind a private
             // observation or readback error, and never blindly repeat POST.
@@ -4974,11 +4980,14 @@ export async function runCatalogOperation(
               },
             };
           }
-          return observeAuthorVerified({
-            ...posted,
-            verified_by_readback: true,
-            notification_delivery_unverified: true,
-          }, String(newId));
+          return observeAuthorVerified(
+            {
+              ...posted,
+              verified_by_readback: true,
+              notification_delivery_unverified: true,
+            },
+            String(newId),
+          );
         }
         // Never claim that a requested assignment happened based only on POST.
         const commentId = posted["id"];
@@ -5002,12 +5011,15 @@ export async function runCatalogOperation(
         } catch {
           throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
         }
-        return observeAuthorVerified({
-          ...posted,
-          assignee_id: String(assignee),
-          verified_by_readback: true,
-          notification_delivery_unverified: true,
-        }, String(commentId));
+        return observeAuthorVerified(
+          {
+            ...posted,
+            assignee_id: String(assignee),
+            verified_by_readback: true,
+            notification_delivery_unverified: true,
+          },
+          String(commentId),
+        );
       }
       // The reply destination must be independently verified against this task.
       const parents = await call("GET", v2("task/" + val(a, "task_id") + "/comment"));
