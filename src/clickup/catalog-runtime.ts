@@ -2,7 +2,11 @@ import { quotaCall } from "./client.js";
 import { sanitizeWebhookMetadata, validActivityConsumer } from "./webhook-ingress.js";
 import { filePendingLedger } from "./file-field-ledger.js";
 import { getMyAttentionItems } from "./attention-items.js";
-import { captureVerifiedComments, captureVerifiedTask } from "./task-index.js";
+import {
+  captureVerifiedComments,
+  captureVerifiedTask,
+  captureVerifiedTaskDiscoveries,
+} from "./task-index.js";
 import { readGoalDetails, readSprintTaskSnapshot, readWorkspaceGoals } from "./reporting-reads.js";
 import {
   canonicalPatchComment,
@@ -3072,6 +3076,7 @@ export async function runCatalogOperation(
     }
     case "clickup_filter_tasks":
     case "clickup_get_my_tasks": {
+      const indexReadStartedAt = Date.now();
       const isMine = name === "clickup_get_my_tasks" || a["assigned_to_me"] === true;
       const target = a["list_id"] ?? (workspaceScope ? undefined : g.listId);
       if (target !== undefined) await listInWorkspace(g, f, target);
@@ -3263,6 +3268,10 @@ export async function runCatalogOperation(
         if (matches.length === N || batch.length < 100 || result["last_page"] === true) break;
         if (index === 4) nextPage = page + 1;
       }
+      // Opportunistic read-through reconciliation: verified task-list results
+      // contribute only stable identity/revision hints, never incomplete
+      // task snapshots. Native task authorization is rechecked on refresh.
+      await captureVerifiedTaskDiscoveries(g, matches, indexReadStartedAt);
       return {
         source: "clickup-api-v2",
         scope: target === undefined ? "workspace" : "list",
