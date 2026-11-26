@@ -1,6 +1,5 @@
 import { quotaCall } from "./client.js";
-import { sanitizeWebhookMetadata } from "./webhook-ingress.js";
-import { validActivityConsumer } from "./webhook-event-store.js";
+import { sanitizeWebhookMetadata, validActivityConsumer } from "./webhook-ingress.js";
 import { filePendingLedger } from "./file-field-ledger.js";
 import { getMyAttentionItems } from "./attention-items.js";
 import { readGoalDetails, readSprintTaskSnapshot, readWorkspaceGoals } from "./reporting-reads.js";
@@ -2026,7 +2025,7 @@ export async function runCatalogOperation(
       const receivedSince = a["activity_received_since_ms"];
       const actor = a["activity_actor_user_id"];
       const mentioned = a["activity_mentioned_user_id"];
-      const validUserId = (value: unknown) =>
+      const validUserId = (value: unknown): value is string =>
         typeof value === "string" && /^[1-9]\d{0,23}$/.test(value);
       if (
         (eventTypes !== undefined &&
@@ -2121,7 +2120,8 @@ export async function runCatalogOperation(
           if (
             !baseMatches ||
             (actor !== undefined && metadata["actor_user_id"] !== actor) ||
-            (mentioned !== undefined && (!Array.isArray(mentions) || !mentions.includes(mentioned)))
+            (typeof mentioned === "string" &&
+              (!Array.isArray(mentions) || !mentions.includes(mentioned)))
           ) {
             if (baseMatches && (actorUnknown || mentionUnknown)) missingMetadataEvents++;
             cursorTime = event["received_at"];
