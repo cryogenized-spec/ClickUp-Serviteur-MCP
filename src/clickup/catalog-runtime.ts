@@ -4940,7 +4940,46 @@ export async function runCatalogOperation(
       if (a["parent_comment_id"] === undefined) {
         const taskId = val(a, "task_id");
         const posted = await call("POST", v2("task/" + taskId + "/comment"), comment);
-        if (assignee === null) return posted;
+        if (assignee === null) {
+          const newId = posted["id"];
+          if (
+            (typeof newId !== "string" && typeof newId !== "number") ||
+            !/^[0-9]{1,24}$/.test(String(newId))
+          ) return {
+            ...posted,
+            followup_observation: { recorded: false, reason: "invalid_evidence" },
+          };
+          try {
+            // The POST response alone is not proof of the comment's author.
+            // Read once using the connected user's ClickUp OAuth credential.
+            const after = await call("GET", v2("task/" + taskId + "/comment"));
+            if (!Array.isArray(after["comments"]))
+              throw new Error("comment readback unavailable");
+            const created = after["comments"].map(obj).find(
+              (row) => String(row?.["id"]) === String(newId),
+            );
+            if (
+              !created ||
+              String(obj(created["user"])?.["id"]) !== g.clickupUserId ||
+              created["comment_text"] !== comment.comment_text
+            ) throw new Error("comment author/body readback unverified");
+          } catch {
+            // Never hide a successful ClickUp comment behind a private
+            // observation or readback error, and never blindly repeat POST.
+            return {
+              ...posted,
+              followup_observation: {
+                recorded: false,
+                reason: "clickup_readback_unverified",
+              },
+            };
+          }
+          return observeAuthorVerified({
+            ...posted,
+            verified_by_readback: true,
+            notification_delivery_unverified: true,
+          }, String(newId));
+        }
         // Never claim that a requested assignment happened based only on POST.
         const commentId = posted["id"];
         if (
