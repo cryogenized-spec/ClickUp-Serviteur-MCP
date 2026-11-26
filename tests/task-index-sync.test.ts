@@ -105,12 +105,7 @@ describe("signed-event automatic synchronization", () => {
     );
     expect(result.complete).toBe(false);
     expect(index.storeTask).not.toHaveBeenCalled();
-    expect(index.storeComments).toHaveBeenCalledWith(
-      "task1",
-      expect.any(Array),
-      201,
-      false,
-    );
+    expect(index.storeComments).toHaveBeenCalledWith("task1", expect.any(Array), 201, false);
   });
 
   it("discards old snapshots if a verified task read fails current scope checks", async () => {
