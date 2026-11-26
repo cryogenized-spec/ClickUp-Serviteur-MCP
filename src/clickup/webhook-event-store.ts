@@ -64,10 +64,8 @@ export class ClickUpWebhookEvents {
       const taskId = url.searchParams.get("task_id") ?? "";
       const limitRaw = url.searchParams.get("limit") ?? "20";
       const beforeRaw = url.searchParams.get("before_revision");
-      if (
-        !/^[1-9]\d?$/.test(limitRaw) ||
-        (beforeRaw !== null && !/^[1-9]\d{0,9}$/.test(beforeRaw))
-      ) return new Response(null, { status: 400 });
+      if (!/^[1-9]\d?$/.test(limitRaw) || (beforeRaw !== null && !/^[1-9]\d{0,9}$/.test(beforeRaw)))
+        return new Response(null, { status: 400 });
       try {
         const value = this.followups.read(
           taskId,
@@ -76,8 +74,7 @@ export class ClickUpWebhookEvents {
         );
         return Response.json(value, { headers: { "Cache-Control": "no-store" } });
       } catch (error) {
-        if (error instanceof FollowupLedgerError)
-          return new Response(null, { status: 400 });
+        if (error instanceof FollowupLedgerError) return new Response(null, { status: 400 });
         throw error;
       }
     }
