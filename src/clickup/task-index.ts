@@ -203,7 +203,7 @@ export class TaskIndexStore {
     });
   }
 
-  storeTask(snapshot: TaskSnapshot, observedAt: number): void {
+  storeTask(snapshot: TaskSnapshot, observedAt: number): boolean {
     if (
       !validObserved(observedAt) ||
       !projectTaskSnapshot({
@@ -213,6 +213,7 @@ export class TaskIndexStore {
       })
     )
       throw new Error("INVALID_TASK_SNAPSHOT");
+    let applied = false;
     this.transactionSync(() => {
       // RETURNING identifies whether this read was accepted, not merely
       // attempted. A rejected older source revision must leave dirty state.
@@ -230,7 +231,9 @@ export class TaskIndexStore {
         snapshot.task_id,
         observedAt,
       );
+      applied = true;
     });
+    return applied;
   }
 
   storeComments(
