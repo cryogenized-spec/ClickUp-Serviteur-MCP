@@ -1,11 +1,7 @@
 import type { OAuthEnv } from "../auth/env.js";
 import { runCatalogOperation } from "./catalog-runtime.js";
 import { ReadFailure, requireReadGrant, type ReadGrant } from "./policy.js";
-import {
-  projectCommentSnapshot,
-  projectTaskSnapshot,
-  type TaskIndexStore,
-} from "./task-index.js";
+import { projectCommentSnapshot, projectTaskSnapshot, type TaskIndexStore } from "./task-index.js";
 
 /** Only a verified, signed webhook registration may supply this identity.
  * No public MCP tool accepts an actor string for background synchronization.
@@ -62,16 +58,10 @@ export async function synchronizeDirtyTask(
   now: () => number = Date.now,
 ): Promise<{ complete: boolean; indexed_comments: number }> {
   const startedAt = now();
-  if (!Number.isSafeInteger(startedAt) || startedAt <= 0)
-    throw new Error("SYNC_CLOCK_UNAVAILABLE");
+  if (!Number.isSafeInteger(startedAt) || startedAt <= 0) throw new Error("SYNC_CLOCK_UNAVAILABLE");
   try {
     if (item.task_dirty) {
-      const task = await call(
-        "clickup_get_task",
-        { task_id: item.task_id },
-        grant,
-        transport,
-      );
+      const task = await call("clickup_get_task", { task_id: item.task_id }, grant, transport);
       const snapshot = projectTaskSnapshot(task);
       if (!snapshot) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       if (grant.resourceScope !== "workspace" && snapshot.list_id !== grant.listId)
@@ -87,8 +77,7 @@ export async function synchronizeDirtyTask(
     );
     if (!Array.isArray(page["comments"])) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
     const comments = page["comments"].map(projectCommentSnapshot);
-    if (comments.some((comment) => comment === null))
-      throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+    if (comments.some((comment) => comment === null)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
     const complete =
       page["incomplete"] === false &&
       page["continuation_unavailable"] !== true &&
@@ -102,8 +91,7 @@ export async function synchronizeDirtyTask(
       error instanceof ReadFailure &&
       (error.code === "CLICKUP_SCOPE_OR_SCHEMA_REJECTED" ||
         error.code === "CLICKUP_ACCESS_DENIED" ||
-        (error.code === "CLICKUP_UPSTREAM_UNAVAILABLE" &&
-          error.diagnostic?.http_status === 404))
+        (error.code === "CLICKUP_UPSTREAM_UNAVAILABLE" && error.diagnostic?.http_status === 404))
     )
       store.discardSnapshots(item.task_id);
     throw error;
@@ -111,8 +99,7 @@ export async function synchronizeDirtyTask(
 }
 
 export function retryDelayMs(error: unknown, attempts: number): number {
-  if (error instanceof ReadFailure && error.code === "CLICKUP_RATE_LIMITED")
-    return 60_000;
+  if (error instanceof ReadFailure && error.code === "CLICKUP_RATE_LIMITED") return 60_000;
   const count = Math.max(0, Math.min(6, attempts));
   return Math.min(60 * 60_000, 30_000 * 2 ** count);
 }
