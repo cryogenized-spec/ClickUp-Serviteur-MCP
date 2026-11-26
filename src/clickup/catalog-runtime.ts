@@ -1258,6 +1258,8 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_update_goal_name",
   "clickup_update_key_result_progress",
   "clickup_get_pending_activity",
+  "clickup_get_task_activity_timeline",
+  "clickup_get_api_diagnostics",
   "clickup_acknowledge_activity",
   "clickup_get_shared_resources",
   "clickup_get_task_attachments",
@@ -1400,6 +1402,8 @@ const WORKSPACE_SCOPE_OPERATIONS = new Set([
   "clickup_update_goal_name",
   "clickup_update_key_result_progress",
   "clickup_get_pending_activity",
+  "clickup_get_task_activity_timeline",
+  "clickup_get_api_diagnostics",
   "clickup_acknowledge_activity",
   "clickup_get_shared_resources",
   "clickup_get_task_attachments",
@@ -1507,6 +1511,7 @@ export async function runCatalogOperation(
     name === "clickup_get_task_attachments" ||
     name === "clickup_get_task" ||
     name === "clickup_get_task_comments" ||
+    name === "clickup_get_task_activity_timeline" ||
     name === "clickup_create_task_comment";
   const task = async (k: string) => taskInWorkspace(g, f, a[k], allowSharedTask);
   const updateVerifiedTask = async (taskId: unknown, before: Json, patch: Json): Promise<Json> => {
@@ -4000,6 +4005,177 @@ export async function runCatalogOperation(
         typeof a["media_type"] === "string" ? a["media_type"] : "application/octet-stream",
         entity,
       );
+    }
+    case "clickup_get_task_activity_timeline": {
+      const current = await task("task_id");
+      const taskId = String(a["task_id"]);
+      const events: Json[] = [];
+      const issues: string[] = [];
+      const timestamp = (value: unknown): number | null => {
+        if (
+          (typeof value !== "number" && typeof value !== "string") ||
+          !/^\d{1,15}$/.test(String(value))
+        )
+          return null;
+        const number = Number(value);
+        return Number.isSafeInteger(number) && number > 0 ? number : null;
+      };
+      const addAnchor = (field: string, kind: string) => {
+        const at = timestamp(current[field]);
+        if (at !== null) events.push({ kind, at_ms: at, source: "current_task_snapshot" });
+      };
+      addAnchor("date_created", "task_created");
+      addAnchor("date_updated", "task_last_updated");
+      addAnchor("date_closed", "task_closed");
+      addAnchor("date_done", "task_done");
+      const comments = await runCatalogOperation(
+        "clickup_get_task_comments",
+        a,
+        g,
+        f,
+        waitAfterRateLimit,
+      ).catch((error: unknown) => {
+        issues.push(error instanceof ReadFailure ? error.code : "comment_read_unavailable");
+        return null;
+      });
+      const rows = comments?.["comments"];
+      const commentIds = new Set<string>();
+      if (Array.isArray(rows)) {
+        for (const value of rows) {
+          const row = obj(value);
+          const at = timestamp(row?.["date"]);
+          if (!row || at === null) {
+            issues.push("comment_timestamp_unavailable");
+            continue;
+          }
+          const commentId = String(row["id"]);
+          commentIds.add(commentId);
+          const author = obj(row["user"]);
+          const text = row["comment_text"];
+          events.push({
+            kind: "comment",
+            at_ms: at,
+            source: "clickup_comment",
+            comment_id: commentId,
+            author_id: author?.["id"] ?? null,
+            author_name: typeof author?.["username"] === "string" ? author["username"] : null,
+            text: typeof text === "string" ? text.slice(0, 1000) : null,
+            text_truncated: typeof text === "string" && text.length > 1000,
+            resolved: row["resolved"] ?? null,
+            assigned_to: obj(row["assignee"])?.["id"] ?? null,
+          });
+        }
+      }
+      let webhookCount = 0;
+      let webhookIncomplete = true;
+      if (g.webhookEvents) {
+        try {
+          const binding = g.webhookEvents;
+          const stub = binding.get(binding.idFromName(W + ":" + g.subject) as never);
+          const result = await stub.fetch(
+            new Request("https://internal/task-timeline?task_id=" + id(taskId)),
+          );
+          if (!result.ok) throw new ReadFailure("CLICKUP_EVENT_STORAGE_UNAVAILABLE");
+          const body = obj(await result.json());
+          if (!Array.isArray(body?.["events"]) || body["events"].length > 50)
+            throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+          webhookIncomplete = body["incomplete"] === true;
+          for (const value of body["events"]) {
+            const row = obj(value);
+            if (!row || typeof row["event"] !== "string") {
+              webhookIncomplete = true;
+              continue;
+            }
+            const metadata = sanitizeWebhookMetadata(row["metadata"]);
+            const at = timestamp(metadata["occurred_at"] ?? row["received_at"]);
+            if (at === null) {
+              webhookIncomplete = true;
+              continue;
+            }
+            webhookCount++;
+            if (
+              row["event"] === "taskCommentPosted" &&
+              typeof metadata["comment_id"] === "string" &&
+              commentIds.has(metadata["comment_id"])
+            )
+              continue;
+            events.push({
+              kind: row["event"],
+              at_ms: at,
+              source: "retained_webhook_hint",
+              time_basis: metadata["occurred_at"] ? "occurred_at" : "received_at",
+              metadata,
+            });
+          }
+        } catch (error) {
+          issues.push(error instanceof ReadFailure ? error.code : "event_storage_unavailable");
+        }
+      } else issues.push("event_storage_unconfigured");
+      events.sort((left, right) => Number(left["at_ms"]) - Number(right["at_ms"]));
+      return {
+        task: {
+          id: taskId,
+          name: current["name"],
+          status: obj(current["status"])?.["status"] ?? null,
+          list_id: obj(current["list"])?.["id"] ?? null,
+          url: current["url"] ?? null,
+        },
+        timeline: events,
+        coverage: {
+          comments_read: Array.isArray(rows) ? rows.length : 0,
+          comments_incomplete: comments === null || comments["incomplete"] !== false,
+          next_comment_start: comments?.["next_comment_start"] ?? null,
+          next_comment_start_id: comments?.["next_comment_start_id"] ?? null,
+          webhook_events_read: webhookCount,
+          webhook_incomplete: webhookIncomplete,
+          webhook_retention_days: 7,
+          threaded_replies_included: false,
+          native_activity_history_available: false,
+          issues: [...new Set(issues)],
+        },
+        incomplete: true,
+        note: "Chronological evidence, not a complete native activity log. Snapshot timestamps do not identify the change or actor. Webhook hints are bounded and may overlap comments.",
+      };
+    }
+    case "clickup_get_api_diagnostics": {
+      const issues: string[] = [];
+      let quota: Json | null = null;
+      let webhook: Json | null = null;
+      try {
+        const stub = g.quota.get(g.quota.idFromName("clickup-account:" + g.clickupUserId) as never);
+        const result = await stub.fetch(
+          new Request("https://internal.invalid/diagnostics", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ subject: g.subject }),
+          }),
+        );
+        if (!result.ok) throw new Error("quota unavailable");
+        quota = obj(await result.json());
+        if (!quota || !Array.isArray(quota["days"])) throw new Error("quota unavailable");
+      } catch {
+        quota = null;
+        issues.push("quota_diagnostics_unavailable");
+      }
+      if (g.webhookEvents) {
+        try {
+          const binding = g.webhookEvents;
+          const stub = binding.get(binding.idFromName(W + ":" + g.subject) as never);
+          const result = await stub.fetch(new Request("https://internal/diagnostics"));
+          if (!result.ok) throw new Error("event storage unavailable");
+          webhook = obj(await result.json());
+          if (!webhook) throw new Error("event storage unavailable");
+        } catch {
+          issues.push("webhook_diagnostics_unavailable");
+        }
+      } else issues.push("event_storage_unconfigured");
+      return {
+        quota,
+        webhook,
+        issues,
+        incomplete: issues.length > 0,
+        note: "UTC day buckets since instrumentation was deployed. Allowed reservations are not confirmed upstream responses; cooldowns count recorded reset signals, not every 429. No request bodies, credentials, URLs or latency measurements are retained.",
+      };
     }
     case "clickup_get_task_comments": {
       await task("task_id");
