@@ -117,4 +117,32 @@ describe("real SQLite task-index regressions", () => {
     store.markDirty("task123", "taskStatusUpdated", 210);
     expect(store.lookup("task123")?.["task_stale"]).toBe(true);
   });
+  it("coalesces dirty tasks, respects retry checkpoints and reactivates new changes", () => {
+    const store = make();
+    store.markDirty("task1", "taskCreated", 1000);
+    store.markDirty("task2", "taskCommentPosted", 1100);
+    expect(store.dirtyTasks(1200, 10)).toEqual([
+      { task_id: "task1", task_dirty: true, comments_dirty: false, attempts: 0 },
+      { task_id: "task2", task_dirty: false, comments_dirty: true, attempts: 0 },
+    ]);
+    store.deferTask("task1", 5000, 1);
+    expect(store.dirtyTasks(1200, 10).map((item) => item.task_id)).toEqual(["task2"]);
+    expect(store.nextDirtyDue()).toBe(0);
+    store.storeComments("task2", [], 1300, true);
+    expect(store.nextDirtyDue()).toBe(5000);
+    store.markDirty("task1", "taskStatusUpdated", 1400);
+    expect(store.dirtyTasks(1500, 10)[0]?.attempts).toBe(0);
+    expect(store.nextDirtyDue()).toBe(0);
+  });
+
+  it("discards previously cached task and comment content after access is revoked", () => {
+    const store = make();
+    store.storeTask(indexedTask(100, "Sensitive"), 100);
+    store.storeComments("task123", [indexedComment("c1", "Sensitive note")], 100, true);
+    store.discardSnapshots("task123");
+    expect(store.lookup("task123")).toBeNull();
+    expect(store.diagnostics()["indexed_comments"]).toBe(0);
+  });
+
+
 });
