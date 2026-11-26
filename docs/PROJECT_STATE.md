@@ -1,3 +1,15 @@
+# 26 November 2026 — Persistent task index foundation (draft PR #170)
+
+The owner asked to begin the existing Worker/SQLite persistent ClickUp task-index plan. Source changes are proposed on [draft PR #170](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/170), branch `feat/persistent-task-index-foundation`, against company-deployed baseline `0f9609ca3e160c22b73e12c075f2067e65664085`. Design and exclusions: [persistent task index foundation](PERSISTENT_TASK_INDEX_2026-11-26.md).
+
+**Scope:** Add projected persistent task and comment snapshots, actor-partitioned in the existing webhook Durable Object, unique SQLite keys, task/comment-specific dirty markers on webhook ingestion, and best-effort capture after the caller's current OAuth-verified task/comment reads. Keep the ordinary MCP read authoritative; don't return cached content to users, create a new service/database, or modify ClickUp. Automatic refresh, reconciliation, full history, priority curation and scheduled-watch integration remain out of scope.
+
+**Verification status:** Initial strict CI detected formatting differences, subsequently fixed with its exact corrections. The next run identified a Cloudflare-only type reference in the shared application module; the source now uses a provider-independent SQL port instead. Fresh strict CI and CodeQL for the final PR head remain required; no merged or deployed claim is made. No live customer data or production ClickUp tasks were modified.
+
+**One next action:** Verify strict CI and CodeQL on the exact final PR SHA, remedy any remaining failures, then request the repository's focused Codex review before owner merge/deployment.
+
+---
+
 # 25 November 2026 — ChatGPT file-slot diagnostic and image-name compatibility (candidate)
 
 After the merged task upload 404 fallback (PR #162, commit `3ba8413`), the company Worker was still serving prior commit `47fba6a`. Live file-slot testing of a previously attached user photo reported `CLICKUP_FILE_HOST_NOT_ALLOWED` with both file ID and mounted path, before any ClickUp write. Work in progress: emit a **hostname-only** diagnostic for rejected OpenAI file-source URLs (no signed path/query), allow explicit known OpenAI delivery origins, and normalize a genuine transcoded JPG-name/WebP-bytes mismatch. This is source-only pending exact-head CI, review and protected deployment. Storage remains a separate ClickUp-side `GBUSED_005` rejection.

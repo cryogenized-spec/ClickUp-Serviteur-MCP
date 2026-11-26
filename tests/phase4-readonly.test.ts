@@ -74,6 +74,22 @@ describe("Phase 4 separate authorization policy", () => {
     expect(grant.listId).toBe("12345");
   });
 
+  it("provides the private task index to List-only grants without exposing Workspace webhook consumers", async () => {
+    const index = {
+      idFromName: (name: string) => name,
+      get: () => ({ fetch: async () => Response.json({ indexed: true }) }),
+    };
+    const limited = await requireReadGrant(auth, {
+      ...env,
+      CLICKUP_WEBHOOK_ENABLED: "true",
+      CLICKUP_WEBHOOK_EVENTS: index,
+    });
+    expect(limited.resourceScope).toBe("list");
+    expect(limited.taskIndex).toBeDefined();
+    expect(limited.webhookEvents).toBeUndefined();
+    expect(limited.webhookOrigin).toBeUndefined();
+  });
+
   it("requires explicit Workspace opt-in and verified exclusive OAuth consent", async () => {
     const full = await requireReadGrant(auth, { ...env, CLICKUP_RESOURCE_SCOPE: "workspace" });
     expect(full.resourceScope).toBe("workspace");

@@ -1,4 +1,10 @@
 import {
+  projectCommentSnapshot,
+  projectTaskSnapshot,
+  TaskIndexStore,
+  type CommentSnapshot,
+} from "./task-index.js";
+import {
   sanitizeWebhookMetadata,
   validActivityConsumer,
   type WebhookHint,
@@ -8,6 +14,8 @@ const WEEK = 7 * 24 * 60 * 60 * 1000;
 
 /** Internal binding only. Partition by approved Workspace and authenticated actor. */
 export class ClickUpWebhookEvents {
+  private readonly taskIndex: TaskIndexStore;
+
   constructor(
     private readonly state: DurableObjectState,
     private readonly env: { CLICKUP_TOKEN_KEY?: string },
@@ -28,12 +36,100 @@ export class ClickUpWebhookEvents {
     state.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS reviewed (event_key TEXT PRIMARY KEY, acknowledged_at INTEGER NOT NULL)",
     );
+    this.taskIndex = new TaskIndexStore(
+      (statement, ...bindings) => state.storage.sql.exec(statement, ...bindings),
+      (action) => state.storage.transactionSync(action),
+    );
   }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
     if (path === "/registry") return this.registry(request);
+    // These endpoints are private Durable Object RPCs, never public Worker routes.
+    // The caller must have completed its own ClickUp OAuth task verification.
+    if (request.method === "POST" && path === "/index/task") {
+      const raw: unknown = await request.json().catch(() => null);
+      const args =
+        raw !== null && typeof raw === "object" && !Array.isArray(raw)
+          ? (raw as Record<string, unknown>)
+          : null;
+      const input = args?.["snapshot"];
+      const item =
+        input !== null && typeof input === "object" && !Array.isArray(input)
+          ? (input as Record<string, unknown>)
+          : null;
+      const observed = args?.["observed_at"];
+      if (!item || typeof observed !== "number" || !Number.isSafeInteger(observed) || observed <= 0)
+        return new Response(null, { status: 400 });
+      const snapshot = projectTaskSnapshot({
+        id: item["task_id"],
+        name: item["title"],
+        list: { id: item["list_id"] },
+        status: { status: item["status"] },
+        priority: { id: item["priority"] },
+        due_date: item["due_at_ms"],
+        date_created: item["created_at_ms"],
+        date_updated: item["source_updated_at_ms"],
+        date_closed: item["closed_at_ms"],
+        markdown_description: item["description"],
+        assignees: Array.isArray(item["assignee_ids"])
+          ? item["assignee_ids"].map((id) => ({ id }))
+          : [],
+      });
+      if (!snapshot) return new Response(null, { status: 400 });
+      this.taskIndex.storeTask(snapshot, observed);
+      return Response.json({ indexed: true });
+    }
+    if (request.method === "POST" && path === "/index/comments") {
+      const raw: unknown = await request.json().catch(() => null);
+      const args =
+        raw !== null && typeof raw === "object" && !Array.isArray(raw)
+          ? (raw as Record<string, unknown>)
+          : null;
+      const id = args?.["task_id"];
+      const observed = args?.["observed_at"];
+      const entries = args?.["comments"];
+      if (
+        typeof id !== "string" ||
+        !/^[a-zA-Z0-9_-]{1,80}$/.test(id) ||
+        typeof observed !== "number" ||
+        !Number.isSafeInteger(observed) ||
+        observed <= 0 ||
+        !Array.isArray(entries) ||
+        entries.length > 50 ||
+        typeof args?.["complete"] !== "boolean"
+      )
+        return new Response(null, { status: 400 });
+      const comments: CommentSnapshot[] = [];
+      for (const value of entries) {
+        if (value === null || typeof value !== "object" || Array.isArray(value))
+          return new Response(null, { status: 400 });
+        const item = value as Record<string, unknown>;
+        const projected = projectCommentSnapshot({
+          id: item["comment_id"],
+          user: { id: item["author_id"] },
+          assignee: { id: item["assigned_to"] },
+          date: item["source_at_ms"],
+          comment_text: item["text"],
+          resolved: item["resolved"],
+          reply_count: item["reply_count"],
+          comment: Array.isArray(item["mentioned_user_ids"])
+            ? item["mentioned_user_ids"].map((id) => ({ type: "tag", user: { id } }))
+            : [],
+        });
+        if (!projected) return new Response(null, { status: 400 });
+        comments.push({ ...projected, text_truncated: item["text_truncated"] === true });
+      }
+      this.taskIndex.storeComments(id, comments, observed, args["complete"]);
+      return Response.json({ indexed: comments.length });
+    }
+    if (request.method === "GET" && path === "/index/task") {
+      const id = url.searchParams.get("task_id");
+      if (!id || !/^[a-zA-Z0-9_-]{1,80}$/.test(id)) return new Response(null, { status: 400 });
+      const indexed = this.taskIndex.lookup(id);
+      return indexed ? Response.json(indexed) : new Response(null, { status: 404 });
+    }
     if (request.method === "GET" && path === "/pending") {
       const since = url.searchParams.get("after_time");
       const key = url.searchParams.get("after_key");
@@ -112,7 +208,12 @@ export class ClickUpWebhookEvents {
           Date.now() - WEEK,
         )
         .one();
-      return Response.json({ ...counts, retention_days: 7, capacity: 5000 });
+      return Response.json({
+        ...counts,
+        retention_days: 7,
+        capacity: 5000,
+        task_index: this.taskIndex.diagnostics(),
+      });
     }
     if (request.method === "POST" && (path === "/acknowledge" || path === "/consumer-processed")) {
       const raw: unknown = await request.json().catch(() => null);
@@ -234,13 +335,17 @@ export class ClickUpWebhookEvents {
               .toArray()[0]
           : undefined;
         const eventKey = existing?.event_key ?? hint.key;
-        this.state.storage.sql.exec(
-          "INSERT OR IGNORE INTO hints(event_key, task_id, event, received_at) VALUES (?, ?, ?, ?)",
-          eventKey,
-          hint.taskId,
-          hint.event,
-          hint.receivedAt,
-        );
+        const inserted = this.state.storage.sql
+          .exec<{ event_key: string }>(
+            "INSERT OR IGNORE INTO hints(event_key, task_id, event, received_at) VALUES (?, ?, ?, ?) RETURNING event_key",
+            eventKey,
+            hint.taskId,
+            hint.event,
+            hint.receivedAt,
+          )
+          .toArray();
+        // Replayed webhooks must not make a successfully refreshed task stale.
+        if (inserted.length) this.taskIndex.markDirty(hint.taskId, hint.event, hint.receivedAt);
         if (hint.metadata)
           this.state.storage.sql.exec(
             "INSERT OR IGNORE INTO hint_metadata(event_key, metadata) SELECT event_key, ? FROM hints WHERE event_key = ? AND task_id = ?",
