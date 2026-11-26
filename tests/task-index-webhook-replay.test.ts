@@ -33,10 +33,7 @@ function fixture() {
     CLICKUP_WORKSPACE_ID: "555",
     CLICKUP_INDEX_AUTOSYNC_ENABLED: "false",
   } as unknown as OAuthEnv;
-  const instance = new ClickUpWebhookEvents(
-    { storage } as unknown as DurableObjectState,
-    env,
-  );
+  const instance = new ClickUpWebhookEvents({ storage } as unknown as DurableObjectState, env);
   return { db, instance };
 }
 
@@ -79,12 +76,12 @@ describe("idempotent Durable Object webhook ingestion", () => {
     );
     expect(wrote.status).toBe(200);
     const before = await instance.fetch(new Request("https://internal/index/task?task_id=task1"));
-    expect((await before.json() as { task_stale: boolean }).task_stale).toBe(false);
+    expect(((await before.json()) as { task_stale: boolean }).task_stale).toBe(false);
     expect((await post([{ ...event, receivedAt: now + 2000 }])).status).toBe(204);
     const after = await instance.fetch(new Request("https://internal/index/task?task_id=task1"));
-    expect((await after.json() as { task_stale: boolean }).task_stale).toBe(false);
+    expect(((await after.json()) as { task_stale: boolean }).task_stale).toBe(false);
     const info = await instance.fetch(new Request("https://internal/diagnostics"));
-    const metrics = await info.json() as {
+    const metrics = (await info.json()) as {
       retained: number;
       task_index: { task_refresh_pending: number };
     };
