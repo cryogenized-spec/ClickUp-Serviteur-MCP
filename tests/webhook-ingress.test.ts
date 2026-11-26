@@ -80,6 +80,24 @@ describe("ClickUp webhook ingress", () => {
     expect(keys[1]!.startsWith(alternate + ":")).toBe(true);
   });
 
+  it("deduplicates exact historyless replays but not different subscriptions", async () => {
+    const persist = vi.fn<WebhookIngressDependencies["persist"]>(async () => {});
+    const deps = { resolve: async () => registration, persist };
+    const payload = JSON.stringify({
+      webhook_id: webhookId,
+      event: "taskCreated",
+      task_id: "abc123",
+    });
+    const alternate = payload.replace(webhookId, "8769a169-a000-4985-8676-6902b96d6627");
+    for (const value of [payload, payload, alternate])
+      expect((await receiveClickUpWebhook(await signedRequest(value), deps, 1000)).status).toBe(
+        204,
+      );
+    const keys = persist.mock.calls.map((call) => call[1][0]!.key);
+    expect(keys[0]).toBe(keys[1]);
+    expect(keys[0]!.slice(37)).not.toBe(keys[2]!.slice(37));
+  });
+
   it("retains only documented routing metadata, never raw comment content", async () => {
     const persist = vi.fn(async () => {});
     const payload = JSON.stringify({
