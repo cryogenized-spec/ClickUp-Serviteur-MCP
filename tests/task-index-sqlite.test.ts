@@ -155,6 +155,4 @@ describe("real SQLite task-index regressions", () => {
     expect(store.lookup("task123")).toBeNull();
     expect(store.diagnostics()["indexed_comments"]).toBe(0);
   });
-
-
 });
