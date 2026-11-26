@@ -10,7 +10,7 @@ function fixture(
   } = {},
 ) {
   const providerCalls: Array<{ path: string; method: string }> = [];
-  const privateCalls: Array<{ path: string; body?: Record<string, unknown> }> = [];
+  const privateCalls: Array<{ path: string; body?: Record<string, unknown> | undefined }> = [];
   const commentId = options.resultId ?? "1500260000111534";
   const api = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(String(input)).pathname;
