@@ -30,12 +30,19 @@ function fixture(
   taskFailures: Record<string, number[]> = {},
 ) {
   let rateLimitFailures = 0;
+  const processed = new Map<string, Set<string>>();
   const requests = vi.fn(async (request: Request) => {
     const url = new URL(request.url);
     if (url.pathname === "/consumer-processed") {
       expect(request.method).toBe("POST");
       const body = (await request.json()) as { consumer: string; event_keys: string[] };
-      return Response.json({ consumer: body.consumer, processed_event_keys: body.event_keys });
+      const keys = processed.get(body.consumer) ?? new Set<string>();
+      for (const key of body.event_keys) keys.add(key);
+      processed.set(body.consumer, keys);
+      return Response.json({
+        consumer: body.consumer,
+        processed_event_keys: [...new Set(body.event_keys)],
+      });
     }
     expect(request.method).toBe("GET");
     if (url.pathname === "/task-timeline") {
@@ -46,9 +53,11 @@ function fixture(
       return Response.json({ retained: events.length, pending: events.length, retention_days: 7 });
     const after = Number(url.searchParams.get("after_time") ?? 0);
     const afterKey = url.searchParams.get("after_key") ?? "";
+    const consumer = url.searchParams.get("consumer");
     const remaining = events.filter(
       (event) =>
-        event.received_at > after || (event.received_at === after && event.event_key > afterKey),
+        !(consumer && processed.get(consumer)?.has(event.event_key)) &&
+        (event.received_at > after || (event.received_at === after && event.event_key > afterKey)),
     );
     return Response.json({
       events: remaining.slice(0, 10),
@@ -247,6 +256,15 @@ describe("independent activity consumers and filtering", () => {
     });
     expect(f.requests).toHaveBeenCalledTimes(1);
     expect(new URL(f.requests.mock.calls[0]![0].url).pathname).toBe("/consumer-processed");
+    const read = (consumer: string) =>
+      runCatalogOperation(
+        "clickup_get_pending_activity",
+        { activity_consumer: consumer },
+        f.enrichedGrant,
+        f.api as typeof fetch,
+      );
+    expect(await read("hourly-watch")).toMatchObject({ events_scanned: 0, tasks: [] });
+    expect(await read("afternoon-briefing")).toMatchObject({ events_scanned: 1 });
   });
 });
 
