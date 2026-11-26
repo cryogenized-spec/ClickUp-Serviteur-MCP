@@ -4320,7 +4320,9 @@ export async function runCatalogOperation(
         verified,
         result["comments"],
         observedAt,
-        result["incomplete"] === false,
+        result["incomplete"] === false &&
+          a["comment_start"] === undefined &&
+          a["comment_start_id"] === undefined,
       );
       return result;
     }
