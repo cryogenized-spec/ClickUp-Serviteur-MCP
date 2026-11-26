@@ -106,7 +106,10 @@ const validObserved = (value: unknown): value is number =>
  * verify the task using the current user's own ClickUp OAuth credential.
  */
 export class TaskIndexStore {
-  constructor(private readonly run: SqlRunner) {
+  constructor(
+    private readonly run: SqlRunner,
+    private readonly transactionSync: (action: () => void) => void = (action) => action(),
+  ) {
     run(
       "CREATE TABLE IF NOT EXISTS task_snapshots (task_id TEXT PRIMARY KEY, list_id TEXT NOT NULL, snapshot_json TEXT NOT NULL, source_updated_at INTEGER NOT NULL, observed_at INTEGER NOT NULL)",
     );
@@ -140,19 +143,24 @@ export class TaskIndexStore {
       })
     )
       throw new Error("INVALID_TASK_SNAPSHOT");
-    this.run(
-      "INSERT INTO task_snapshots(task_id, list_id, snapshot_json, source_updated_at, observed_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET list_id = excluded.list_id, snapshot_json = excluded.snapshot_json, source_updated_at = excluded.source_updated_at, observed_at = excluded.observed_at WHERE excluded.observed_at >= task_snapshots.observed_at AND excluded.source_updated_at >= task_snapshots.source_updated_at",
-      snapshot.task_id,
-      snapshot.list_id,
-      JSON.stringify(snapshot),
-      snapshot.source_updated_at_ms,
-      observedAt,
-    );
-    this.run(
-      "INSERT INTO task_refresh(task_id, task_checked_at) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET task_checked_at = MAX(task_refresh.task_checked_at, excluded.task_checked_at)",
-      snapshot.task_id,
-      observedAt,
-    );
+    this.transactionSync(() => {
+      // RETURNING identifies whether this read was accepted, not merely
+      // attempted. A rejected older source revision must leave dirty state.
+      const accepted = this.run(
+        "INSERT INTO task_snapshots(task_id, list_id, snapshot_json, source_updated_at, observed_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET list_id = excluded.list_id, snapshot_json = excluded.snapshot_json, source_updated_at = excluded.source_updated_at, observed_at = excluded.observed_at WHERE excluded.observed_at >= task_snapshots.observed_at AND excluded.source_updated_at >= task_snapshots.source_updated_at RETURNING task_id",
+        snapshot.task_id,
+        snapshot.list_id,
+        JSON.stringify(snapshot),
+        snapshot.source_updated_at_ms,
+        observedAt,
+      ).toArray();
+      if (!accepted.length) return;
+      this.run(
+        "INSERT INTO task_refresh(task_id, task_checked_at) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET task_checked_at = MAX(task_refresh.task_checked_at, excluded.task_checked_at)",
+        snapshot.task_id,
+        observedAt,
+      );
+    });
   }
 
   storeComments(
@@ -163,25 +171,62 @@ export class TaskIndexStore {
   ): void {
     if (!taskId(id) || !validObserved(observedAt) || comments.length > 50)
       throw new Error("INVALID_COMMENT_SNAPSHOT");
+    const seen = new Set<string>();
     for (const comment of comments) {
-      if (!taskId(comment.comment_id)) throw new Error("INVALID_COMMENT_SNAPSHOT");
-      this.run(
-        "INSERT INTO comment_snapshots(task_id, comment_id, snapshot_json, source_at, observed_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(task_id, comment_id) DO UPDATE SET snapshot_json = excluded.snapshot_json, source_at = excluded.source_at, observed_at = excluded.observed_at WHERE excluded.observed_at >= comment_snapshots.observed_at",
-        id,
-        comment.comment_id,
-        JSON.stringify(comment),
-        comment.source_at_ms,
-        observedAt,
-      );
+      if (!taskId(comment.comment_id) || seen.has(comment.comment_id))
+        throw new Error("INVALID_COMMENT_SNAPSHOT");
+      seen.add(comment.comment_id);
     }
-    // Only a complete comment scan can clear a dirty flag. Partial pages
-    // still contribute useful unique records without claiming synchronization.
-    if (complete)
+    this.transactionSync(() => {
+      for (const comment of comments) {
+        this.run(
+          "INSERT INTO comment_snapshots(task_id, comment_id, snapshot_json, source_at, observed_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(task_id, comment_id) DO UPDATE SET snapshot_json = excluded.snapshot_json, source_at = excluded.source_at, observed_at = excluded.observed_at WHERE excluded.observed_at >= comment_snapshots.observed_at",
+          id,
+          comment.comment_id,
+          JSON.stringify(comment),
+          comment.source_at_ms,
+          observedAt,
+        );
+      }
+      // Partial pages can add unique comments, but never declare the complete
+      // collection synchronized or delete anything not visible on that page.
+      if (!complete) return;
+      const prior = this.run(
+        "SELECT comments_checked_at FROM task_refresh WHERE task_id = ?",
+        id,
+      ).toArray()[0] as { comments_checked_at: number } | undefined;
+      const latest = this.run(
+        "SELECT MAX(observed_at) AS last_observed FROM comment_snapshots WHERE task_id = ?",
+        id,
+      ).one() as { last_observed: number | null };
+      // A newer complete or partial read may have landed while this scan
+      // ran; an older scan must not delete its records or declare them fresh.
+      if (
+        (prior?.comments_checked_at ?? 0) > observedAt ||
+        (latest.last_observed ?? 0) > observedAt
+      ) return;
+      if (comments.length) {
+        const placeholders = comments.map(() => "?").join(", ");
+        this.run(
+          "DELETE FROM comment_snapshots WHERE task_id = ? AND observed_at <= ? AND comment_id NOT IN (" +
+            placeholders +
+            ")",
+          id,
+          observedAt,
+          ...comments.map((comment) => comment.comment_id),
+        );
+      } else
+        this.run(
+          "DELETE FROM comment_snapshots WHERE task_id = ? AND observed_at <= ?",
+          id,
+          observedAt,
+        );
       this.run(
         "INSERT INTO task_refresh(task_id, comments_checked_at) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET comments_checked_at = MAX(task_refresh.comments_checked_at, excluded.comments_checked_at)",
         id,
         observedAt,
       );
+    });
   }
 
   diagnostics(): Json {
@@ -237,9 +282,9 @@ async function writeIndex(
   path: "/index/task" | "/index/comments",
   body: Json,
 ): Promise<boolean> {
-  if (!grant.webhookEvents) return false;
+  if (!grant.taskIndex) return false;
   try {
-    const binding = grant.webhookEvents;
+    const binding = grant.taskIndex;
     const stub = binding.get(binding.idFromName(grant.workspaceId + ":" + grant.subject) as never);
     const result = await stub.fetch(
       new Request("https://internal" + path, {
