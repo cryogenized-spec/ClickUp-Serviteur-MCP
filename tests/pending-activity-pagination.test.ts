@@ -30,9 +30,21 @@ function fixture(
   taskFailures: Record<string, number[]> = {},
 ) {
   let rateLimitFailures = 0;
+  const processed = new Map<string, Set<string>>();
   const requests = vi.fn(async (request: Request) => {
-    expect(request.method).toBe("GET");
     const url = new URL(request.url);
+    if (url.pathname === "/consumer-processed") {
+      expect(request.method).toBe("POST");
+      const body = (await request.json()) as { consumer: string; event_keys: string[] };
+      const keys = processed.get(body.consumer) ?? new Set<string>();
+      for (const key of body.event_keys) keys.add(key);
+      processed.set(body.consumer, keys);
+      return Response.json({
+        consumer: body.consumer,
+        processed_event_keys: [...new Set(body.event_keys)],
+      });
+    }
+    expect(request.method).toBe("GET");
     if (url.pathname === "/task-timeline") {
       const selected = events.filter((event) => event.task_id === url.searchParams.get("task_id"));
       return Response.json({ events: selected, incomplete: false });
@@ -41,9 +53,11 @@ function fixture(
       return Response.json({ retained: events.length, pending: events.length, retention_days: 7 });
     const after = Number(url.searchParams.get("after_time") ?? 0);
     const afterKey = url.searchParams.get("after_key") ?? "";
+    const consumer = url.searchParams.get("consumer");
     const remaining = events.filter(
       (event) =>
-        event.received_at > after || (event.received_at === after && event.event_key > afterKey),
+        !(consumer && processed.get(consumer)?.has(event.event_key)) &&
+        (event.received_at > after || (event.received_at === after && event.event_key > afterKey)),
     );
     return Response.json({
       events: remaining.slice(0, 10),
@@ -152,6 +166,105 @@ describe("task activity timeline and diagnostics", () => {
       incomplete: true,
     });
     expect(f.api).not.toHaveBeenCalled();
+  });
+});
+
+describe("independent activity consumers and filtering", () => {
+  it("filters before task verification and retains a cursor across matching pages", async () => {
+    const events = [
+      makeEvent(0, "irrelevant"),
+      { ...makeEvent(1, "selected"), metadata: { actor_user_id: "707" } },
+      makeEvent(2, "other"),
+      { ...makeEvent(3, "second"), metadata: { actor_user_id: "707" } },
+    ];
+    const f = fixture(events);
+    const args = {
+      activity_consumer: "hourly-watch",
+      activity_event_types: ["taskCommentPosted"],
+      activity_actor_user_id: "707",
+      max_results: 1,
+    };
+    const first = await runCatalogOperation(
+      "clickup_get_pending_activity",
+      args,
+      f.enrichedGrant,
+      f.api as typeof fetch,
+    );
+    expect(first).toMatchObject({
+      consumer: "hourly-watch",
+      events_scanned: 2,
+      events_filtered_before_verification: 1,
+      incomplete: true,
+      tasks: [{ task_id: "selected" }],
+      next_event_after_key: events[1]!.event_key,
+    });
+    const second = await runCatalogOperation(
+      "clickup_get_pending_activity",
+      {
+        ...args,
+        event_after_time: first["next_event_after_time"],
+        event_after_key: first["next_event_after_key"],
+      },
+      f.enrichedGrant,
+      f.api as typeof fetch,
+    );
+    expect(second).toMatchObject({
+      events_scanned: 2,
+      events_filtered_before_verification: 1,
+      incomplete: false,
+      tasks: [{ task_id: "second" }],
+    });
+    expect(f.api.mock.calls.filter(([request]) => String(request).includes("/task/"))).toHaveLength(
+      2,
+    );
+    expect(
+      f.requests.mock.calls.every(
+        ([request]) => new URL(request.url).searchParams.get("consumer") === "hourly-watch",
+      ),
+    ).toBe(true);
+  });
+
+  it("reports missing metadata instead of treating it as a confirmed absence of mentions", async () => {
+    const f = fixture([makeEvent(1)]);
+    const result = await runCatalogOperation(
+      "clickup_get_pending_activity",
+      { activity_mentioned_user_id: "707" },
+      f.enrichedGrant,
+      f.api as typeof fetch,
+    );
+    expect(result).toMatchObject({
+      events_scanned: 1,
+      events_filtered_before_verification: 1,
+      events_filtered_missing_metadata: 1,
+      tasks: [],
+    });
+    expect(f.api).not.toHaveBeenCalled();
+  });
+
+  it("marks only the named consumer after authorizing the task", async () => {
+    const event = makeEvent(1);
+    const f = fixture([event]);
+    const result = await runCatalogOperation(
+      "clickup_mark_consumer_activity_processed",
+      { task_id: "abc123", activity_consumer: "hourly-watch", event_keys: [event.event_key] },
+      f.enrichedGrant,
+      f.api as typeof fetch,
+    );
+    expect(result).toMatchObject({
+      consumer: "hourly-watch",
+      processed_event_keys: [event.event_key],
+    });
+    expect(f.requests).toHaveBeenCalledTimes(1);
+    expect(new URL(f.requests.mock.calls[0]![0].url).pathname).toBe("/consumer-processed");
+    const read = (consumer: string) =>
+      runCatalogOperation(
+        "clickup_get_pending_activity",
+        { activity_consumer: consumer },
+        f.enrichedGrant,
+        f.api as typeof fetch,
+      );
+    expect(await read("hourly-watch")).toMatchObject({ events_scanned: 0, tasks: [] });
+    expect(await read("afternoon-briefing")).toMatchObject({ events_scanned: 1 });
   });
 });
 
