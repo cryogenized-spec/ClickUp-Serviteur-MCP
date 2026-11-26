@@ -1,4 +1,5 @@
 import { quotaCall } from "./client.js";
+import { sanitizeWebhookMetadata } from "./webhook-ingress.js";
 import { filePendingLedger } from "./file-field-ledger.js";
 import { getMyAttentionItems } from "./attention-items.js";
 import { readGoalDetails, readSprintTaskSnapshot, readWorkspaceGoals } from "./reporting-reads.js";
@@ -2057,10 +2058,12 @@ export async function runCatalogOperation(
           }
           if (interruptedReason) break;
           if (group) {
+            const metadata = sanitizeWebhookMetadata(event["metadata"]);
             (group["events"] as Json[]).push({
               event_key: event["event_key"],
               event: event["event"],
               received_at: event["received_at"],
+              ...(Object.keys(metadata).length ? { metadata } : {}),
             });
           }
           // Advance only after processing this event. In particular, do not
