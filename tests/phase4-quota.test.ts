@@ -35,7 +35,8 @@ function createStorage() {
       return {};
     }
     if (sql.startsWith("DELETE FROM diagnostic_day")) {
-      for (const day of diagnosticDays.keys()) if (day < Number(params[0])) diagnosticDays.delete(day);
+      for (const day of diagnosticDays.keys())
+        if (day < Number(params[0])) diagnosticDays.delete(day);
       return {};
     }
     if (sql.startsWith("SELECT day, allowed, blocked, cooldowns"))
