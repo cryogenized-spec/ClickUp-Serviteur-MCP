@@ -121,7 +121,11 @@ describe("actor-local SQLite index operations", () => {
         (item) => item.sql.includes("comment_snapshots") && item.params[1] === "comment2",
       ),
     ).toBe(true);
-    expect(executed.filter((item) => item.sql.includes("comments_checked_at"))).toHaveLength(1);
+    expect(
+      executed.filter((item) =>
+        item.sql.startsWith("INSERT INTO task_refresh(task_id, comments_checked_at)"),
+      ),
+    ).toHaveLength(0);
     store.storeComments("task123", [comment!], 1795681000200, true);
     expect(
       executed.filter((item) =>
