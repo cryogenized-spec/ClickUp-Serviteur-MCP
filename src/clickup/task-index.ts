@@ -139,7 +139,10 @@ export class TaskIndexStore {
   }
 
   /** Bounded work batch, not a lifetime quota: unprocessed tasks remain durable. */
-  dirtyTasks(now: number, limit = 3): Array<{
+  dirtyTasks(
+    now: number,
+    limit = 3,
+  ): Array<{
     task_id: string;
     task_dirty: boolean;
     comments_dirty: boolean;
