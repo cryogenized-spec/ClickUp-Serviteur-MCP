@@ -231,6 +231,39 @@ export class FollowupLedger {
     };
   }
 
+  /** Private, offset-paginated candidate IDs. This is never directly exposed to
+   * the model: current task authorization MUST be reverified for each ID. Offset
+   * pagination is a best-effort live view, not a durable activity checkpoint. */
+  dueTaskPage(
+    at: number,
+    limit = 20,
+    offset = 0,
+  ): { task_ids: string[]; incomplete: boolean; next_offset: number | null } {
+    if (
+      !Number.isSafeInteger(at) ||
+      at < 0 ||
+      at > 9_000_000_000_000 ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 50 ||
+      !Number.isSafeInteger(offset) ||
+      offset < 0 ||
+      offset > 100_000_000
+    ) throw new FollowupLedgerError("invalid");
+    const ids = (this.run(
+      "SELECT task_id FROM followup_current WHERE next_check_at_ms IS NOT NULL AND next_check_at_ms <= ? AND state != 'resolved' ORDER BY next_check_at_ms, task_id LIMIT ? OFFSET ?",
+      at,
+      limit + 1,
+      offset,
+    ).toArray() as Array<{ task_id: string }>).map((row) => row.task_id);
+    const incomplete = ids.length > limit;
+    return {
+      task_ids: ids.slice(0, limit),
+      incomplete,
+      next_offset: incomplete ? offset + limit : null,
+    };
+  }
+
   /** Candidate IDs only. Each item MUST be re-authorized by an upstream
    * ClickUp task GET before returning any details to an MCP consumer. */
   dueTaskIds(at: number, limit = 20): string[] {
