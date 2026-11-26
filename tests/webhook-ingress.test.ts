@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { receiveClickUpWebhook } from "../src/clickup/webhook-ingress.js";
+import {
+  receiveClickUpWebhook,
+  type WebhookIngressDependencies,
+} from "../src/clickup/webhook-ingress.js";
 
 const webhookId = "7689a169-a000-4985-8676-6902b96d6627";
 const registration = { workspaceId: "555", subject: "github:11", secret: "test-secret" };
@@ -39,7 +42,7 @@ describe("ClickUp webhook ingress", () => {
     }
     expect(persist).toHaveBeenNthCalledWith(1, registration, [
       {
-        key: webhookId + ":history1",
+        key: expect.stringMatching(/^[a-f0-9-]{36}:[a-f0-9]{64}$/),
         taskId: "abc123",
         event: "taskCommentPosted",
         receivedAt: 1000,
@@ -47,13 +50,34 @@ describe("ClickUp webhook ingress", () => {
     ]);
     expect(persist).toHaveBeenNthCalledWith(2, registration, [
       {
-        key: webhookId + ":history1",
+        key: expect.stringMatching(/^[a-f0-9-]{36}:[a-f0-9]{64}$/),
         taskId: "abc123",
         event: "taskCommentPosted",
         receivedAt: 2000,
       },
     ]);
     expect(JSON.stringify(persist.mock.calls)).not.toContain("private comment");
+  });
+
+  it("shares history identity across subscriptions but preserves different event types", async () => {
+    const persist = vi.fn<WebhookIngressDependencies["persist"]>(async () => {});
+    const deps = { resolve: async () => registration, persist };
+    const alternate = "8769a169-a000-4985-8676-6902b96d6627";
+    const payloads = [
+      body,
+      body.replace(webhookId, alternate),
+      body.replace("taskCommentPosted", "taskUpdated"),
+      body.replace("abc123", "other"),
+    ];
+    for (const payload of payloads)
+      expect((await receiveClickUpWebhook(await signedRequest(payload), deps, 1000)).status).toBe(
+        204,
+      );
+    const keys = persist.mock.calls.map((call) => call[1][0]!.key);
+    expect(keys[0]!.slice(37)).toBe(keys[1]!.slice(37));
+    expect(keys[0]!.slice(37)).not.toBe(keys[2]!.slice(37));
+    expect(keys[0]!.slice(37)).not.toBe(keys[3]!.slice(37));
+    expect(keys[1]!.startsWith(alternate + ":")).toBe(true);
   });
 
   it("retains only documented routing metadata, never raw comment content", async () => {
@@ -89,7 +113,7 @@ describe("ClickUp webhook ingress", () => {
     expect(result.status).toBe(204);
     expect(persist).toHaveBeenCalledWith(registration, [
       {
-        key: webhookId + ":history2",
+        key: expect.stringMatching(/^[a-f0-9-]{36}:[a-f0-9]{64}$/),
         taskId: "abc123",
         event: "taskCommentPosted",
         receivedAt: 1000,
@@ -129,7 +153,7 @@ describe("ClickUp webhook ingress", () => {
     expect(result.status).toBe(204);
     expect(persist).toHaveBeenCalledWith(registration, [
       {
-        key: webhookId + ":assignment",
+        key: expect.stringMatching(/^[a-f0-9-]{36}:[a-f0-9]{64}$/),
         taskId: "abc123",
         event: "taskAssigneeUpdated",
         receivedAt: 1000,
