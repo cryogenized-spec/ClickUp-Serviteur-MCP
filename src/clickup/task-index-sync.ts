@@ -33,7 +33,9 @@ export async function grantForSignedWebhook(
     throw new ReadFailure("CLICKUP_ACCESS_DENIED");
   // The Durable Object refresh operates on its own TaskIndexStore, avoiding
   // re-entrant self-RPC from ordinary capture hooks during alarm processing.
-  const { taskIndex: _index, webhookEvents: _events, ...uncached } = grant;
+  const uncached: ReadGrant = { ...grant };
+  Reflect.deleteProperty(uncached, "taskIndex");
+  Reflect.deleteProperty(uncached, "webhookEvents");
   return uncached;
 }
 
