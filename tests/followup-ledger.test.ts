@@ -15,16 +15,17 @@ function fixture() {
     statement.run(...bindings);
     return { one: () => null, toArray: () => [] };
   };
-  const create = () => new FollowupLedger(run, (action) => {
-    db.exec("BEGIN");
-    try {
-      action();
-      db.exec("COMMIT");
-    } catch (error) {
-      db.exec("ROLLBACK");
-      throw error;
-    }
-  });
+  const create = () =>
+    new FollowupLedger(run, (action) => {
+      db.exec("BEGIN");
+      try {
+        action();
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    });
   return { db, create };
 }
 
@@ -55,7 +56,9 @@ describe("append-only actor-local follow-up ledger with real SQLite", () => {
     const ledger = make().create();
     expect(ledger.read("task123").state).toBeNull();
     expect(ledger.record(first, 1795680000000)).toMatchObject({
-      task_id: "task123", revision: 1, replayed: false,
+      task_id: "task123",
+      revision: 1,
+      replayed: false,
       state: { state: "awaiting_response", waiting_on_user_id: "74509112", revision: 1 },
     });
     expect(ledger.read("task123")).toMatchObject({
@@ -70,22 +73,31 @@ describe("append-only actor-local follow-up ledger with real SQLite", () => {
     const ledger = make().create();
     ledger.record(first, 1795680000000);
     expect(ledger.record(first, 1795690000000)).toMatchObject({
-      revision: 1, replayed: true,
+      revision: 1,
+      replayed: true,
     });
     expect(ledger.read("task123").history).toHaveLength(1);
-    expect(() => ledger.record({ ...first, note: "conflicting claim" }, 1795690000001)).toThrowError(
-      FollowupLedgerError,
-    );
+    expect(() =>
+      ledger.record({ ...first, note: "conflicting claim" }, 1795690000001),
+    ).toThrowError(FollowupLedgerError);
   });
 
   it("rejects stale competing revisions and preserves the earlier write", () => {
     const ledger = make().create();
     ledger.record(first, 1795680000000);
-    expect(() => ledger.record({
-      ...first, action_key: "manual:second", action_kind: "note",
-      state_after: "action_required", evidence_comment_id: null,
-      expected_revision: 0,
-    }, 1795680000001)).toThrowError(FollowupLedgerError);
+    expect(() =>
+      ledger.record(
+        {
+          ...first,
+          action_key: "manual:second",
+          action_kind: "note",
+          state_after: "action_required",
+          evidence_comment_id: null,
+          expected_revision: 0,
+        },
+        1795680000001,
+      ),
+    ).toThrowError(FollowupLedgerError);
     expect(ledger.read("task123").state?.["state"]).toBe("awaiting_response");
     expect(ledger.read("task123").history).toHaveLength(1);
   });
@@ -95,8 +107,11 @@ describe("append-only actor-local follow-up ledger with real SQLite", () => {
     const ledger = create();
     ledger.record(first, 1795680000000);
     const newer = {
-      task_id: "task123", action_key: "check:2", action_kind: "followup_checked",
-      state_after: "awaiting_response", expected_revision: 1,
+      task_id: "task123",
+      action_key: "check:2",
+      action_kind: "followup_checked",
+      state_after: "awaiting_response",
+      expected_revision: 1,
       note: "No newer supplier reply",
     };
     ledger.record(newer, 1795681000000);
@@ -113,25 +128,49 @@ describe("append-only actor-local follow-up ledger with real SQLite", () => {
   it("keeps due status independent of resolved or future obligations", () => {
     const ledger = make().create();
     ledger.record(first, 1795680000000);
-    ledger.record({
-      task_id: "task123", action_key: "resolve:3", action_kind: "resolution_confirmed",
-      state_after: "resolved", expected_revision: 1,
-      next_check_at_ms: 1795000000000,
-    }, 1795681000000);
+    ledger.record(
+      {
+        task_id: "task123",
+        action_key: "resolve:3",
+        action_kind: "resolution_confirmed",
+        state_after: "resolved",
+        expected_revision: 1,
+        next_check_at_ms: 1795000000000,
+      },
+      1795681000000,
+    );
     expect(ledger.dueTaskIds(1795900000000)).toEqual([]);
   });
 
   it("rejects unverified sent designations, malformed IDs and oversized notes", () => {
     const ledger = make().create();
-    expect(() => ledger.record({
-      ...first, evidence_comment_id: null,
-    }, 1795680000000)).toThrowError(FollowupLedgerError);
-    expect(() => ledger.record({
-      ...first, task_id: "../another-actor",
-    }, 1795680000000)).toThrowError(FollowupLedgerError);
-    expect(() => ledger.record({
-      ...first, note: "x".repeat(2001),
-    }, 1795680000000)).toThrowError(FollowupLedgerError);
+    expect(() =>
+      ledger.record(
+        {
+          ...first,
+          evidence_comment_id: null,
+        },
+        1795680000000,
+      ),
+    ).toThrowError(FollowupLedgerError);
+    expect(() =>
+      ledger.record(
+        {
+          ...first,
+          task_id: "../another-actor",
+        },
+        1795680000000,
+      ),
+    ).toThrowError(FollowupLedgerError);
+    expect(() =>
+      ledger.record(
+        {
+          ...first,
+          note: "x".repeat(2001),
+        },
+        1795680000000,
+      ),
+    ).toThrowError(FollowupLedgerError);
     expect(ledger.read("task123").state).toBeNull();
   });
 });
