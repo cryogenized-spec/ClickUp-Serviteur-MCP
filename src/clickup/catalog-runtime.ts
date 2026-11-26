@@ -414,7 +414,7 @@ async function listInWorkspace(grant: ReadGrant, f: typeof fetch, listId: unknow
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   const list = await send(grant, f, "GET", v2("list/" + id(listId)));
   if (String(list["id"]) !== String(listId))
-    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    throw new ReadFailure("CLICKUP_BAD_RESPONSE");
   try {
     await inWorkspace(grant, f, obj(list["space"])?.["id"]);
   } catch (error) {
@@ -504,8 +504,10 @@ async function taskInWorkspace(
       throw new ReadFailure("CLICKUP_PENDING_TASK_NOT_FOUND", error.diagnostic);
     throw error;
   }
+  // A successful 200 response with a missing or wrong ID is a malformed
+  // provider result, not evidence that the actor cannot access this task.
   if (String(task["id"]) !== String(taskId))
-    throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
+    throw new ReadFailure("CLICKUP_BAD_RESPONSE");
   const homeList = obj(task["list"])?.["id"];
   try {
     if (pendingVerifiedLists) {
