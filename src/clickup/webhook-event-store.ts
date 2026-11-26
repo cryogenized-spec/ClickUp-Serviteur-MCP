@@ -78,6 +78,29 @@ export class ClickUpWebhookEvents {
         throw error;
       }
     }
+    if (request.method === "GET" && path === "/followups/due") {
+      const atRaw = url.searchParams.get("at_ms");
+      const limitRaw = url.searchParams.get("limit") ?? "20";
+      const offsetRaw = url.searchParams.get("offset") ?? "0";
+      if (
+        atRaw === null ||
+        !/^\d{1,13}$/.test(atRaw) ||
+        !/^[1-9]\d?$|^50$/.test(limitRaw) ||
+        !/^\d{1,9}$/.test(offsetRaw)
+      ) return new Response(null, { status: 400 });
+      try {
+        const result = this.followups.dueTaskPage(
+          Number(atRaw),
+          Number(limitRaw),
+          Number(offsetRaw),
+        );
+        return Response.json(result, { headers: { "Cache-Control": "no-store" } });
+      } catch (error) {
+        if (error instanceof FollowupLedgerError)
+          return new Response(null, { status: 400 });
+        throw error;
+      }
+    }
     if (request.method === "POST" && path === "/followups/record") {
       const value: unknown = await request.json().catch(() => null);
       try {
