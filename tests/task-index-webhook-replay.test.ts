@@ -36,10 +36,7 @@ function fixture(autoRefresh = false) {
     CLICKUP_WORKSPACE_ID: "555",
     CLICKUP_INDEX_AUTOSYNC_ENABLED: autoRefresh ? "true" : "false",
   } as unknown as OAuthEnv;
-  const instance = new ClickUpWebhookEvents(
-    { storage } as unknown as DurableObjectState,
-    env,
-  );
+  const instance = new ClickUpWebhookEvents({ storage } as unknown as DurableObjectState, env);
   return { db, instance, alarms };
 }
 
@@ -66,12 +63,12 @@ describe("idempotent Durable Object webhook ingestion", () => {
           body: JSON.stringify(body),
         }),
       );
-    expect(
-      (await send({ workspaceId: "777", subject: "github:11", hints: [hint] })).status,
-    ).toBe(400);
-    expect(
-      (await send({ workspaceId: "555", subject: "github:11", hints: [hint] })).status,
-    ).toBe(204);
+    expect((await send({ workspaceId: "777", subject: "github:11", hints: [hint] })).status).toBe(
+      400,
+    );
+    expect((await send({ workspaceId: "555", subject: "github:11", hints: [hint] })).status).toBe(
+      204,
+    );
     const owner = db.prepare("SELECT workspace_id, subject FROM sync_owner").get() as {
       workspace_id: string;
       subject: string;
@@ -82,7 +79,7 @@ describe("idempotent Durable Object webhook ingestion", () => {
     // privileged network read or claim successful synchronization.
     await instance.alarm();
     const status = await instance.fetch(new Request("https://internal/diagnostics"));
-    const body = await status.json() as {
+    const body = (await status.json()) as {
       task_index: { comment_refresh_pending: number };
     };
     expect(body.task_index.comment_refresh_pending).toBe(1);
@@ -121,12 +118,12 @@ describe("idempotent Durable Object webhook ingestion", () => {
     );
     expect(wrote.status).toBe(200);
     const before = await instance.fetch(new Request("https://internal/index/task?task_id=task1"));
-    expect((await before.json() as { task_stale: boolean }).task_stale).toBe(false);
+    expect(((await before.json()) as { task_stale: boolean }).task_stale).toBe(false);
     expect((await post([{ ...event, receivedAt: now + 2000 }])).status).toBe(204);
     const after = await instance.fetch(new Request("https://internal/index/task?task_id=task1"));
-    expect((await after.json() as { task_stale: boolean }).task_stale).toBe(false);
+    expect(((await after.json()) as { task_stale: boolean }).task_stale).toBe(false);
     const info = await instance.fetch(new Request("https://internal/diagnostics"));
-    const metrics = await info.json() as {
+    const metrics = (await info.json()) as {
       retained: number;
       task_index: { task_refresh_pending: number };
     };
