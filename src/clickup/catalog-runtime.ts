@@ -1,5 +1,6 @@
 import { quotaCall } from "./client.js";
 import { sanitizeWebhookMetadata } from "./webhook-ingress.js";
+import { validActivityConsumer } from "./webhook-event-store.js";
 import { filePendingLedger } from "./file-field-ledger.js";
 import { getMyAttentionItems } from "./attention-items.js";
 import { readGoalDetails, readSprintTaskSnapshot, readWorkspaceGoals } from "./reporting-reads.js";
@@ -1258,6 +1259,7 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_update_goal_name",
   "clickup_update_key_result_progress",
   "clickup_get_pending_activity",
+  "clickup_mark_consumer_activity_processed",
   "clickup_get_task_activity_timeline",
   "clickup_get_api_diagnostics",
   "clickup_acknowledge_activity",
@@ -1402,6 +1404,7 @@ const WORKSPACE_SCOPE_OPERATIONS = new Set([
   "clickup_update_goal_name",
   "clickup_update_key_result_progress",
   "clickup_get_pending_activity",
+  "clickup_mark_consumer_activity_processed",
   "clickup_get_task_activity_timeline",
   "clickup_get_api_diagnostics",
   "clickup_acknowledge_activity",
@@ -1953,12 +1956,44 @@ export async function runCatalogOperation(
       return { acknowledgement: clip(result), readback_verified: false, retry_safe: false };
     }
     case "clickup_get_pending_activity":
+    case "clickup_mark_consumer_activity_processed":
     case "clickup_acknowledge_activity": {
       if (!g.webhookEvents) throw new ReadFailure("CLICKUP_EVENT_STORAGE_UNAVAILABLE");
       const binding = g.webhookEvents;
       const stub = binding.get(binding.idFromName(W + ":" + g.subject) as never);
       const validKey = (key: unknown): key is string =>
         typeof key === "string" && /^[a-f0-9-]{36}:[a-zA-Z0-9_-]{1,100}$/i.test(key);
+      const consumer = a["activity_consumer"];
+      if (consumer !== undefined && !validActivityConsumer(consumer))
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (name === "clickup_mark_consumer_activity_processed") {
+        const keys = a["event_keys"];
+        if (
+          !validActivityConsumer(consumer) ||
+          !Array.isArray(keys) ||
+          keys.length < 1 ||
+          keys.length > 50 ||
+          !keys.every(validKey)
+        )
+          throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+        await taskInWorkspace(g, f, a["task_id"], true);
+        const result = await stub.fetch(
+          new Request("https://internal/consumer-processed", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ task_id: a["task_id"], consumer, event_keys: keys }),
+          }),
+        );
+        if (!result.ok) throw new ReadFailure("CLICKUP_EVENT_ACKNOWLEDGEMENT_FAILED");
+        const body = obj(await result.json());
+        const expected = [...new Set(keys)];
+        if (
+          body?.["consumer"] !== consumer ||
+          JSON.stringify(body["processed_event_keys"]) !== JSON.stringify(expected)
+        )
+          throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
+        return { consumer, task_id: a["task_id"], processed_event_keys: expected };
+      }
       if (name === "clickup_acknowledge_activity") {
         const keys = a["event_keys"];
         if (
@@ -1987,6 +2022,29 @@ export async function runCatalogOperation(
           throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
         return { task_id: a["task_id"], acknowledged_event_keys: expected };
       }
+      const eventTypes = a["activity_event_types"];
+      const receivedSince = a["activity_received_since_ms"];
+      const actor = a["activity_actor_user_id"];
+      const mentioned = a["activity_mentioned_user_id"];
+      const validUserId = (value: unknown) =>
+        typeof value === "string" && /^[1-9]\d{0,23}$/.test(value);
+      if (
+        (eventTypes !== undefined &&
+          (!Array.isArray(eventTypes) ||
+            eventTypes.length < 1 ||
+            eventTypes.length > 20 ||
+            eventTypes.some(
+              (value: unknown) =>
+                typeof value !== "string" || !/^task[A-Z][A-Za-z]{1,40}$/.test(value),
+            ))) ||
+        (receivedSince !== undefined &&
+          (typeof receivedSince !== "number" ||
+            !Number.isSafeInteger(receivedSince) ||
+            receivedSince < 0)) ||
+        (actor !== undefined && !validUserId(actor)) ||
+        (mentioned !== undefined && !validUserId(mentioned))
+      )
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       const afterTime = a["event_after_time"];
       const afterKey = a["event_after_key"];
       if (
@@ -2008,13 +2066,16 @@ export async function runCatalogOperation(
       let cursorTime = afterTime as number | undefined;
       let cursorKey = afterKey as string | undefined;
       let eventsScanned = 0;
+      let filteredEvents = 0;
+      let missingMetadataEvents = 0;
       let pagesScanned = 0;
       let hasMore = true;
       let interruptedReason: string | null = null;
       let interruptedCode: string | null = null;
       let interruptedHttpStatus: number | null = null;
-      while (hasMore && eventsScanned < eventLimit) {
+      while (hasMore && eventsScanned - filteredEvents < eventLimit) {
         const url = new URL("https://internal/pending");
+        if (typeof consumer === "string") url.searchParams.set("consumer", consumer);
         if (cursorTime !== undefined && cursorKey !== undefined) {
           url.searchParams.set("after_time", String(cursorTime));
           url.searchParams.set("after_key", cursorKey);
@@ -2033,7 +2094,7 @@ export async function runCatalogOperation(
         pagesScanned++;
         hasMore = body["incomplete"] === true;
         for (const raw of events) {
-          if (eventsScanned === eventLimit) {
+          if (eventsScanned - filteredEvents === eventLimit) {
             hasMore = true;
             break;
           }
@@ -2050,6 +2111,25 @@ export async function runCatalogOperation(
                 (event["received_at"] === cursorTime && event["event_key"] <= (cursorKey ?? ""))))
           )
             throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+          const metadata = sanitizeWebhookMetadata(event["metadata"]);
+          const mentions = metadata["mentioned_user_ids"];
+          const baseMatches =
+            (!Array.isArray(eventTypes) || eventTypes.includes(event["event"])) &&
+            (typeof receivedSince !== "number" || event["received_at"] >= receivedSince);
+          const actorUnknown = actor !== undefined && metadata["actor_user_id"] === undefined;
+          const mentionUnknown = mentioned !== undefined && !Array.isArray(mentions);
+          if (
+            !baseMatches ||
+            (actor !== undefined && metadata["actor_user_id"] !== actor) ||
+            (mentioned !== undefined && (!Array.isArray(mentions) || !mentions.includes(mentioned)))
+          ) {
+            if (baseMatches && (actorUnknown || mentionUnknown)) missingMetadataEvents++;
+            cursorTime = event["received_at"];
+            cursorKey = event["event_key"];
+            eventsScanned++;
+            filteredEvents++;
+            continue;
+          }
           const taskId = event["task_id"];
           let group = grouped.get(taskId);
           if (!group && !denied.has(taskId)) {
@@ -2115,7 +2195,6 @@ export async function runCatalogOperation(
           }
           if (interruptedReason) break;
           if (group) {
-            const metadata = sanitizeWebhookMetadata(event["metadata"]);
             (group["events"] as Json[]).push({
               event_key: event["event_key"],
               event: event["event"],
@@ -2137,6 +2216,9 @@ export async function runCatalogOperation(
         unverified_task_count: denied.size,
         task_not_found_count: notFound.size,
         events_scanned: eventsScanned,
+        events_filtered_before_verification: filteredEvents,
+        events_filtered_missing_metadata: missingMetadataEvents,
+        ...(typeof consumer === "string" ? { consumer } : {}),
         pages_scanned: pagesScanned,
         partial: incomplete,
         interrupted_reason: interruptedReason,
@@ -2147,7 +2229,7 @@ export async function runCatalogOperation(
         resume_from_beginning: hasMore && eventsScanned === 0 && afterTime === undefined,
         incomplete,
         read_only: true,
-        note: "Reading never acknowledges events. Follow both cursor fields whenever incomplete and a cursor is present; if resume_from_beginning is true, retry without a cursor. Retrieve comments for task context before briefing.",
+        note: "Reading never acknowledges events. Named consumers have independent processed-event receipts, including globally reviewed events until individually processed. Keep filters unchanged across cursor pages. Explicit actor and mention filters exclude unknown metadata; absence is not proof of no mention. Retrieve current comments for context.",
       };
     }
     case "clickup_get_workspace_custom_fields":
