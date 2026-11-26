@@ -2,6 +2,7 @@ import type { OAuthEnv } from "../auth/env.js";
 import { grantForSignedWebhook, retryDelayMs, synchronizeDirtyTask } from "./task-index-sync.js";
 import {
   projectCommentSnapshot,
+  projectTaskDiscovery,
   projectTaskSnapshot,
   TaskIndexStore,
   type CommentSnapshot,
@@ -53,6 +54,42 @@ export class ClickUpWebhookEvents {
     if (path === "/registry") return this.registry(request);
     // These endpoints are private Durable Object RPCs, never public Worker routes.
     // The caller must have completed its own ClickUp OAuth task verification.
+    if (request.method === "POST" && path === "/index/discovery") {
+      const raw: unknown = await request.json().catch(() => null);
+      const data =
+        raw !== null && typeof raw === "object" && !Array.isArray(raw)
+          ? (raw as Record<string, unknown>)
+          : null;
+      const rows = data?.["tasks"];
+      const at = data?.["observed_at"];
+      if (
+        !Array.isArray(rows) ||
+        rows.length < 1 ||
+        rows.length > 50 ||
+        typeof at !== "number" ||
+        !Number.isSafeInteger(at) ||
+        at <= 0
+      )
+        return new Response(null, { status: 400 });
+      const discovered = rows.map((value: unknown) => {
+        const row =
+          value !== null && typeof value === "object" && !Array.isArray(value)
+            ? (value as Record<string, unknown>)
+            : null;
+        return projectTaskDiscovery({
+          id: row?.["task_id"],
+          list: { id: row?.["list_id"] },
+          date_updated: row?.["source_updated_at_ms"],
+        });
+      });
+      if (discovered.some((item) => item === null)) return new Response(null, { status: 400 });
+      const typed = discovered.filter((item): item is NonNullable<typeof item> => item !== null);
+      const result = this.taskIndex.observeDiscoveredTasks(typed, at);
+      // A successful discovery should schedule already-existing native DO
+      // autosync work; it must not spawn a second Worker or queue.
+      if (result.enqueued > 0) await this.scheduleAlarm(Date.now());
+      return Response.json(result);
+    }
     if (request.method === "POST" && path === "/index/task") {
       const raw: unknown = await request.json().catch(() => null);
       const args =
