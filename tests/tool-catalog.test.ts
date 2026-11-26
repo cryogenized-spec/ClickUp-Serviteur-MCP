@@ -32,8 +32,8 @@ async function clientHarness(schemaPreview: boolean, fetcher: typeof fetch) {
 
 describe("Official ClickUp MCP capability catalogue (model-facing only)", () => {
   it("contains the hosted capabilities and custom Serviteur tools", () => {
-    expect(CLICKUP_MODEL_TOOL_CATALOG).toHaveLength(139);
-    expect(new Set(CLICKUP_MODEL_TOOL_CATALOG.map((tool) => tool.name)).size).toBe(139);
+    expect(CLICKUP_MODEL_TOOL_CATALOG).toHaveLength(141);
+    expect(new Set(CLICKUP_MODEL_TOOL_CATALOG.map((tool) => tool.name)).size).toBe(141);
     expect(new Set(CLICKUP_MODEL_TOOL_CATALOG.map((tool) => tool.group))).toEqual(
       new Set(CLICKUP_TOOL_GROUPS),
     );
@@ -115,7 +115,7 @@ describe("Official ClickUp MCP capability catalogue (model-facing only)", () => 
     }
   });
 
-  it("registers all 139 exact schemas through official SDK only in isolated explicit preview", async () => {
+  it("registers all 141 exact schemas through official SDK only in isolated explicit preview", async () => {
     const outbound = vi.fn(async () => Response.json({ tasks: [] }));
     const { client, handler } = await clientHarness(true, outbound as typeof fetch);
     try {
@@ -128,7 +128,7 @@ describe("Official ClickUp MCP capability catalogue (model-facing only)", () => 
           tool.name !== "clickup_preview_target" &&
           tool.name !== "clickup_select_target",
       );
-      expect(preview).toHaveLength(139);
+      expect(preview).toHaveLength(141);
       for (const spec of CLICKUP_MODEL_TOOL_CATALOG) {
         const tool = preview.find((value) => value.name === spec.name);
         expect(tool).toBeDefined();
