@@ -4,12 +4,22 @@ import type { SqlRunner } from "./task-index.js";
  * The containing Durable Object is already partitioned by OAuth actor + Workspace.
  */
 const states = new Set([
-  "detected", "verified", "action_required", "action_taken",
-  "awaiting_response", "response_received", "resolved",
+  "detected",
+  "verified",
+  "action_required",
+  "action_taken",
+  "awaiting_response",
+  "response_received",
+  "resolved",
 ]);
 const kinds = new Set([
-  "observation", "draft_prepared", "instruction_sent",
-  "response_received", "followup_checked", "resolution_confirmed", "note",
+  "observation",
+  "draft_prepared",
+  "instruction_sent",
+  "response_received",
+  "followup_checked",
+  "resolution_confirmed",
+  "note",
 ]);
 
 type Row = Record<string, unknown>;
@@ -52,9 +62,7 @@ export class FollowupLedger {
     run(
       "CREATE TABLE IF NOT EXISTS followup_current (task_id TEXT PRIMARY KEY, state TEXT NOT NULL, waiting_on_user_id TEXT, next_check_at_ms INTEGER, revision INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL)",
     );
-    run(
-      "CREATE INDEX IF NOT EXISTS followup_due ON followup_current(next_check_at_ms, state)",
-    );
+    run("CREATE INDEX IF NOT EXISTS followup_due ON followup_current(next_check_at_ms, state)");
     run(
       "CREATE TABLE IF NOT EXISTS followup_actions (task_id TEXT NOT NULL, action_key TEXT NOT NULL, revision INTEGER NOT NULL, action_kind TEXT NOT NULL, state_after TEXT NOT NULL, note TEXT, evidence_comment_id TEXT, waiting_on_user_id TEXT, next_check_at_ms INTEGER, recorded_at_ms INTEGER NOT NULL, request_json TEXT NOT NULL, PRIMARY KEY(task_id, action_key), UNIQUE(task_id, revision))",
     );
@@ -65,7 +73,10 @@ export class FollowupLedger {
 
   /** Explicit, optimistic revision prevents concurrent agents from overwriting
    * each other's follow-up state. An exact action_key replay is idempotent. */
-  record(value: unknown, now: number): {
+  record(
+    value: unknown,
+    now: number,
+  ): {
     task_id: string;
     revision: number;
     replayed: boolean;
@@ -93,11 +104,11 @@ export class FollowupLedger {
       (a["waiting_on_user_id"] !== undefined &&
         a["waiting_on_user_id"] !== null &&
         !userId(a["waiting_on_user_id"])) ||
-      (a["next_check_at_ms"] !== undefined &&
-        !optionalTime(a["next_check_at_ms"])) ||
+      (a["next_check_at_ms"] !== undefined && !optionalTime(a["next_check_at_ms"])) ||
       !Number.isSafeInteger(now) ||
       now <= 0
-    ) throw new FollowupLedgerError("invalid");
+    )
+      throw new FollowupLedgerError("invalid");
 
     // The "sent" designation must always have a concrete comment reference.
     // The MCP adapter independently verifies it against current ClickUp.
@@ -125,8 +136,7 @@ export class FollowupLedger {
         item.action_key,
       ).toArray()[0] as Row | undefined;
       if (old) {
-        if (old["request_json"] !== requestJson)
-          throw new FollowupLedgerError("conflict");
+        if (old["request_json"] !== requestJson) throw new FollowupLedgerError("conflict");
         replayed = true;
         revision = Number(old["revision"]);
         return;
@@ -136,19 +146,30 @@ export class FollowupLedger {
         item.task_id,
       ).toArray()[0] as Row | undefined;
       const previous = current ? Number(current["revision"]) : 0;
-      if (previous !== item.expected_revision)
-        throw new FollowupLedgerError("conflict");
+      if (previous !== item.expected_revision) throw new FollowupLedgerError("conflict");
       revision = previous + 1;
       this.run(
         "INSERT INTO followup_actions (task_id, action_key, revision, action_kind, state_after, note, evidence_comment_id, waiting_on_user_id, next_check_at_ms, recorded_at_ms, request_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        item.task_id, item.action_key, revision, item.action_kind,
-        item.state_after, item.note, item.evidence_comment_id,
-        item.waiting_on_user_id, item.next_check_at_ms, now, requestJson,
+        item.task_id,
+        item.action_key,
+        revision,
+        item.action_kind,
+        item.state_after,
+        item.note,
+        item.evidence_comment_id,
+        item.waiting_on_user_id,
+        item.next_check_at_ms,
+        now,
+        requestJson,
       );
       this.run(
         "INSERT INTO followup_current (task_id, state, waiting_on_user_id, next_check_at_ms, revision, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET state = excluded.state, waiting_on_user_id = excluded.waiting_on_user_id, next_check_at_ms = excluded.next_check_at_ms, revision = excluded.revision, updated_at_ms = excluded.updated_at_ms",
-        item.task_id, item.state_after, item.waiting_on_user_id,
-        item.next_check_at_ms, revision, now,
+        item.task_id,
+        item.state_after,
+        item.waiting_on_user_id,
+        item.next_check_at_ms,
+        revision,
+        now,
       );
     });
     const state = this.run(
@@ -158,7 +179,11 @@ export class FollowupLedger {
     return { task_id: item.task_id, revision, replayed, state };
   }
 
-  read(task: string, limit = 20, beforeRevision?: number): {
+  read(
+    task: string,
+    limit = 20,
+    beforeRevision?: number,
+  ): {
     task_id: string;
     state: Row | null;
     history: Row[];
@@ -167,23 +192,32 @@ export class FollowupLedger {
   } {
     if (
       !taskId(task) ||
-      !Number.isSafeInteger(limit) || limit < 1 || limit > 50 ||
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 50 ||
       (beforeRevision !== undefined &&
         (!Number.isSafeInteger(beforeRevision) || beforeRevision <= 0))
-    ) throw new FollowupLedgerError("invalid");
-    const state = (this.run(
-      "SELECT state, waiting_on_user_id, next_check_at_ms, revision, updated_at_ms FROM followup_current WHERE task_id = ?",
-      task,
-    ).toArray()[0] as Row | undefined) ?? null;
-    const rows = (beforeRevision === undefined
-      ? this.run(
-          "SELECT action_key, action_kind, state_after, revision, note, evidence_comment_id, waiting_on_user_id, next_check_at_ms, recorded_at_ms FROM followup_actions WHERE task_id = ? ORDER BY revision DESC LIMIT ?",
-          task, limit + 1,
-        )
-      : this.run(
-          "SELECT action_key, action_kind, state_after, revision, note, evidence_comment_id, waiting_on_user_id, next_check_at_ms, recorded_at_ms FROM followup_actions WHERE task_id = ? AND revision < ? ORDER BY revision DESC LIMIT ?",
-          task, beforeRevision, limit + 1,
-        )).toArray() as Row[];
+    )
+      throw new FollowupLedgerError("invalid");
+    const state =
+      (this.run(
+        "SELECT state, waiting_on_user_id, next_check_at_ms, revision, updated_at_ms FROM followup_current WHERE task_id = ?",
+        task,
+      ).toArray()[0] as Row | undefined) ?? null;
+    const rows = (
+      beforeRevision === undefined
+        ? this.run(
+            "SELECT action_key, action_kind, state_after, revision, note, evidence_comment_id, waiting_on_user_id, next_check_at_ms, recorded_at_ms FROM followup_actions WHERE task_id = ? ORDER BY revision DESC LIMIT ?",
+            task,
+            limit + 1,
+          )
+        : this.run(
+            "SELECT action_key, action_kind, state_after, revision, note, evidence_comment_id, waiting_on_user_id, next_check_at_ms, recorded_at_ms FROM followup_actions WHERE task_id = ? AND revision < ? ORDER BY revision DESC LIMIT ?",
+            task,
+            beforeRevision,
+            limit + 1,
+          )
+    ).toArray() as Row[];
     const history = rows.slice(0, limit);
     const incomplete = rows.length > limit;
     return {
@@ -200,9 +234,12 @@ export class FollowupLedger {
   dueTaskIds(at: number, limit = 20): string[] {
     if (!Number.isSafeInteger(at) || !Number.isInteger(limit) || limit < 1 || limit > 50)
       throw new FollowupLedgerError("invalid");
-    return (this.run(
-      "SELECT task_id FROM followup_current WHERE next_check_at_ms IS NOT NULL AND next_check_at_ms <= ? AND state != 'resolved' ORDER BY next_check_at_ms, task_id LIMIT ?",
-      at, limit,
-    ).toArray() as Array<{ task_id: string }>).map((row) => row.task_id);
+    return (
+      this.run(
+        "SELECT task_id FROM followup_current WHERE next_check_at_ms IS NOT NULL AND next_check_at_ms <= ? AND state != 'resolved' ORDER BY next_check_at_ms, task_id LIMIT ?",
+        at,
+        limit,
+      ).toArray() as Array<{ task_id: string }>
+    ).map((row) => row.task_id);
   }
 }
