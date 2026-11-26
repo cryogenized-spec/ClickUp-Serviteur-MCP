@@ -1979,19 +1979,14 @@ export async function runCatalogOperation(
     case "clickup_get_overdue_followups": {
       if (!g.taskIndex) throw new ReadFailure("CLICKUP_FOLLOWUP_STORAGE_UNAVAILABLE");
       const cutoff = a["followup_due_before_ms"] ?? Date.now();
-      const cursorDue = a["followup_after_due_ms"];
-      const cursorTask = a["followup_after_task_id"];
+      const cursor = a["followup_cursor"];
       if (
         !Number.isSafeInteger(cutoff) ||
         Number(cutoff) < 0 ||
         Number(cutoff) > 9_000_000_000_000 ||
-        (cursorDue === undefined) !== (cursorTask === undefined) ||
-        (cursorDue !== undefined &&
-          (!Number.isSafeInteger(cursorDue) ||
-            Number(cursorDue) < 0 ||
-            Number(cursorDue) > Number(cutoff))) ||
-        (cursorTask !== undefined &&
-          (typeof cursorTask !== "string" || !/^[a-zA-Z0-9_-]{1,80}$/.test(cursorTask)))
+        (cursor !== undefined &&
+          (typeof cursor !== "string" ||
+            !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(cursor)))
       )
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
 
@@ -2005,11 +2000,15 @@ export async function runCatalogOperation(
       const url = new URL("https://internal/followups/due");
       url.searchParams.set("cutoff_ms", String(cutoff));
       url.searchParams.set("limit", String(N));
-      if (cursorDue !== undefined && cursorTask !== undefined) {
-        url.searchParams.set("after_due_ms", String(cursorDue));
-        url.searchParams.set("after_task_id", cursorTask as string);
-      }
+      // Bind the opaque cursor to the verified actor's current resource scope
+      // and optional List filter, never expose its private keyset to callers.
+      const scopeKey =
+        (workspaceScope ? "workspace" : "list") + ":" + W + ":" +
+        (onlyList === undefined ? (workspaceScope ? "all" : g.listId) : String(onlyList));
+      url.searchParams.set("scope_key", scopeKey);
+      if (cursor !== undefined) url.searchParams.set("cursor", cursor as string);
       const privateResponse = await stub.fetch(new Request(url));
+      if (privateResponse.status === 400) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       if (!privateResponse.ok) throw new ReadFailure("CLICKUP_FOLLOWUP_STORAGE_UNAVAILABLE");
       const page = obj(await privateResponse.json());
       const candidates = page?.["candidates"];
@@ -2020,8 +2019,20 @@ export async function runCatalogOperation(
       )
         throw new ReadFailure("CLICKUP_BAD_RESPONSE");
 
-      let previousDue = cursorDue === undefined ? 0 : Number(cursorDue);
-      let previousTask = cursorTask === undefined ? "" : (cursorTask as string);
+      const startDue = page["start_after_due_ms"];
+      const startTask = page["start_after_task_id"];
+      if (
+        (startDue === null) !== (startTask === null) ||
+        (cursor === undefined && (startDue !== null || startTask !== null)) ||
+        (cursor !== undefined &&
+          (!Number.isSafeInteger(startDue) ||
+            Number(startDue) < 0 ||
+            Number(startDue) > Number(cutoff) ||
+            typeof startTask !== "string" ||
+            !/^[a-zA-Z0-9_-]{1,80}$/.test(startTask)))
+      ) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      let previousDue = startDue === null ? 0 : Number(startDue);
+      let previousTask = startTask === null ? "" : startTask as string;
       const validated: Array<{
         task_id: string;
         state: string;
@@ -2059,12 +2070,17 @@ export async function runCatalogOperation(
       const incomplete = page["incomplete"] === true;
       const nextDue = page["next_after_due_ms"];
       const nextTask = page["next_after_task_id"];
+      const nextCursor = page["next_cursor"];
       if (
         incomplete &&
-        (validated.length === 0 || nextDue !== previousDue || nextTask !== previousTask)
+        (validated.length === 0 ||
+          nextDue !== previousDue ||
+          nextTask !== previousTask ||
+          typeof nextCursor !== "string" ||
+          !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(nextCursor))
       )
         throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-      if (!incomplete && (nextDue !== null || nextTask !== null))
+      if (!incomplete && (nextDue !== null || nextTask !== null || nextCursor !== null))
         throw new ReadFailure("CLICKUP_BAD_RESPONSE");
 
       const authorizedLists = new Map<string, number>();
@@ -2146,11 +2162,12 @@ export async function runCatalogOperation(
         filtered_other_list: otherList,
         filtered_changed_since_read: changed,
         incomplete,
-        next_after_due_ms: incomplete ? nextDue : null,
-        next_after_task_id: incomplete ? nextTask : null,
+        // Only an opaque, private-DB-backed cursor is model visible.
+        // Never reveal an inaccessible final candidate's ID or timestamp.
+        next_cursor: incomplete ? nextCursor : null,
         list_filter: onlyList ?? null,
         coverage_note:
-          "One keyset candidate page, not the ClickUp Inbox. Continue both cursor fields with the same due_before_ms while incomplete. Notes are curated, not evidence of customer contact.",
+          "One live candidate page, not the ClickUp Inbox. Continue the opaque cursor with the same due_before_ms and List filter while incomplete; cursor expires after 24 hours. Notes are curated, not evidence of customer contact.",
       };
     }
     case "clickup_get_followup_state":
