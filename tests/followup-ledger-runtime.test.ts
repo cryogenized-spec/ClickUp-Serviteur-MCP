@@ -219,16 +219,12 @@ describe("OAuth-verifying follow-up MCP adapter", () => {
   });
 
   it("rejects conflicting payloads even when the action key already exists", async () => {
-    const { api, grant, privateCalls } = setup(
-      false,
-      false,
-      {
-        task_id: "abc123",
-        action_key: "review:123",
-        revision: 1,
-        request_json: JSON.stringify({ incorrect: "payload" }),
-      },
-    );
+    const { api, grant, privateCalls } = setup(false, false, {
+      task_id: "abc123",
+      action_key: "review:123",
+      revision: 1,
+      request_json: JSON.stringify({ incorrect: "payload" }),
+    });
     await expect(
       runCatalogOperation(
         "clickup_record_followup_action",
