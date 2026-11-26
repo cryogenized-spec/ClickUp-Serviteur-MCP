@@ -1995,8 +1995,7 @@ export async function runCatalogOperation(
         const response = await stub.fetch(new Request(url));
         if (!response.ok) throw new ReadFailure("CLICKUP_FOLLOWUP_STORAGE_UNAVAILABLE");
         const ledger = obj(await response.json());
-        if (!ledger || ledger["task_id"] !== taskId)
-          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        if (!ledger || ledger["task_id"] !== taskId) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
         return {
           ...ledger,
           source: "serviteur-private-followup-ledger",
@@ -2005,7 +2004,9 @@ export async function runCatalogOperation(
             title: current["name"],
             status: obj(current["status"])?.["status"] ?? null,
             assignee_user_ids: Array.isArray(current["assignees"])
-              ? current["assignees"].map((assignee) => obj(assignee)?.["id"]).filter((id) => id !== undefined)
+              ? current["assignees"]
+                  .map((assignee) => obj(assignee)?.["id"])
+                  .filter((id) => id !== undefined)
               : [],
           },
           task_access_verified: true,
@@ -2023,7 +2024,8 @@ export async function runCatalogOperation(
         (note !== undefined && (typeof note !== "string" || note.length > 2000)) ||
         (commentId !== undefined &&
           (typeof commentId !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(commentId)))
-      ) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      )
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
       // A draft is never recorded as an executed ClickUp comment. Check
       // evidence by traversing the authorized task's actual comment pages.
       // No arbitrary page cap; stop once found or at native pagination end.
@@ -2049,8 +2051,7 @@ export async function runCatalogOperation(
             waitAfterRateLimit,
           );
           const comments = page["comments"];
-          if (!Array.isArray(comments))
-            throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+          if (!Array.isArray(comments)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
           if (comments.some((row) => obj(row)?.["id"] === commentId)) {
             evidenceVerified = true;
             break;
@@ -2059,17 +2060,13 @@ export async function runCatalogOperation(
           const start = page["next_comment_start"];
           const nextId = page["next_comment_start_id"];
           const cursor = String(start) + ":" + String(nextId);
-          if (
-            !Number.isSafeInteger(start) ||
-            typeof nextId !== "string" ||
-            visited.has(cursor)
-          ) throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
+          if (!Number.isSafeInteger(start) || typeof nextId !== "string" || visited.has(cursor))
+            throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
           visited.add(cursor);
           afterStart = start as number;
           afterId = nextId;
         }
-        if (!evidenceVerified)
-          throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
+        if (!evidenceVerified) throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
       }
       const response = await stub.fetch(
         new Request("https://internal/followups/record", {
@@ -2088,12 +2085,9 @@ export async function runCatalogOperation(
           }),
         }),
       );
-      if (response.status === 409)
-        throw new ReadFailure("CLICKUP_FOLLOWUP_REVISION_CONFLICT");
-      if (response.status === 400)
-        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-      if (!response.ok)
-        throw new ReadFailure("CLICKUP_FOLLOWUP_STORAGE_UNAVAILABLE");
+      if (response.status === 409) throw new ReadFailure("CLICKUP_FOLLOWUP_REVISION_CONFLICT");
+      if (response.status === 400) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (!response.ok) throw new ReadFailure("CLICKUP_FOLLOWUP_STORAGE_UNAVAILABLE");
       const ledger = obj(await response.json());
       if (!ledger || ledger["task_id"] !== taskId || !Number.isSafeInteger(ledger["revision"]))
         throw new ReadFailure("CLICKUP_BAD_RESPONSE");
