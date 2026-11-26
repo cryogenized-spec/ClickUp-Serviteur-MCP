@@ -43,11 +43,18 @@ and next-check date are preserved. With no prior obligation, the neutral
 state is `verified`; **no due date or person is invented**.
 
 The tool's successful original ClickUp POST is **never undone, hidden,
-replayed or retried** because of a private ledger error. Instead the existing
-tool result includes `followup_observation`, with a narrow `recorded`
-boolean and an optional bounded reason (e.g. `private_storage_failed` or
-`clickup_readback_unverified`). A failed private observation can be
-reconciled separately using the exact provider comment ID.
+replayed or retried** because of a private ledger error. Private Durable
+Object stub acquisition is inside the failure boundary, and all receipt,
+state and record RPCs share an absolute **four-second maximum deadline**,
+including response JSON reads. Abort is requested when available, but an
+independent timeout protects the provider result even when a stub ignores
+abort. A timed-out private write may have committed; its stable action key
+allows safe future reconciliation without reposting ClickUp.
+The tool result includes `followup_observation`, with a narrow `recorded`
+boolean and bounded reason (e.g. `private_storage_failed`,
+`private_storage_timeout` or `clickup_readback_unverified`). A failed
+private observation can be reconciled separately using the exact provider
+comment ID.
 
 ## Acceptance
 
