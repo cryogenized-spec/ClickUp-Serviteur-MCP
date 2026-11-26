@@ -22,6 +22,7 @@ import {
   saveClickUpListTarget,
 } from "../clickup/per-user-oauth.js";
 import { OPERATIONAL_CATALOG_NAMES, runCatalogOperation } from "../clickup/catalog-runtime.js";
+import { createApiTelemetry, flushApiTelemetry } from "../clickup/api-telemetry.js";
 import { attachChatGPTFileToTask, attachChatGPTFileV3 } from "../clickup/chatgpt-uploads.js";
 import { createAttentionReport } from "../reports/attention.js";
 import {
@@ -466,13 +467,13 @@ export function createServer(deps?: ReadDependencies): McpServer {
             const grant = write
               ? await requireWriteGrant(extra.http?.authInfo, dependencies.bindings, spec.name)
               : await requireReadGrant(extra.http?.authInfo, dependencies.bindings);
-            const value = await runCatalogOperation(
-              spec.name,
-              args,
-              grant,
-              dependencies.fetcher ?? fetch,
-            );
-            return spec.name === "clickup_read_task_image" ? toolImage(value) : toolSuccess(value);
+            const telemetry = createApiTelemetry(dependencies.fetcher ?? fetch);
+            try {
+              const value = await runCatalogOperation(spec.name, args, grant, telemetry.fetch);
+              return spec.name === "clickup_read_task_image" ? toolImage(value) : toolSuccess(value);
+            } finally {
+              await flushApiTelemetry(grant, spec.name, telemetry.snapshot());
+            }
           } catch (error) {
             return toolError(error);
           }
