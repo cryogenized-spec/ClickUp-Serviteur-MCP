@@ -1,4 +1,4 @@
-import type { WebhookHint } from "./webhook-ingress.js";
+import { sanitizeWebhookMetadata, type WebhookHint } from "./webhook-ingress.js";
 
 const WEEK = 7 * 24 * 60 * 60 * 1000;
 
@@ -12,6 +12,9 @@ export class ClickUpWebhookEvents {
       "CREATE TABLE IF NOT EXISTS hints (event_key TEXT PRIMARY KEY, task_id TEXT NOT NULL, event TEXT NOT NULL, received_at INTEGER NOT NULL)",
     );
     state.storage.sql.exec("CREATE INDEX IF NOT EXISTS hints_received ON hints(received_at)");
+    state.storage.sql.exec(
+      "CREATE TABLE IF NOT EXISTS hint_metadata (event_key TEXT PRIMARY KEY, metadata TEXT NOT NULL)",
+    );
     state.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS reviewed (event_key TEXT PRIMARY KEY, acknowledged_at INTEGER NOT NULL)",
     );
@@ -31,15 +34,32 @@ export class ClickUpWebhookEvents {
       )
         return new Response(null, { status: 400 });
       const rows = this.state.storage.sql
-        .exec<{ event_key: string; task_id: string; event: string; received_at: number }>(
-          "SELECT h.event_key, h.task_id, h.event, h.received_at FROM hints h LEFT JOIN reviewed r ON h.event_key = r.event_key WHERE r.event_key IS NULL AND h.received_at >= ? AND (h.received_at > ? OR (h.received_at = ? AND h.event_key > ?)) ORDER BY h.received_at, h.event_key LIMIT 11",
+        .exec<{
+          event_key: string;
+          task_id: string;
+          event: string;
+          received_at: number;
+          metadata_json: string | null;
+        }>(
+          "SELECT h.event_key, h.task_id, h.event, h.received_at, m.metadata AS metadata_json FROM hints h LEFT JOIN hint_metadata m ON h.event_key = m.event_key LEFT JOIN reviewed r ON h.event_key = r.event_key WHERE r.event_key IS NULL AND h.received_at >= ? AND (h.received_at > ? OR (h.received_at = ? AND h.event_key > ?)) ORDER BY h.received_at, h.event_key LIMIT 11",
           Date.now() - WEEK,
           Number(since ?? 0),
           Number(since ?? 0),
           key ?? "",
         )
         .toArray();
-      return Response.json({ events: rows.slice(0, 10), incomplete: rows.length > 10 });
+      const events = rows.slice(0, 10).map(({ metadata_json, ...row }) => {
+        let metadata = {};
+        if (metadata_json) {
+          try {
+            metadata = sanitizeWebhookMetadata(JSON.parse(metadata_json));
+          } catch {
+            // Old or invalid metadata is not a reason to discard the base event.
+          }
+        }
+        return { ...row, ...(Object.keys(metadata).length ? { metadata } : {}) };
+      });
+      return Response.json({ events, incomplete: rows.length > 10 });
     }
     if (request.method === "POST" && path === "/acknowledge") {
       const raw: unknown = await request.json().catch(() => null);
@@ -121,7 +141,14 @@ export class ClickUpWebhookEvents {
         Math.abs(receivedAt - now) > 60_000
       )
         return new Response(null, { status: 400 });
-      hints.push({ key, taskId, event, receivedAt });
+      const metadata = sanitizeWebhookMetadata(item["metadata"]);
+      hints.push({
+        key,
+        taskId,
+        event,
+        receivedAt,
+        ...(Object.keys(metadata).length ? { metadata } : {}),
+      });
     }
     this.state.storage.transactionSync(() => {
       for (const hint of hints) {
@@ -132,6 +159,13 @@ export class ClickUpWebhookEvents {
           hint.event,
           hint.receivedAt,
         );
+        if (hint.metadata)
+          this.state.storage.sql.exec(
+            "INSERT OR IGNORE INTO hint_metadata(event_key, metadata) SELECT event_key, ? FROM hints WHERE event_key = ? AND task_id = ?",
+            JSON.stringify(hint.metadata),
+            hint.key,
+            hint.taskId,
+          );
       }
       this.state.storage.sql.exec("DELETE FROM hints WHERE received_at < ?", now - WEEK);
       this.state.storage.sql.exec(
@@ -139,6 +173,9 @@ export class ClickUpWebhookEvents {
       );
       this.state.storage.sql.exec(
         "DELETE FROM reviewed WHERE event_key NOT IN (SELECT event_key FROM hints)",
+      );
+      this.state.storage.sql.exec(
+        "DELETE FROM hint_metadata WHERE event_key NOT IN (SELECT event_key FROM hints)",
       );
     });
     const earliest = this.state.storage.sql
@@ -221,6 +258,9 @@ export class ClickUpWebhookEvents {
     this.state.storage.sql.exec("DELETE FROM hints WHERE received_at <= ?", now - WEEK);
     this.state.storage.sql.exec(
       "DELETE FROM reviewed WHERE event_key NOT IN (SELECT event_key FROM hints)",
+    );
+    this.state.storage.sql.exec(
+      "DELETE FROM hint_metadata WHERE event_key NOT IN (SELECT event_key FROM hints)",
     );
     const remaining = this.state.storage.sql
       .exec<{ earliest: number | null }>("SELECT MIN(received_at) AS earliest FROM hints")
