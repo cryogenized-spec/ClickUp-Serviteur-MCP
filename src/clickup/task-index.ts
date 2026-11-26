@@ -120,6 +120,9 @@ export class TaskIndexStore {
     run(
       "CREATE TABLE IF NOT EXISTS task_refresh (task_id TEXT PRIMARY KEY, task_dirty_at INTEGER NOT NULL DEFAULT 0, comments_dirty_at INTEGER NOT NULL DEFAULT 0, task_checked_at INTEGER NOT NULL DEFAULT 0, comments_checked_at INTEGER NOT NULL DEFAULT 0)",
     );
+    run(
+      "CREATE TABLE IF NOT EXISTS sync_backoff (task_id TEXT PRIMARY KEY, retry_at INTEGER NOT NULL, attempts INTEGER NOT NULL)",
+    );
   }
 
   markDirty(id: string, event: string, at: number): void {
@@ -131,6 +134,70 @@ export class TaskIndexStore {
       isComment ? 0 : at,
       isComment ? at : 0,
     );
+    // A fresh, signed change invalidates any earlier retry deferral.
+    this.run("DELETE FROM sync_backoff WHERE task_id = ?", id);
+  }
+
+  /** Bounded work batch, not a lifetime quota: unprocessed tasks remain durable. */
+  dirtyTasks(now: number, limit = 3): Array<{
+    task_id: string;
+    task_dirty: boolean;
+    comments_dirty: boolean;
+    attempts: number;
+  }> {
+    if (!validObserved(now) || !Number.isInteger(limit) || limit < 1 || limit > 25)
+      throw new Error("INVALID_SYNC_REQUEST");
+    const rows = this.run(
+      "SELECT r.task_id, r.task_dirty_at, r.comments_dirty_at, r.task_checked_at, r.comments_checked_at, COALESCE(b.attempts, 0) AS attempts FROM task_refresh r LEFT JOIN sync_backoff b ON r.task_id = b.task_id WHERE (r.task_dirty_at > r.task_checked_at OR r.comments_dirty_at > r.comments_checked_at) AND COALESCE(b.retry_at, 0) <= ? ORDER BY MAX(r.task_dirty_at, r.comments_dirty_at), r.task_id LIMIT ?",
+      now,
+      limit,
+    ).toArray() as Array<{
+      task_id: string;
+      task_dirty_at: number;
+      comments_dirty_at: number;
+      task_checked_at: number;
+      comments_checked_at: number;
+      attempts: number;
+    }>;
+    return rows.map((row) => ({
+      task_id: row.task_id,
+      task_dirty: row.task_dirty_at > row.task_checked_at,
+      comments_dirty: row.comments_dirty_at > row.comments_checked_at,
+      attempts: row.attempts,
+    }));
+  }
+
+  nextDirtyDue(): number | null {
+    const row = this.run(
+      "SELECT MIN(COALESCE(b.retry_at, 0)) AS next_due FROM task_refresh r LEFT JOIN sync_backoff b ON r.task_id = b.task_id WHERE r.task_dirty_at > r.task_checked_at OR r.comments_dirty_at > r.comments_checked_at",
+    ).one() as { next_due: number | null };
+    return row.next_due;
+  }
+
+  deferTask(id: string, retryAt: number, attempts: number): void {
+    if (!taskId(id) || !validObserved(retryAt) || !Number.isInteger(attempts) || attempts < 1)
+      throw new Error("INVALID_SYNC_RETRY");
+    this.run(
+      "INSERT INTO sync_backoff(task_id, retry_at, attempts) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET retry_at = excluded.retry_at, attempts = excluded.attempts",
+      id,
+      retryAt,
+      attempts,
+    );
+  }
+
+  clearRetry(id: string): void {
+    if (!taskId(id)) throw new Error("INVALID_SYNC_TASK");
+    this.run("DELETE FROM sync_backoff WHERE task_id = ?", id);
+  }
+
+  /** A task that is no longer authorized must not remain retrievable by future
+   * cached-reading tools. The webhook hint history is independent. */
+  discardSnapshots(id: string): void {
+    if (!taskId(id)) throw new Error("INVALID_SYNC_TASK");
+    this.transactionSync(() => {
+      this.run("DELETE FROM comment_snapshots WHERE task_id = ?", id);
+      this.run("DELETE FROM task_snapshots WHERE task_id = ?", id);
+    });
   }
 
   storeTask(snapshot: TaskSnapshot, observedAt: number): void {
