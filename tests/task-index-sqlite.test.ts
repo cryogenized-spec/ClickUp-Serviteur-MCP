@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
-import { TaskIndexStore, projectCommentSnapshot, projectTaskSnapshot } from "../src/clickup/task-index.js";
+import {
+  TaskIndexStore,
+  projectCommentSnapshot,
+  projectTaskSnapshot,
+} from "../src/clickup/task-index.js";
 
 function fixture() {
   const db = new DatabaseSync(":memory:");
