@@ -61,6 +61,44 @@ export class ClickUpWebhookEvents {
       });
       return Response.json({ events, incomplete: rows.length > 10 });
     }
+    if (request.method === "GET" && path === "/task-timeline") {
+      const taskId = url.searchParams.get("task_id");
+      if (!taskId || !/^[a-zA-Z0-9_-]{1,80}$/.test(taskId))
+        return new Response(null, { status: 400 });
+      const rows = this.state.storage.sql
+        .exec<{
+          event_key: string;
+          event: string;
+          received_at: number;
+          metadata_json: string | null;
+        }>(
+          "SELECT h.event_key, h.event, h.received_at, m.metadata AS metadata_json FROM hints h LEFT JOIN hint_metadata m ON h.event_key = m.event_key WHERE h.task_id = ? AND h.received_at >= ? ORDER BY h.received_at DESC, h.event_key DESC LIMIT 51",
+          taskId,
+          Date.now() - WEEK,
+        )
+        .toArray();
+      const events = rows.slice(0, 50).map(({ metadata_json, ...row }) => {
+        let metadata = {};
+        if (metadata_json) {
+          try {
+            metadata = sanitizeWebhookMetadata(JSON.parse(metadata_json));
+          } catch {
+            // Preserve the base event even if its optional metadata is invalid.
+          }
+        }
+        return { ...row, ...(Object.keys(metadata).length ? { metadata } : {}) };
+      });
+      return Response.json({ events, incomplete: rows.length > 50 });
+    }
+    if (request.method === "GET" && path === "/diagnostics") {
+      const counts = this.state.storage.sql
+        .exec<{ retained: number; pending: number; oldest_ms: number | null }>(
+          "SELECT COUNT(*) AS retained, COUNT(CASE WHEN r.event_key IS NULL THEN 1 END) AS pending, MIN(h.received_at) AS oldest_ms FROM hints h LEFT JOIN reviewed r ON h.event_key = r.event_key WHERE h.received_at >= ?",
+          Date.now() - WEEK,
+        )
+        .one();
+      return Response.json({ ...counts, retention_days: 7, capacity: 5000 });
+    }
     if (request.method === "POST" && path === "/acknowledge") {
       const raw: unknown = await request.json().catch(() => null);
       if (raw === null || typeof raw !== "object" || Array.isArray(raw))
