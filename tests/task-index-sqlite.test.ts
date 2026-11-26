@@ -139,9 +139,7 @@ describe("real SQLite task-index regressions", () => {
     // and restore content without bypassing the native ClickUp preflight.
     expect(store.storeTask(indexedTask(400, "Newly authorized"), 400)).toBe(true);
     store.storeComments("task123", [indexedComment("c3", "Fresh")], 400, true);
-    expect((store.lookup("task123")?.["task"] as { title: string }).title).toBe(
-      "Newly authorized",
-    );
+    expect((store.lookup("task123")?.["task"] as { title: string }).title).toBe("Newly authorized");
     expect(store.diagnostics()["indexed_comments"]).toBe(1);
   });
 
