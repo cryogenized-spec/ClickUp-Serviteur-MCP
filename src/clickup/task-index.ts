@@ -205,16 +205,13 @@ export class TaskIndexStore {
     attempts: number,
     expectedToken: string,
   ): boolean {
-    if (!taskId(id) || !/^\d+:\d+$/.test(expectedToken))
-      throw new Error("INVALID_SYNC_RETRY");
+    if (!taskId(id) || !/^\d+:\d+$/.test(expectedToken)) throw new Error("INVALID_SYNC_RETRY");
     let applied = false;
     this.transactionSync(() => {
       const state = this.run(
         "SELECT task_dirty_at, comments_dirty_at FROM task_refresh WHERE task_id = ?",
         id,
-      ).toArray()[0] as
-        | { task_dirty_at: number; comments_dirty_at: number }
-        | undefined;
+      ).toArray()[0] as { task_dirty_at: number; comments_dirty_at: number } | undefined;
       if (!state) return;
       if (state.task_dirty_at + ":" + state.comments_dirty_at !== expectedToken) return;
       this.deferTask(id, retryAt, attempts);
