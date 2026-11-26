@@ -23,13 +23,18 @@ are automatically backfilled. The ledger is curated, not inferred from ClickUp.
   visible results to that exact home List
 - `followup_due_before_ms`: cutoff (defaults to current server time);
   supply the *same* value to continuation requests
-- `followup_after_due_ms` and `followup_after_task_id`: paired keyset
-  continuation cursor values returned by the preceding response
+- `followup_cursor`: an **opaque, random UUID continuation token** from the
+  previous page's `next_cursor`. It is resolved only within the actor's
+  private Durable Object against a SQLite record binding the original cutoff
+  and scope/List filter. Reuse the exact `followup_due_before_ms` and `list_id`
+  on continuation. Tokens expire 24 hours after creation; an unknown,
+  expired, altered or mismatched token is rejected instead of restarting.
 
 Results are sorted by `(next_check_at_ms, task_id)`, not by insertion order,
-and pages return `incomplete` and the exact next cursor. The cursor makes
-continuation more stable than offsets when earlier records are added or
-resolved; this is still a changing live view, not a transaction-level snapshot.
+and pages return `incomplete` and `next_cursor` (never a hidden task ID
+or private keyset timestamp). The private keyset makes continuation more
+stable than offsets when earlier records are added or resolved; this is still a
+changing live view, not a transaction-level snapshot.
 
 ## Authorization and accuracy
 
@@ -38,8 +43,8 @@ reads the private candidates, then fetches each task **sequentially** using
 the connected person's current ClickUp OAuth token and its live home
 List/Workspace preflight. Access-denied, removed, or out-of-scope records are
 excluded and counted without exposing their IDs or notes. Authentication
-failure, rate limit, unexpected schema or transient provider failure aborts
-the read rather than silently returning an all-clear.
+failure, rate limit, malformed HTTP-200 task/List responses or transient
+provider failure aborts the read rather than silently returning an all-clear.
 
 The adapter re-reads the current private follow-up projection *after* task
 authorization and excludes any obligation now resolved or moved to a later
@@ -69,8 +74,9 @@ visible because they appear in the actor's own old private ledger.
 
 ## Tests / review gates
 
-Real SQLite tests cover due timestamp ties, keyset paging, clearing on
-resolution, rescheduling, malformed cursor inputs and due cutoff boundaries.
+Real SQLite tests cover due timestamp ties, private keyset paging, clearing on
+resolution, rescheduling, opaque token persistence across object restarts,
+tamper resistance, expiry and scope/cutoff mismatch.
 Catalogue adapter regressions use synthetic ClickUp provider responses to
 verify the List-only authorization path, revoked/out-of-scope suppression,
 rescheduling during GET, no unchecked provider details, unchanged cursor
