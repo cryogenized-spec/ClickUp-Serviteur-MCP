@@ -5,12 +5,18 @@ import type { ReadGrant } from "../src/clickup/policy.js";
 const due = 1795800000000;
 const cutoff = due + 100;
 
-function fixture(options: { stopAt?: string; allDenied?: boolean } = {}) {
+function fixture(options: {
+  stopAt?: string;
+  allDenied?: boolean;
+  malformedTask?: string;
+  singleDenied?: boolean;
+} = {}) {
   const privateCalls = vi.fn(async (request: Request) => {
     const url = new URL(request.url);
     if (url.pathname === "/followups/due") {
       expect(url.searchParams.get("cutoff_ms")).toBe(String(cutoff));
-      const after = url.searchParams.get("after_task_id");
+      const after = url.searchParams.get("cursor");
+      expect(url.searchParams.get("scope_key")).toBe("list:555:12345");
       return Response.json(
         after
           ? {
@@ -26,9 +32,12 @@ function fixture(options: { stopAt?: string; allDenied?: boolean } = {}) {
               incomplete: false,
               next_after_due_ms: null,
               next_after_task_id: null,
+              next_cursor: null,
+              start_after_due_ms: due,
+              start_after_task_id: "taskD",
             }
           : {
-              candidates: ["taskA", "taskB", "taskC", "taskD"].map((task_id) => ({
+              candidates: (options.singleDenied ? ["taskB"] : ["taskA", "taskB", "taskC", "taskD"]).map((task_id) => ({
                 task_id,
                 state: "awaiting_response",
                 waiting_on_user_id: "707",
@@ -37,7 +46,10 @@ function fixture(options: { stopAt?: string; allDenied?: boolean } = {}) {
               })),
               incomplete: true,
               next_after_due_ms: due,
-              next_after_task_id: "taskD",
+              next_after_task_id: options.singleDenied ? "taskB" : "taskD",
+              next_cursor: "01234567-89ab-4cde-8fab-0123456789ab",
+              start_after_due_ms: null,
+              start_after_task_id: null,
             },
       );
     }
@@ -72,6 +84,7 @@ function fixture(options: { stopAt?: string; allDenied?: boolean } = {}) {
     if (path.startsWith("/api/v2/task/")) {
       const id = path.split("/").at(-1)!;
       if (id === options.stopAt) return Response.json({}, { status: 429 });
+      if (id === options.malformedTask) return Response.json({});
       if (options.allDenied || id === "taskB") return Response.json({}, { status: 403 });
       return Response.json({
         id,
@@ -122,8 +135,7 @@ describe("authorized overdue follow-up catalogue", () => {
       filtered_inaccessible_or_out_of_scope: 2,
       filtered_changed_since_read: 1,
       incomplete: true,
-      next_after_due_ms: due,
-      next_after_task_id: "taskD",
+      next_cursor: "01234567-89ab-4cde-8fab-0123456789ab",
       followups: [
         {
           task_id: "taskA",
@@ -152,8 +164,7 @@ describe("authorized overdue follow-up catalogue", () => {
       {
         followup_due_before_ms: cutoff,
         max_results: 4,
-        followup_after_due_ms: due,
-        followup_after_task_id: "taskD",
+        followup_cursor: "01234567-89ab-4cde-8fab-0123456789ab",
       },
       grant,
       api as typeof fetch,
@@ -161,12 +172,11 @@ describe("authorized overdue follow-up catalogue", () => {
     expect(result).toMatchObject({
       candidates_scanned: 1,
       incomplete: false,
-      next_after_due_ms: null,
-      next_after_task_id: null,
+      next_cursor: null,
       followups: [{ task_id: "taskE", title: "Case taskE" }],
     });
-    expect(new URL(privateCalls.mock.calls[0]![0].url).searchParams.get("after_task_id")).toBe(
-      "taskD",
+    expect(new URL(privateCalls.mock.calls[0]![0].url).searchParams.get("cursor")).toBe(
+      "01234567-89ab-4cde-8fab-0123456789ab",
     );
   });
 
@@ -185,6 +195,43 @@ describe("authorized overdue follow-up catalogue", () => {
       incomplete: true,
     });
     expect(JSON.stringify(result)).not.toContain("Case task");
+    expect(JSON.stringify(result)).not.toContain('"taskB"');
+    expect(JSON.stringify(result)).not.toContain("next_after_task_id");
+  });
+
+  it("never exposes a denied last candidate ID or its due keyset in an empty page", async () => {
+    const { grant, api } = fixture({ singleDenied: true });
+    const result = await runCatalogOperation(
+      "clickup_get_overdue_followups",
+      { followup_due_before_ms: cutoff, max_results: 1 },
+      grant,
+      api as typeof fetch,
+    );
+    expect(result).toMatchObject({
+      followups: [],
+      candidates_scanned: 1,
+      filtered_inaccessible_or_out_of_scope: 1,
+      incomplete: true,
+      next_cursor: "01234567-89ab-4cde-8fab-0123456789ab",
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("taskB");
+    expect(serialized).not.toContain("next_after_due_ms");
+    expect(serialized).not.toContain("next_after_task_id");
+    expect(serialized).not.toContain(String(due));
+  });
+
+  it("does not turn a malformed HTTP 200 task response into a false all-clear", async () => {
+    const { grant, api, privateCalls } = fixture({ malformedTask: "taskA" });
+    await expect(
+      runCatalogOperation(
+        "clickup_get_overdue_followups",
+        { followup_due_before_ms: cutoff, max_results: 4 },
+        grant,
+        api as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_BAD_RESPONSE");
+    expect(privateCalls).toHaveBeenCalledTimes(1);
   });
 
   it("stops on an actual rate limit rather than reporting an empty list", async () => {
@@ -200,12 +247,12 @@ describe("authorized overdue follow-up catalogue", () => {
     expect(privateCalls).toHaveBeenCalledTimes(2);
   });
 
-  it("requires both cursor fields and rejects an unauthorized List filter before reading private storage", async () => {
+  it("rejects malformed opaque cursors and unauthorized List filters before reading private storage", async () => {
     const { grant, api, privateCalls } = fixture();
     await expect(
       runCatalogOperation(
         "clickup_get_overdue_followups",
-        { followup_due_before_ms: cutoff, followup_after_due_ms: due },
+        { followup_due_before_ms: cutoff, followup_cursor: "not-a-cursor" },
         grant,
         api as typeof fetch,
       ),
