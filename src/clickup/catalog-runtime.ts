@@ -1989,9 +1989,9 @@ export async function runCatalogOperation(
             Number(cursorDue) < 0 ||
             Number(cursorDue) > Number(cutoff))) ||
         (cursorTask !== undefined &&
-          (typeof cursorTask !== "string" ||
-            !/^[a-zA-Z0-9_-]{1,80}$/.test(cursorTask)))
-      ) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+          (typeof cursorTask !== "string" || !/^[a-zA-Z0-9_-]{1,80}$/.test(cursorTask)))
+      )
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
 
       // Enforce the configured List/Workspace scope before exposing even
       // actor-private candidate metadata. For workspace scope the caller may
@@ -2015,10 +2015,11 @@ export async function runCatalogOperation(
         !Array.isArray(candidates) ||
         candidates.length > N ||
         typeof page?.["incomplete"] !== "boolean"
-      ) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      )
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
 
       let previousDue = cursorDue === undefined ? 0 : Number(cursorDue);
-      let previousTask = cursorTask === undefined ? "" : cursorTask as string;
+      let previousTask = cursorTask === undefined ? "" : (cursorTask as string);
       const validated: Array<{
         task_id: string;
         state: string;
@@ -2040,9 +2041,10 @@ export async function runCatalogOperation(
           Number(due) > Number(cutoff) ||
           !Number.isSafeInteger(revision) ||
           Number(revision) < 1 ||
-          (Number(due) < previousDue ||
-            (Number(due) === previousDue && taskId <= previousTask))
-        ) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+          Number(due) < previousDue ||
+          (Number(due) === previousDue && taskId <= previousTask)
+        )
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
         previousDue = due as number;
         previousTask = taskId;
         validated.push({
@@ -2057,10 +2059,9 @@ export async function runCatalogOperation(
       const nextTask = page["next_after_task_id"];
       if (
         incomplete &&
-        (validated.length === 0 ||
-          nextDue !== previousDue ||
-          nextTask !== previousTask)
-      ) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        (validated.length === 0 || nextDue !== previousDue || nextTask !== previousTask)
+      )
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       if (!incomplete && (nextDue !== null || nextTask !== null))
         throw new ReadFailure("CLICKUP_BAD_RESPONSE");
 
@@ -2130,9 +2131,8 @@ export async function runCatalogOperation(
           followup_revision: state["revision"],
           last_action_kind: last?.["action_kind"] ?? null,
           last_action_at_ms: last?.["recorded_at_ms"] ?? null,
-          last_action_note: typeof last?.["note"] === "string"
-            ? (last["note"] as string).slice(0, 500)
-            : null,
+          last_action_note:
+            typeof last?.["note"] === "string" ? (last["note"] as string).slice(0, 500) : null,
         });
       }
       return {
@@ -2147,7 +2147,8 @@ export async function runCatalogOperation(
         next_after_due_ms: incomplete ? nextDue : null,
         next_after_task_id: incomplete ? nextTask : null,
         list_filter: onlyList ?? null,
-        coverage_note: "One keyset candidate page, not the ClickUp Inbox. Continue both cursor fields with the same due_before_ms while incomplete. Notes are curated, not evidence of customer contact.",
+        coverage_note:
+          "One keyset candidate page, not the ClickUp Inbox. Continue both cursor fields with the same due_before_ms while incomplete. Notes are curated, not evidence of customer contact.",
       };
     }
     case "clickup_get_followup_state":
