@@ -24,7 +24,7 @@ function setup(denied = false) {
     }
     return new Response(null, { status: 404 });
   });
-  const api = vi.fn(async (request: RequestInfo | URL) => {
+  const api = vi.fn(async (request: RequestInfo | URL, _init?: RequestInit) => {
     const path = new URL(String(request)).pathname;
     if (path === "/api/v2/task/abc123") {
       return denied
