@@ -85,6 +85,46 @@ describe("idempotent Durable Object webhook ingestion", () => {
     expect(body.task_index.comment_refresh_pending).toBe(1);
   });
 
+  it("accepts minimal discovery hints only as pending revalidation work", async () => {
+    const { db, instance } = fixture();
+    databases.push(db);
+    const body = {
+      observed_at: Date.now(),
+      tasks: [{ task_id: "taskxyz", list_id: "12345", source_updated_at_ms: 1000 }],
+    };
+    const submit = () =>
+      instance.fetch(
+        new Request("https://internal/index/discovery", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      );
+    const first = await submit();
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ enqueued: 1, unchanged: 0 });
+    const repeated = await submit();
+    expect(await repeated.json()).toMatchObject({ enqueued: 0, already_pending: 1 });
+    const snapshot = await instance.fetch(
+      new Request("https://internal/index/task?task_id=taskxyz"),
+    );
+    // A list summary is NOT a validated, cached task-content response.
+    expect(snapshot.status).toBe(404);
+    const diagnostics = await instance.fetch(new Request("https://internal/diagnostics"));
+    expect((await diagnostics.json()) as unknown).toMatchObject({
+      task_index: { task_refresh_pending: 1, comment_refresh_pending: 1 },
+    });
+    const unsafe = await instance.fetch(
+      new Request("https://internal/index/discovery", {
+        method: "POST",
+        body: JSON.stringify({
+          observed_at: Date.now(),
+          tasks: [{ task_id: "bad/id", list_id: "12345", source_updated_at_ms: 1000 }],
+        }),
+      }),
+    );
+    expect(unsafe.status).toBe(400);
+  });
+
   it("does not re-invalidate a verified snapshot on an identical event replay", async () => {
     const { db, instance } = fixture();
     databases.push(db);
