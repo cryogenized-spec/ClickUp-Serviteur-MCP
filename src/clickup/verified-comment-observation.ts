@@ -61,7 +61,9 @@ export async function recordVerifiedCommentObservation(
     const stub = grant.taskIndex.get(
       grant.taskIndex.idFromName(grant.workspaceId + ":" + grant.subject) as never,
     );
-    const readPrivate = async (request: Request): Promise<{
+    const readPrivate = async (
+      request: Request,
+    ): Promise<{
       response: Response;
       payload: unknown;
     }> => {
@@ -74,9 +76,11 @@ export async function recordVerifiedCommentObservation(
           (async () => {
             // Abort where supported; race guarantees a deadline even if
             // Durable Object binding ignores the abort signal.
-            const response = await stub.fetch(new Request(request, {
-              signal: controller.signal,
-            }));
+            const response = await stub.fetch(
+              new Request(request, {
+                signal: controller.signal,
+              }),
+            );
             return {
               response,
               payload: response.ok ? await response.json() : null,
@@ -201,9 +205,10 @@ export async function recordVerifiedCommentObservation(
     // and reconcile by its stable action key; never repeat the ClickUp POST.
     return {
       recorded: false,
-      reason: error instanceof PrivateObservationTimeout
-        ? "private_storage_timeout"
-        : "private_storage_failed",
+      reason:
+        error instanceof PrivateObservationTimeout
+          ? "private_storage_timeout"
+          : "private_storage_failed",
     };
   }
 }
