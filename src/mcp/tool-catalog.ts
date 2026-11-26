@@ -180,13 +180,30 @@ const F = {
   ),
   followup_action_kind: {
     type: "string",
-    description: "Actually observed or performed; instruction_sent requires a ClickUp comment ID verified live.",
-    enum: ["observation", "draft_prepared", "instruction_sent", "response_received", "followup_checked", "resolution_confirmed", "note"],
+    description:
+      "Actually observed or performed; instruction_sent requires a ClickUp comment ID verified live.",
+    enum: [
+      "observation",
+      "draft_prepared",
+      "instruction_sent",
+      "response_received",
+      "followup_checked",
+      "resolution_confirmed",
+      "note",
+    ],
   },
   followup_state_after: {
     type: "string",
     description: "Human-curated follow-up state, independent of ClickUp task status.",
-    enum: ["detected", "verified", "action_required", "action_taken", "awaiting_response", "response_received", "resolved"],
+    enum: [
+      "detected",
+      "verified",
+      "action_required",
+      "action_taken",
+      "awaiting_response",
+      "response_received",
+      "resolved",
+    ],
   },
   followup_expected_revision: integer(
     "Revision from clickup_get_followup_state (zero when untracked); prevents stale writes.",
@@ -1614,8 +1631,19 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "write",
     "Append private actor/Workspace-scoped follow-up evidence using an idempotency key and optimistic revision. Does not post to ClickUp, contact customers, or acknowledge webhook events.",
     "Record that my verified comment was posted and that we now await Sameer's response.",
-    ["task_id", "followup_action_key", "followup_action_kind", "followup_state_after", "followup_expected_revision"],
-    ["followup_note", "followup_evidence_comment_id", "followup_waiting_on_user_id", "followup_next_check_at_ms"],
+    [
+      "task_id",
+      "followup_action_key",
+      "followup_action_kind",
+      "followup_state_after",
+      "followup_expected_revision",
+    ],
+    [
+      "followup_note",
+      "followup_evidence_comment_id",
+      "followup_waiting_on_user_id",
+      "followup_next_check_at_ms",
+    ],
   ),
 
   // PERSISTENT ACTIVITY REGISTER
