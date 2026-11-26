@@ -1631,12 +1631,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Read due obligations from the current actor's private persistent register, verifying each candidate against live ClickUp OAuth task permissions before exposing any details. Returns keyset continuation cursors and explicitly discloses partial candidate coverage; it is neither a native ClickUp Inbox nor proof that customer contact occurred.",
     "Which of my documented follow-ups are due for attention?",
     [],
-    [
-      "max_results",
-      "list_id",
-      "followup_due_before_ms",
-      "followup_cursor",
-    ],
+    ["max_results", "list_id", "followup_due_before_ms", "followup_cursor"],
   ),
   tool(
     "clickup_get_followup_state",
