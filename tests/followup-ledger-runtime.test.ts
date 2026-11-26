@@ -268,4 +268,27 @@ describe("OAuth-verifying follow-up MCP adapter", () => {
     expect(privateCalls).toHaveBeenCalledTimes(2);
     expect(api.mock.calls.some(([request]) => String(request).includes("/comment"))).toBe(true);
   });
+  it("requires author-verified concrete evidence for manually claimed verified comments", async () => {
+    const { api, grant, privateCalls } = setup(false, true);
+    const action = {
+      task_id: "abc123",
+      followup_action_key: "verified-comment:1500260000111534",
+      followup_action_kind: "verified_comment_posted",
+      followup_state_after: "verified",
+      followup_expected_revision: 0,
+    };
+    await expect(
+      runCatalogOperation("clickup_record_followup_action", action, grant, api as typeof fetch),
+    ).rejects.toThrow("CLICKUP_FOLLOWUP_EVIDENCE_REQUIRED");
+    expect(privateCalls).not.toHaveBeenCalled();
+    await expect(
+      runCatalogOperation(
+        "clickup_record_followup_action",
+        { ...action, followup_evidence_comment_id: "1500260000111534" },
+        grant,
+        api as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
+    expect(privateCalls).toHaveBeenCalledTimes(1);
+  });
 });

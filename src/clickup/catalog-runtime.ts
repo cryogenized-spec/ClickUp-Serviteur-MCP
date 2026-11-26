@@ -2,6 +2,7 @@ import { quotaCall } from "./client.js";
 import { sanitizeWebhookMetadata, validActivityConsumer } from "./webhook-ingress.js";
 import { filePendingLedger } from "./file-field-ledger.js";
 import { getMyAttentionItems } from "./attention-items.js";
+import { recordVerifiedCommentObservation } from "./verified-comment-observation.js";
 import {
   captureVerifiedComments,
   captureVerifiedTask,
@@ -2230,7 +2231,10 @@ export async function runCatalogOperation(
           (typeof commentId !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(commentId)))
       )
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
-      if (kind === "instruction_sent" && commentId === undefined)
+      if (
+        (kind === "instruction_sent" || kind === "verified_comment_posted") &&
+        commentId === undefined
+      )
         throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_REQUIRED");
       const normalizedAction = {
         task_id: taskId,
@@ -2290,7 +2294,7 @@ export async function runCatalogOperation(
             // A posted-comment assertion must refer to an actual comment by
             // this connected ClickUp actor, not another colleague's reply.
             if (
-              kind === "instruction_sent" &&
+              (kind === "instruction_sent" || kind === "verified_comment_posted") &&
               String(obj(obj(matchingComment)?.["user"])?.["id"]) !== g.clickupUserId
             )
               throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
@@ -4765,6 +4769,16 @@ export async function runCatalogOperation(
     }
     case "clickup_create_task_comment": {
       await task("task_id");
+      // Only verified ClickUp POST+author readbacks can generate a factual
+      // private follow-up observation. Capture failures never cause reposts.
+      const observeAuthorVerified = async (posted: Json, commentId: string): Promise<Json> => ({
+        ...posted,
+        followup_observation: await recordVerifiedCommentObservation(
+          g,
+          String(a["task_id"]),
+          commentId,
+        ),
+      });
       const richRequested = a["mention_segments"] !== undefined || a["rich_segments"] !== undefined;
       if (
         (a["rich_segments"] !== undefined && a["mention_segments"] !== undefined) ||
@@ -4904,21 +4918,24 @@ export async function runCatalogOperation(
           // The POST returned a valid ID, but readback could not verify it.
           return uncertain(String(commentId));
         }
-        return {
-          ...posted,
-          write_acknowledged: true,
-          requested_mention_user_ids: requestedIds,
-          ...(mentionIdsVerified ? { genuine_mentions: requestedIds } : {}),
-          verified_tag_structure_by_readback: requestedIds.length > 0,
-          native_rich_structure_verified_by_readback: true,
-          ...(dividerFallback ? { divider_fallback: "unicode_text", native_divider: false } : {}),
-          // A tag with no returned user.id proves structure, NOT its target.
-          mention_identity_verified_by_readback: mentionIdsVerified,
-          verified_by_readback: mentionIdsVerified,
-          readback_status: mentionIdsVerified ? "full" : "structure_only",
-          // ClickUp may notify tagged people even though notify_all is false.
-          notification_delivery_unverified: true,
-        };
+        return observeAuthorVerified(
+          {
+            ...posted,
+            write_acknowledged: true,
+            requested_mention_user_ids: requestedIds,
+            ...(mentionIdsVerified ? { genuine_mentions: requestedIds } : {}),
+            verified_tag_structure_by_readback: requestedIds.length > 0,
+            native_rich_structure_verified_by_readback: true,
+            ...(dividerFallback ? { divider_fallback: "unicode_text", native_divider: false } : {}),
+            // A tag with no returned user.id proves structure, NOT its target.
+            mention_identity_verified_by_readback: mentionIdsVerified,
+            verified_by_readback: mentionIdsVerified,
+            readback_status: mentionIdsVerified ? "full" : "structure_only",
+            // ClickUp may notify tagged people even though notify_all is false.
+            notification_delivery_unverified: true,
+          },
+          String(commentId),
+        );
       }
       const comment = {
         comment_text: txt(a["text"], 6000),
@@ -4928,7 +4945,50 @@ export async function runCatalogOperation(
       if (a["parent_comment_id"] === undefined) {
         const taskId = val(a, "task_id");
         const posted = await call("POST", v2("task/" + taskId + "/comment"), comment);
-        if (assignee === null) return posted;
+        if (assignee === null) {
+          const newId = posted["id"];
+          if (
+            (typeof newId !== "string" && typeof newId !== "number") ||
+            !/^[0-9]{1,24}$/.test(String(newId))
+          )
+            return {
+              ...posted,
+              followup_observation: { recorded: false, reason: "invalid_evidence" },
+            };
+          try {
+            // The POST response alone is not proof of the comment's author.
+            // Read once using the connected user's ClickUp OAuth credential.
+            const after = await call("GET", v2("task/" + taskId + "/comment"));
+            if (!Array.isArray(after["comments"])) throw new Error("comment readback unavailable");
+            const created = after["comments"]
+              .map(obj)
+              .find((row) => String(row?.["id"]) === String(newId));
+            if (
+              !created ||
+              String(obj(created["user"])?.["id"]) !== g.clickupUserId ||
+              created["comment_text"] !== comment.comment_text
+            )
+              throw new Error("comment author/body readback unverified");
+          } catch {
+            // Never hide a successful ClickUp comment behind a private
+            // observation or readback error, and never blindly repeat POST.
+            return {
+              ...posted,
+              followup_observation: {
+                recorded: false,
+                reason: "clickup_readback_unverified",
+              },
+            };
+          }
+          return observeAuthorVerified(
+            {
+              ...posted,
+              verified_by_readback: true,
+              notification_delivery_unverified: true,
+            },
+            String(newId),
+          );
+        }
         // Never claim that a requested assignment happened based only on POST.
         const commentId = posted["id"];
         if (
@@ -4944,17 +5004,22 @@ export async function runCatalogOperation(
             .find((item) => String(item?.["id"]) === String(commentId));
           if (
             !created ||
+            String(obj(created["user"])?.["id"]) !== g.clickupUserId ||
             String(obj(created["assignee"])?.["id"] ?? created["assignee"]) !== String(assignee)
           )
             throw Error("Assignment did not persist");
         } catch {
           throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
         }
-        return {
-          ...posted,
-          assignee_id: String(assignee),
-          verified_by_readback: true,
-        };
+        return observeAuthorVerified(
+          {
+            ...posted,
+            assignee_id: String(assignee),
+            verified_by_readback: true,
+            notification_delivery_unverified: true,
+          },
+          String(commentId),
+        );
       }
       // The reply destination must be independently verified against this task.
       const parents = await call("GET", v2("task/" + val(a, "task_id") + "/comment"));
