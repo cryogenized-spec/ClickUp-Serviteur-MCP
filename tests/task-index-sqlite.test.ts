@@ -10,7 +10,7 @@ function fixture() {
   const db = new DatabaseSync(":memory:");
   const run = (sql: string, ...bindings: Array<string | number | null>) => {
     const statement = db.prepare(sql);
-    if (/^\\s*SELECT\\b/i.test(sql) || /\\bRETURNING\\b/i.test(sql)) {
+    if (/^\s*SELECT\b/i.test(sql) || /\bRETURNING\b/i.test(sql)) {
       return {
         one: () => statement.get(...bindings),
         toArray: () => statement.all(...bindings),
