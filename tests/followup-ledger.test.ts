@@ -310,21 +310,29 @@ describe("append-only actor-local follow-up ledger with real SQLite", () => {
   });
   it("treats verified comment history as evidence-required, without implying contact or resolution", () => {
     const ledger = make().create();
-    expect(() => ledger.record({
-      task_id: "task123",
-      action_key: "verified-comment:6001",
-      action_kind: "verified_comment_posted",
-      state_after: "verified",
-      expected_revision: 0,
-    }, 1795680000000)).toThrowError(FollowupLedgerError);
-    const saved = ledger.record({
-      task_id: "task123",
-      action_key: "verified-comment:6001",
-      action_kind: "verified_comment_posted",
-      state_after: "verified",
-      expected_revision: 0,
-      evidence_comment_id: "6001",
-    }, 1795680000000);
+    expect(() =>
+      ledger.record(
+        {
+          task_id: "task123",
+          action_key: "verified-comment:6001",
+          action_kind: "verified_comment_posted",
+          state_after: "verified",
+          expected_revision: 0,
+        },
+        1795680000000,
+      ),
+    ).toThrowError(FollowupLedgerError);
+    const saved = ledger.record(
+      {
+        task_id: "task123",
+        action_key: "verified-comment:6001",
+        action_kind: "verified_comment_posted",
+        state_after: "verified",
+        expected_revision: 0,
+        evidence_comment_id: "6001",
+      },
+      1795680000000,
+    );
     expect(saved).toMatchObject({
       task_id: "task123",
       revision: 1,
@@ -336,5 +344,4 @@ describe("append-only actor-local follow-up ledger with real SQLite", () => {
       evidence_comment_id: "6001",
     });
   });
-
 });
