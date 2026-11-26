@@ -81,7 +81,11 @@ export async function handleClickUpWebhook(request: Request, env: OAuthEnv): Pro
         new Request("https://internal/ingest", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(hints),
+          body: JSON.stringify({
+            workspaceId: registration.workspaceId,
+            subject: registration.subject,
+            hints,
+          }),
         }),
       );
       if (!result.ok) throw new Error("EVENT_STORAGE_FAILED");

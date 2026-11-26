@@ -1,3 +1,5 @@
+import type { OAuthEnv } from "../auth/env.js";
+import { grantForSignedWebhook, retryDelayMs, synchronizeDirtyTask } from "./task-index-sync.js";
 import {
   projectCommentSnapshot,
   projectTaskSnapshot,
@@ -18,7 +20,7 @@ export class ClickUpWebhookEvents {
 
   constructor(
     private readonly state: DurableObjectState,
-    private readonly env: { CLICKUP_TOKEN_KEY?: string },
+    private readonly env: OAuthEnv,
   ) {
     state.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS hints (event_key TEXT PRIMARY KEY, task_id TEXT NOT NULL, event TEXT NOT NULL, received_at INTEGER NOT NULL)",
@@ -35,6 +37,9 @@ export class ClickUpWebhookEvents {
     );
     state.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS reviewed (event_key TEXT PRIMARY KEY, acknowledged_at INTEGER NOT NULL)",
+    );
+    state.storage.sql.exec(
+      "CREATE TABLE IF NOT EXISTS sync_owner (id INTEGER PRIMARY KEY CHECK(id = 1), workspace_id TEXT NOT NULL, subject TEXT NOT NULL)",
     );
     this.taskIndex = new TaskIndexStore(
       (statement, ...bindings) => state.storage.sql.exec(statement, ...bindings),
@@ -286,11 +291,27 @@ export class ClickUpWebhookEvents {
     }
     if (request.method !== "POST" || path !== "/ingest") return new Response(null, { status: 404 });
     const raw: unknown = await request.json().catch(() => null);
-    if (!Array.isArray(raw) || raw.length < 1 || raw.length > 500)
+    // New ingress carries actor identity exclusively from the already
+    // HMAC-verified webhook registration, never from the provider body.
+    // Legacy array ingress stays readable during an existing deployment.
+    const envelope =
+      raw !== null && typeof raw === "object" && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : null;
+    const input = envelope ? envelope["hints"] : raw;
+    if (!Array.isArray(input) || input.length < 1 || input.length > 500)
+      return new Response(null, { status: 400 });
+    if (
+      envelope &&
+      (typeof envelope["workspaceId"] !== "string" ||
+        envelope["workspaceId"] !== this.env.CLICKUP_WORKSPACE_ID ||
+        typeof envelope["subject"] !== "string" ||
+        !/^github:[1-9]\d{0,15}$/.test(envelope["subject"]))
+    )
       return new Response(null, { status: 400 });
     const now = Date.now();
     const hints: WebhookHint[] = [];
-    for (const value of raw) {
+    for (const value of input) {
       if (value === null || typeof value !== "object" || Array.isArray(value))
         return new Response(null, { status: 400 });
       const item = value as Record<string, unknown>;
@@ -320,6 +341,21 @@ export class ClickUpWebhookEvents {
       });
     }
     this.state.storage.transactionSync(() => {
+      if (envelope) {
+        this.state.storage.sql.exec(
+          "INSERT OR IGNORE INTO sync_owner(id, workspace_id, subject) VALUES (1, ?, ?)",
+          String(envelope["workspaceId"]),
+          String(envelope["subject"]),
+        );
+        const owner = this.state.storage.sql
+          .exec<{
+            workspace_id: string;
+            subject: string;
+          }>("SELECT workspace_id, subject FROM sync_owner WHERE id = 1")
+          .one();
+        if (owner.workspace_id !== envelope["workspaceId"] || owner.subject !== envelope["subject"])
+          throw new Error("SYNC_OWNER_MISMATCH");
+      }
       for (const hint of hints) {
         const identity = hint.key.slice(37);
         // Signed history digests identify the same task/event across subscriptions.
@@ -335,6 +371,7 @@ export class ClickUpWebhookEvents {
               .toArray()[0]
           : undefined;
         const eventKey = existing?.event_key ?? hint.key;
+        // A retransmitted history item must not trigger a second refresh.
         const inserted = this.state.storage.sql
           .exec<{ event_key: string }>(
             "INSERT OR IGNORE INTO hints(event_key, task_id, event, received_at) VALUES (?, ?, ?, ?) RETURNING event_key",
@@ -344,8 +381,7 @@ export class ClickUpWebhookEvents {
             hint.receivedAt,
           )
           .toArray();
-        // Replayed webhooks must not make a successfully refreshed task stale.
-        if (inserted.length) this.taskIndex.markDirty(hint.taskId, hint.event, hint.receivedAt);
+        if (inserted.length) this.taskIndex.markDirty(hint.taskId, hint.event, now);
         if (hint.metadata)
           this.state.storage.sql.exec(
             "INSERT OR IGNORE INTO hint_metadata(event_key, metadata) SELECT event_key, ? FROM hints WHERE event_key = ? AND task_id = ?",
@@ -368,10 +404,7 @@ export class ClickUpWebhookEvents {
         "DELETE FROM consumer_processed WHERE event_key NOT IN (SELECT event_key FROM hints)",
       );
     });
-    const earliest = this.state.storage.sql
-      .exec<{ earliest: number | null }>("SELECT MIN(received_at) AS earliest FROM hints")
-      .one().earliest;
-    if (earliest !== null) await this.state.storage.setAlarm(Math.max(now + 1000, earliest + WEEK));
+    await this.scheduleAlarm(now);
     return new Response(null, { status: 204 });
   }
 
@@ -443,6 +476,10 @@ export class ClickUpWebhookEvents {
     return new Response(null, { status: inserted ? 204 : 409 });
   }
 
+  /** Cloudflare's native Durable Object alarm is the only background driver.
+   * Each invocation processes a bounded batch, preserving the remainder in
+   * SQLite; retries are durable and respect ClickUp's per-user quota handling.
+   */
   async alarm(): Promise<void> {
     const now = Date.now();
     this.state.storage.sql.exec("DELETE FROM hints WHERE received_at <= ?", now - WEEK);
@@ -455,10 +492,86 @@ export class ClickUpWebhookEvents {
     this.state.storage.sql.exec(
       "DELETE FROM consumer_processed WHERE event_key NOT IN (SELECT event_key FROM hints)",
     );
-    const remaining = this.state.storage.sql
+    let pauseUntil: number | null = null;
+    if (this.env.CLICKUP_INDEX_AUTOSYNC_ENABLED === "true") {
+      const owner = this.state.storage.sql
+        .exec<{ workspace_id: string; subject: string }>(
+          "SELECT workspace_id, subject FROM sync_owner WHERE id = 1",
+        )
+        .toArray()[0];
+      if (owner) {
+        const dirty = this.taskIndex.dirtyTasks(Date.now(), 3);
+        if (dirty.length) {
+          let grant;
+          try {
+            grant = await grantForSignedWebhook(
+              { workspaceId: owner.workspace_id, subject: owner.subject },
+              this.env,
+            );
+          } catch {
+            // Revoked OAuth or changed staff policy: do not use cached tokens.
+            pauseUntil = Date.now() + 15 * 60_000;
+          }
+          if (grant) {
+            for (const pending of dirty) {
+              try {
+                const result = await synchronizeDirtyTask(pending, grant, this.taskIndex, fetch);
+                if (result.complete) this.taskIndex.clearRetry(pending.task_id);
+                else
+                  this.taskIndex.deferTaskIfCurrent(
+                    pending.task_id,
+                    Date.now() + 15 * 60_000,
+                    pending.attempts + 1,
+                    pending.dirty_token,
+                  );
+              } catch (error) {
+                // Do not let an older failed request postpone a newer
+                // webhook generation. A definite denial has already queued
+                // both sections and set its own retry checkpoint.
+                this.taskIndex.deferTaskIfCurrent(
+                  pending.task_id,
+                  Date.now() + retryDelayMs(error, pending.attempts),
+                  pending.attempts + 1,
+                  pending.dirty_token,
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+    await this.scheduleAlarm(Date.now(), pauseUntil, true);
+  }
+
+  /** Preserve the legacy seven-day event-expiry alarm and choose the earlier
+   * task refresh deadline when automatic synchronization is enabled.
+   */
+  private async scheduleAlarm(
+    now: number,
+    pausedUntil: number | null = null,
+    afterAlarm = false,
+  ): Promise<void> {
+    const earliest = this.state.storage.sql
       .exec<{ earliest: number | null }>("SELECT MIN(received_at) AS earliest FROM hints")
-      .one();
-    if (remaining.earliest !== null)
-      await this.state.storage.setAlarm(Math.max(now + 1000, remaining.earliest + WEEK));
+      .one().earliest;
+    const expiry = earliest === null ? null : Math.max(now + 1000, earliest + WEEK);
+    let refresh: number | null = null;
+    if (this.env.CLICKUP_INDEX_AUTOSYNC_ENABLED === "true") {
+      const owner = this.state.storage.sql
+        .exec<{ workspace_id: string }>("SELECT workspace_id FROM sync_owner WHERE id = 1")
+        .toArray()[0];
+      if (owner) {
+        const due = this.taskIndex.nextDirtyDue();
+        if (due !== null)
+          refresh = Math.max(now + 1000, pausedUntil ?? (due === 0 ? now + 2000 : due));
+      }
+    }
+    const candidates = [expiry, refresh].filter((value): value is number => value !== null);
+    if (candidates.length > 0) {
+      const next = Math.min(...candidates);
+      const existing = await this.state.storage.getAlarm();
+      if (afterAlarm || existing === null || existing > next)
+        await this.state.storage.setAlarm(next);
+    }
   }
 }

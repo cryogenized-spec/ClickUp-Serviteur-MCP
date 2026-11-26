@@ -529,6 +529,18 @@ async function taskInWorkspace(
   }
   return task;
 }
+/** Full-fidelity, OAuth-authorized task read for private index synchronization.
+ * Unlike the model-facing `clickup_get_task` output, this never runs `clip()`.
+ * The existing task/List/Workspace preflight and shared API quota still apply.
+ */
+export async function readVerifiedTaskForIndex(
+  grant: ReadGrant,
+  transport: typeof fetch,
+  taskId: string,
+): Promise<Json> {
+  return taskInWorkspace(grant, transport, taskId, true);
+}
+
 async function folderInWorkspace(
   grant: ReadGrant,
   f: typeof fetch,

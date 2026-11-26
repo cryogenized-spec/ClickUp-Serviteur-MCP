@@ -29,6 +29,8 @@ export interface OAuthEnv {
   readonly CLICKUP_READ_GITHUB_IDS?: string;
   readonly CLICKUP_QUOTA?: unknown;
   readonly CLICKUP_WEBHOOK_ENABLED?: string;
+  /** Operator-controlled activation of signed-event-driven task index refresh. */
+  readonly CLICKUP_INDEX_AUTOSYNC_ENABLED?: string;
   readonly CLICKUP_WEBHOOK_REGISTRATIONS?: string;
   readonly CLICKUP_WEBHOOK_EVENTS?: unknown;
 }

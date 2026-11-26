@@ -119,6 +119,89 @@ describe("real SQLite task-index regressions", () => {
     expect(store.diagnostics()["comment_refresh_pending"]).toBe(0);
   });
 
+  it("blocks late in-flight task and comment reads after a definitive access denial", () => {
+    const store = make();
+    store.storeTask(indexedTask(100, "Initially authorized"), 100);
+    store.storeComments("task123", [indexedComment("c1", "Private content")], 100, true);
+    // The later request observes revoked access and purges both collections.
+    store.discardSnapshots("task123", 300);
+    expect(store.lookup("task123")).toBeNull();
+    expect(store.diagnostics()["indexed_comments"]).toBe(0);
+    // Both older requests return AFTER the 403. Their original start
+    // timestamps must remain older than the durable denial watermark.
+    expect(store.storeTask(indexedTask(200, "Late task response"), 200)).toBe(false);
+    store.storeComments("task123", [indexedComment("c1", "Resurrected")], 250, false);
+    store.storeComments("task123", [indexedComment("c2", "Resurrected")], 250, true);
+    expect(store.lookup("task123")).toBeNull();
+    expect(store.diagnostics()["indexed_comments"]).toBe(0);
+    expect(store.storeTask(indexedTask(300, "Same-millisecond response"), 300)).toBe(false);
+    // A genuinely NEW authorized request after the denial can revalidate
+    // and restore content without bypassing the native ClickUp preflight.
+    expect(store.storeTask(indexedTask(400, "Newly authorized"), 400)).toBe(true);
+    store.storeComments("task123", [indexedComment("c3", "Fresh")], 400, true);
+    expect((store.lookup("task123")?.["task"] as { title: string }).title).toBe("Newly authorized");
+    expect(store.diagnostics()["indexed_comments"]).toBe(1);
+  });
+
+  it("never lowers an existing access-denial watermark", () => {
+    const store = make();
+    store.discardSnapshots("task123", 400);
+    store.discardSnapshots("task123", 300);
+    expect(store.storeTask(indexedTask(350, "Prior access"), 350)).toBe(false);
+    expect(store.lookup("task123")).toBeNull();
+  });
+
+  it("queues both missing snapshot sections after definitive denial, with a bounded retry", () => {
+    const store = make();
+    store.storeTask(indexedTask(100, "Initial"), 100);
+    store.storeComments("task123", [indexedComment("c1", "Initial comment")], 100, true);
+    store.markDirty("task123", "taskUpdated", 200);
+    store.discardSnapshots("task123", 300);
+    expect(store.lookup("task123")).toBeNull();
+    expect(store.diagnostics()).toMatchObject({
+      task_refresh_pending: 1,
+      comment_refresh_pending: 1,
+      indexed_comments: 0,
+    });
+    expect(store.nextDirtyDue()).toBe(300 + 15 * 60_000);
+    // Task and comment sections recover only through fresh authorized reads.
+    expect(store.storeTask(indexedTask(400, "Reauthorized"), 900_400)).toBe(true);
+    store.storeComments("task123", [indexedComment("c2", "Restored")], 900_400, true);
+    expect(store.diagnostics()).toMatchObject({
+      task_refresh_pending: 0,
+      comment_refresh_pending: 0,
+      indexed_comments: 1,
+    });
+  });
+
+  it("retains an event processed after a read starts in the same millisecond", () => {
+    const store = make();
+    store.storeTask(indexedTask(100, "Stale"), 200);
+    store.markDirty("task123", "taskUpdated", 200);
+    store.storeTask(indexedTask(100, "Stale"), 200);
+    expect(store.lookup("task123")?.["task_stale"]).toBe(true);
+    expect(store.dirtyTasks(201)).toHaveLength(1);
+    store.storeTask(indexedTask(300, "Fresh"), 202);
+    expect(store.lookup("task123")?.["task_stale"]).toBe(false);
+  });
+
+  it("does not let an older failed alarm restore its backoff after a new webhook", () => {
+    const store = make();
+    store.markDirty("task123", "taskUpdated", 100);
+    store.deferTask("task123", 200, 7);
+    const selected = store.dirtyTasks(250)[0];
+    expect(selected?.attempts).toBe(7);
+    const oldToken = selected!.dirty_token;
+    // New signed change arrives while the selected refresh is in flight.
+    store.markDirty("task123", "taskUpdated", 300);
+    expect(store.deferTaskIfCurrent("task123", 60_000, 8, oldToken)).toBe(false);
+    expect(store.nextDirtyDue()).toBe(0);
+    expect(store.dirtyTasks(301)[0]?.attempts).toBe(0);
+    const newToken = store.dirtyTasks(301)[0]!.dirty_token;
+    expect(store.deferTaskIfCurrent("task123", 2000, 1, newToken)).toBe(true);
+    expect(store.nextDirtyDue()).toBe(2000);
+  });
+
   it("keeps task and comment pending-refresh indicators independent", () => {
     const store = make();
     store.storeTask(indexedTask(100, "A"), 100);
@@ -128,5 +211,43 @@ describe("real SQLite task-index regressions", () => {
     expect(store.lookup("task123")?.["comments_stale"]).toBe(true);
     store.markDirty("task123", "taskStatusUpdated", 210);
     expect(store.lookup("task123")?.["task_stale"]).toBe(true);
+  });
+  it("coalesces dirty tasks, respects retry checkpoints and reactivates new changes", () => {
+    const store = make();
+    store.markDirty("task1", "taskCreated", 1000);
+    store.markDirty("task2", "taskCommentPosted", 1100);
+    expect(store.dirtyTasks(1200, 10)).toEqual([
+      {
+        task_id: "task1",
+        task_dirty: true,
+        comments_dirty: false,
+        attempts: 0,
+        dirty_token: "1001:0",
+      },
+      {
+        task_id: "task2",
+        task_dirty: false,
+        comments_dirty: true,
+        attempts: 0,
+        dirty_token: "0:1101",
+      },
+    ]);
+    store.deferTask("task1", 5000, 1);
+    expect(store.dirtyTasks(1200, 10).map((item) => item.task_id)).toEqual(["task2"]);
+    expect(store.nextDirtyDue()).toBe(0);
+    store.storeComments("task2", [], 1300, true);
+    expect(store.nextDirtyDue()).toBe(5000);
+    store.markDirty("task1", "taskStatusUpdated", 1400);
+    expect(store.dirtyTasks(1500, 10)[0]?.attempts).toBe(0);
+    expect(store.nextDirtyDue()).toBe(0);
+  });
+
+  it("discards previously cached task and comment content after access is revoked", () => {
+    const store = make();
+    store.storeTask(indexedTask(100, "Sensitive"), 100);
+    store.storeComments("task123", [indexedComment("c1", "Sensitive note")], 100, true);
+    store.discardSnapshots("task123");
+    expect(store.lookup("task123")).toBeNull();
+    expect(store.diagnostics()["indexed_comments"]).toBe(0);
   });
 });

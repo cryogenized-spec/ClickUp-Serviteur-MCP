@@ -4,7 +4,7 @@ import { ClickUpWebhookEvents } from "../src/clickup/webhook-event-store.js";
 import { projectTaskSnapshot } from "../src/clickup/task-index.js";
 import type { OAuthEnv } from "../src/auth/env.js";
 
-function fixture() {
+function fixture(autoRefresh = false) {
   const db = new DatabaseSync(":memory:");
   const exec = (sql: string, ...bindings: Array<string | number | null>) => {
     const prepared = db.prepare(sql);
@@ -14,6 +14,7 @@ function fixture() {
     prepared.run(...bindings);
     return { one: () => null, toArray: () => [] };
   };
+  const alarms: number[] = [];
   const storage = {
     sql: { exec },
     transactionSync: (action: () => void) => {
@@ -26,21 +27,62 @@ function fixture() {
         throw error;
       }
     },
-    setAlarm: async () => {},
+    setAlarm: async (at: number) => {
+      alarms.push(at);
+    },
     getAlarm: async () => null,
   };
   const env = {
     CLICKUP_WORKSPACE_ID: "555",
-    CLICKUP_INDEX_AUTOSYNC_ENABLED: "false",
+    CLICKUP_INDEX_AUTOSYNC_ENABLED: autoRefresh ? "true" : "false",
   } as unknown as OAuthEnv;
   const instance = new ClickUpWebhookEvents({ storage } as unknown as DurableObjectState, env);
-  return { db, instance };
+  return { db, instance, alarms };
 }
 
 describe("idempotent Durable Object webhook ingestion", () => {
   const databases: DatabaseSync[] = [];
   afterEach(() => {
     for (const db of databases.splice(0)) db.close();
+  });
+
+  it("accepts only the configured actor identity for queued event-driven refresh", async () => {
+    const { db, instance, alarms } = fixture(true);
+    databases.push(db);
+    const receivedAt = Date.now();
+    const hint = {
+      key: "7689a169-a000-4985-8676-6902b96d6627:historynext001",
+      taskId: "task1",
+      event: "taskCommentPosted",
+      receivedAt,
+    };
+    const send = (body: unknown) =>
+      instance.fetch(
+        new Request("https://internal/ingest", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      );
+    expect((await send({ workspaceId: "777", subject: "github:11", hints: [hint] })).status).toBe(
+      400,
+    );
+    expect((await send({ workspaceId: "555", subject: "github:11", hints: [hint] })).status).toBe(
+      204,
+    );
+    const owner = db.prepare("SELECT workspace_id, subject FROM sync_owner").get() as {
+      workspace_id: string;
+      subject: string;
+    };
+    expect(owner).toEqual({ workspace_id: "555", subject: "github:11" });
+    expect(alarms.some((at) => at <= Date.now() + 10_000)).toBe(true);
+    // This test has no authorized OAuth vault. Its alarm must not attempt a
+    // privileged network read or claim successful synchronization.
+    await instance.alarm();
+    const status = await instance.fetch(new Request("https://internal/diagnostics"));
+    const body = (await status.json()) as {
+      task_index: { comment_refresh_pending: number };
+    };
+    expect(body.task_index.comment_refresh_pending).toBe(1);
   });
 
   it("does not re-invalidate a verified snapshot on an identical event replay", async () => {

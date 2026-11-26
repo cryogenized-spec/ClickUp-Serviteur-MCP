@@ -120,20 +120,149 @@ export class TaskIndexStore {
     run(
       "CREATE TABLE IF NOT EXISTS task_refresh (task_id TEXT PRIMARY KEY, task_dirty_at INTEGER NOT NULL DEFAULT 0, comments_dirty_at INTEGER NOT NULL DEFAULT 0, task_checked_at INTEGER NOT NULL DEFAULT 0, comments_checked_at INTEGER NOT NULL DEFAULT 0)",
     );
+    run(
+      "CREATE TABLE IF NOT EXISTS sync_backoff (task_id TEXT PRIMARY KEY, retry_at INTEGER NOT NULL, attempts INTEGER NOT NULL)",
+    );
+    run(
+      "CREATE TABLE IF NOT EXISTS snapshot_denials (task_id TEXT PRIMARY KEY, denied_at INTEGER NOT NULL)",
+    );
   }
 
   markDirty(id: string, event: string, at: number): void {
     if (!taskId(id) || !validObserved(at)) throw new Error("INVALID_TASK_HINT");
     const isComment = event === "taskCommentPosted" || event === "taskCommentUpdated";
+    // Dirty markers are logical watermarks, not source event timestamps.
+    // +1 preserves an event delivered AFTER a read starts in the same
+    // millisecond, even when a previous successful read already checked it.
     this.run(
-      "INSERT INTO task_refresh(task_id, task_dirty_at, comments_dirty_at) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET task_dirty_at = MAX(task_refresh.task_dirty_at, excluded.task_dirty_at), comments_dirty_at = MAX(task_refresh.comments_dirty_at, excluded.comments_dirty_at)",
+      "INSERT INTO task_refresh(task_id, task_dirty_at, comments_dirty_at) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET task_dirty_at = CASE WHEN excluded.task_dirty_at > 0 THEN MAX(task_refresh.task_dirty_at + 1, task_refresh.task_checked_at + 1, excluded.task_dirty_at) ELSE task_refresh.task_dirty_at END, comments_dirty_at = CASE WHEN excluded.comments_dirty_at > 0 THEN MAX(task_refresh.comments_dirty_at + 1, task_refresh.comments_checked_at + 1, excluded.comments_dirty_at) ELSE task_refresh.comments_dirty_at END",
       id,
-      isComment ? 0 : at,
-      isComment ? at : 0,
+      isComment ? 0 : at + 1,
+      isComment ? at + 1 : 0,
+    );
+    // A fresh, signed change invalidates any earlier retry deferral.
+    this.run("DELETE FROM sync_backoff WHERE task_id = ?", id);
+  }
+
+  /** Bounded work batch, not a lifetime quota: unprocessed tasks remain durable. */
+  dirtyTasks(
+    now: number,
+    limit = 3,
+  ): Array<{
+    task_id: string;
+    task_dirty: boolean;
+    comments_dirty: boolean;
+    attempts: number;
+    dirty_token: string;
+  }> {
+    if (!validObserved(now) || !Number.isInteger(limit) || limit < 1 || limit > 25)
+      throw new Error("INVALID_SYNC_REQUEST");
+    const rows = this.run(
+      "SELECT r.task_id, r.task_dirty_at, r.comments_dirty_at, r.task_checked_at, r.comments_checked_at, COALESCE(b.attempts, 0) AS attempts FROM task_refresh r LEFT JOIN sync_backoff b ON r.task_id = b.task_id WHERE (r.task_dirty_at > r.task_checked_at OR r.comments_dirty_at > r.comments_checked_at) AND COALESCE(b.retry_at, 0) <= ? ORDER BY MAX(r.task_dirty_at, r.comments_dirty_at), r.task_id LIMIT ?",
+      now,
+      limit,
+    ).toArray() as Array<{
+      task_id: string;
+      task_dirty_at: number;
+      comments_dirty_at: number;
+      task_checked_at: number;
+      comments_checked_at: number;
+      attempts: number;
+    }>;
+    return rows.map((row) => ({
+      task_id: row.task_id,
+      task_dirty: row.task_dirty_at > row.task_checked_at,
+      comments_dirty: row.comments_dirty_at > row.comments_checked_at,
+      attempts: row.attempts,
+      dirty_token: row.task_dirty_at + ":" + row.comments_dirty_at,
+    }));
+  }
+
+  nextDirtyDue(): number | null {
+    const row = this.run(
+      "SELECT MIN(COALESCE(b.retry_at, 0)) AS next_due FROM task_refresh r LEFT JOIN sync_backoff b ON r.task_id = b.task_id WHERE r.task_dirty_at > r.task_checked_at OR r.comments_dirty_at > r.comments_checked_at",
+    ).one() as { next_due: number | null };
+    return row.next_due;
+  }
+
+  deferTask(id: string, retryAt: number, attempts: number): void {
+    if (!taskId(id) || !validObserved(retryAt) || !Number.isInteger(attempts) || attempts < 1)
+      throw new Error("INVALID_SYNC_RETRY");
+    this.run(
+      "INSERT INTO sync_backoff(task_id, retry_at, attempts) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET retry_at = excluded.retry_at, attempts = excluded.attempts",
+      id,
+      retryAt,
+      attempts,
     );
   }
 
-  storeTask(snapshot: TaskSnapshot, observedAt: number): void {
+  /** Only the same pending generation may be deferred. Otherwise an older
+   * alarm would undo a fresh webhook's backoff reset and delay new work.
+   */
+  deferTaskIfCurrent(
+    id: string,
+    retryAt: number,
+    attempts: number,
+    expectedToken: string,
+  ): boolean {
+    if (!taskId(id) || !/^\d+:\d+$/.test(expectedToken)) throw new Error("INVALID_SYNC_RETRY");
+    let applied = false;
+    this.transactionSync(() => {
+      const state = this.run(
+        "SELECT task_dirty_at, comments_dirty_at FROM task_refresh WHERE task_id = ?",
+        id,
+      ).toArray()[0] as { task_dirty_at: number; comments_dirty_at: number } | undefined;
+      if (!state) return;
+      if (state.task_dirty_at + ":" + state.comments_dirty_at !== expectedToken) return;
+      this.deferTask(id, retryAt, attempts);
+      applied = true;
+    });
+    return applied;
+  }
+
+  clearRetry(id: string): void {
+    if (!taskId(id)) throw new Error("INVALID_SYNC_TASK");
+    this.run("DELETE FROM sync_backoff WHERE task_id = ?", id);
+  }
+
+  /** A task that is no longer authorized must not remain retrievable by future
+   * cached-reading tools. The webhook hint history is independent. */
+  discardSnapshots(id: string, deniedAt = Date.now()): void {
+    if (!taskId(id) || !validObserved(deniedAt)) throw new Error("INVALID_SYNC_TASK");
+    this.transactionSync(() => {
+      // A definitive access denial is a durable barrier. A previously
+      // authorized GET that finishes afterward must not restore private
+      // content fetched before the permission change was observed.
+      this.run(
+        "INSERT INTO snapshot_denials(task_id, denied_at) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET denied_at = MAX(snapshot_denials.denied_at, excluded.denied_at)",
+        id,
+        deniedAt,
+      );
+      this.run("DELETE FROM comment_snapshots WHERE task_id = ?", id);
+      this.run("DELETE FROM task_snapshots WHERE task_id = ?", id);
+      // Both task AND comment snapshots have been removed. Revalidate both
+      // after permission is restored, even when only one was originally dirty.
+      this.markDirty(id, "taskUpdated", deniedAt);
+      this.markDirty(id, "taskCommentUpdated", deniedAt);
+      // Definitive denial should not cause a tight 403 retry loop. A genuinely
+      // new signed event can clear this deferral in markDirty().
+      this.run(
+        "INSERT INTO sync_backoff(task_id, retry_at, attempts) VALUES (?, ?, 1) ON CONFLICT(task_id) DO UPDATE SET retry_at = excluded.retry_at, attempts = sync_backoff.attempts + 1",
+        id,
+        deniedAt + 15 * 60_000,
+      );
+    });
+  }
+
+  private deniedBefore(id: string, observedAt: number): boolean {
+    const record = this.run(
+      "SELECT denied_at FROM snapshot_denials WHERE task_id = ?",
+      id,
+    ).toArray()[0] as { denied_at: number } | undefined;
+    return record !== undefined && observedAt <= record.denied_at;
+  }
+
+  storeTask(snapshot: TaskSnapshot, observedAt: number): boolean {
     if (
       !validObserved(observedAt) ||
       !projectTaskSnapshot({
@@ -143,7 +272,9 @@ export class TaskIndexStore {
       })
     )
       throw new Error("INVALID_TASK_SNAPSHOT");
+    let applied = false;
     this.transactionSync(() => {
+      if (this.deniedBefore(snapshot.task_id, observedAt)) return;
       // RETURNING identifies whether this read was accepted, not merely
       // attempted. A rejected older source revision must leave dirty state.
       const accepted = this.run(
@@ -160,7 +291,9 @@ export class TaskIndexStore {
         snapshot.task_id,
         observedAt,
       );
+      applied = true;
     });
+    return applied;
   }
 
   storeComments(
@@ -178,6 +311,7 @@ export class TaskIndexStore {
       seen.add(comment.comment_id);
     }
     this.transactionSync(() => {
+      if (this.deniedBefore(id, observedAt)) return;
       // A previously completed later scan may have deleted these comments.
       // Reject ALL earlier reads before the UPSERT, including partial pages.
       const prior = this.run(
