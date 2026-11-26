@@ -174,9 +174,7 @@ describe("verified ClickUp read capture", () => {
       list_id: "901202442802",
       source_updated_at_ms: 1795528779756,
     });
-    expect(await captureVerifiedTaskDiscoveries(grant, [upstreamTask], 1795681000000)).toBe(
-      true,
-    );
+    expect(await captureVerifiedTaskDiscoveries(grant, [upstreamTask], 1795681000000)).toBe(true);
     expect(calls).toHaveBeenCalledTimes(1);
     const request = calls.mock.calls[0]![0];
     expect(new URL(request.url).pathname).toBe("/index/discovery");
@@ -189,9 +187,7 @@ describe("verified ClickUp read capture", () => {
 
   it("refuses foreign-list or malformed discovery items without a private write", async () => {
     const { grant, calls } = fixture("999999");
-    expect(await captureVerifiedTaskDiscoveries(grant, [upstreamTask], 1795681000000)).toBe(
-      false,
-    );
+    expect(await captureVerifiedTaskDiscoveries(grant, [upstreamTask], 1795681000000)).toBe(false);
     expect(
       await captureVerifiedTaskDiscoveries(
         grant,
