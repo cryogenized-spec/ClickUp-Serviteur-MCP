@@ -170,7 +170,10 @@ const F = {
     enum: ["PUBLIC", "PRIVATE"],
   },
 
-  activity_consumer: str("Stable name for one independent event consumer, such as hourly-watch.", 64),
+  activity_consumer: str(
+    "Stable name for one independent event consumer, such as hourly-watch.",
+    64,
+  ),
   activity_event_types: arrayOf(
     "Only investigate these event types; other events remain unprocessed.",
     str("Exact ClickUp task event name.", 80),
