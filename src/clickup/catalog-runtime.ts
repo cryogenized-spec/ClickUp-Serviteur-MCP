@@ -1975,12 +1975,14 @@ export async function runCatalogOperation(
     }
     case "clickup_get_followup_state":
     case "clickup_record_followup_action": {
-      if (!g.webhookEvents) throw new ReadFailure("CLICKUP_EVENT_STORAGE_UNAVAILABLE");
+      if (!g.taskIndex) throw new ReadFailure("CLICKUP_FOLLOWUP_STORAGE_UNAVAILABLE");
+      // The same per-actor SQLite Durable Object is available to List-only
+      // grants even when the Workspace webhook consumer is disabled.
       // A private ledger never confers task visibility. Always reverify the
       // individual user's live ClickUp OAuth permission first.
       const current = await taskInWorkspace(g, f, a["task_id"], true);
       const taskId = String(current["id"]);
-      const binding = g.webhookEvents;
+      const binding = g.taskIndex;
       const stub = binding.get(binding.idFromName(W + ":" + g.subject) as never);
       if (name === "clickup_get_followup_state") {
         const url = new URL("https://internal/followups/task");
@@ -2018,6 +2020,7 @@ export async function runCatalogOperation(
       const commentId = a["followup_evidence_comment_id"];
       if (
         typeof a["followup_action_key"] !== "string" ||
+        !/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(a["followup_action_key"]) ||
         typeof kind !== "string" ||
         typeof a["followup_state_after"] !== "string" ||
         !Number.isSafeInteger(a["followup_expected_revision"]) ||
@@ -2026,13 +2029,45 @@ export async function runCatalogOperation(
           (typeof commentId !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(commentId)))
       )
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      const normalizedAction = {
+        task_id: taskId,
+        action_key: a["followup_action_key"],
+        action_kind: kind,
+        state_after: a["followup_state_after"],
+        expected_revision: a["followup_expected_revision"],
+        note: note ?? null,
+        evidence_comment_id: commentId ?? null,
+        waiting_on_user_id: a["followup_waiting_on_user_id"] ?? null,
+        next_check_at_ms: a["followup_next_check_at_ms"] ?? null,
+      };
+      // Recheck a committed action's exact private receipt AFTER live task
+      // authorization, but BEFORE fetching evidence that may since have been
+      // deleted. Replayed keys with different payloads must conflict.
+      const receiptUrl = new URL("https://internal/followups/receipt");
+      receiptUrl.searchParams.set("task_id", taskId);
+      receiptUrl.searchParams.set("action_key", String(a["followup_action_key"]));
+      const receiptResponse = await stub.fetch(new Request(receiptUrl));
+      if (!receiptResponse.ok) throw new ReadFailure("CLICKUP_FOLLOWUP_STORAGE_UNAVAILABLE");
+      const receiptEnvelope = obj(await receiptResponse.json());
+      if (!receiptEnvelope) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const receipt = obj(receiptEnvelope["receipt"]);
+      if (receipt) {
+        if (
+          receipt["task_id"] !== taskId ||
+          receipt["action_key"] !== normalizedAction.action_key ||
+          !Number.isSafeInteger(receipt["revision"]) ||
+          typeof receipt["request_json"] !== "string"
+        ) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        if (receipt["request_json"] !== JSON.stringify(normalizedAction))
+          throw new ReadFailure("CLICKUP_FOLLOWUP_REVISION_CONFLICT");
+      }
       // A draft is never recorded as an executed ClickUp comment. Check
       // evidence by traversing the authorized task's actual comment pages.
       // No arbitrary page cap; stop once found or at native pagination end.
       if (kind === "instruction_sent" && commentId === undefined)
         throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_REQUIRED");
       let evidenceVerified = false;
-      if (typeof commentId === "string") {
+      if (!receipt && typeof commentId === "string") {
         const visited = new Set<string>();
         let afterStart: number | undefined;
         let afterId: string | undefined;
@@ -2080,17 +2115,7 @@ export async function runCatalogOperation(
         new Request("https://internal/followups/record", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            task_id: taskId,
-            action_key: a["followup_action_key"],
-            action_kind: kind,
-            state_after: a["followup_state_after"],
-            expected_revision: a["followup_expected_revision"],
-            note: note ?? null,
-            evidence_comment_id: commentId ?? null,
-            waiting_on_user_id: a["followup_waiting_on_user_id"] ?? null,
-            next_check_at_ms: a["followup_next_check_at_ms"] ?? null,
-          }),
+          body: JSON.stringify(normalizedAction),
         }),
       );
       if (response.status === 409) throw new ReadFailure("CLICKUP_FOLLOWUP_REVISION_CONFLICT");
@@ -2102,6 +2127,7 @@ export async function runCatalogOperation(
       return {
         ...ledger,
         provider_comment_evidence_verified: evidenceVerified,
+        prior_exact_receipt_verified: receipt !== null,
         private_ledger_only: true,
         clickup_task_unchanged: true,
       };
