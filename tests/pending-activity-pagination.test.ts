@@ -24,7 +24,7 @@ const makeEvent = (i: number, taskId = "abc123") => ({
 });
 
 function fixture(
-  events: ReturnType<typeof makeEvent>[],
+  events: (ReturnType<typeof makeEvent> & { metadata?: Record<string, unknown> })[],
   rateLimitTask?: string,
   rateLimitAttempts = 1,
   taskFailures: Record<string, number[]> = {},
@@ -33,6 +33,12 @@ function fixture(
   const requests = vi.fn(async (request: Request) => {
     expect(request.method).toBe("GET");
     const url = new URL(request.url);
+    if (url.pathname === "/task-timeline") {
+      const selected = events.filter((event) => event.task_id === url.searchParams.get("task_id"));
+      return Response.json({ events: selected, incomplete: false });
+    }
+    if (url.pathname === "/diagnostics")
+      return Response.json({ retained: events.length, pending: events.length, retention_days: 7 });
     const after = Number(url.searchParams.get("after_time") ?? 0);
     const afterKey = url.searchParams.get("after_key") ?? "";
     const remaining = events.filter(
@@ -48,6 +54,17 @@ function fixture(
     const path = new URL(String(request)).pathname;
     if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "777" }] });
     if (path === "/api/v2/list/12345") return Response.json({ id: "12345", space: { id: "777" } });
+    if (path === "/api/v2/task/abc123/comment")
+      return Response.json({
+        comments: [
+          {
+            id: "456",
+            date: "123402",
+            comment_text: "Follow-up received",
+            user: { id: 707, username: "Member" },
+          },
+        ],
+      });
     const task = /^\/api\/v2\/task\/([a-zA-Z0-9_-]+)$/.exec(path)?.[1];
     if (task) {
       if (task === rateLimitTask && rateLimitFailures++ < rateLimitAttempts)
@@ -76,6 +93,67 @@ function fixture(
     },
   };
 }
+
+describe("task activity timeline and diagnostics", () => {
+  it("combines chronological comments and webhook hints after a single task verification", async () => {
+    const f = fixture([
+      makeEvent(0),
+      { ...makeEvent(1), metadata: { comment_id: "456" } },
+      makeEvent(3, "other"),
+    ]);
+    const result = await runCatalogOperation(
+      "clickup_get_task_activity_timeline",
+      { task_id: "abc123" },
+      f.enrichedGrant,
+      f.api as typeof fetch,
+    );
+    expect(result).toMatchObject({
+      task: { id: "abc123" },
+      timeline: [
+        { kind: "taskCreated", at_ms: 123400 },
+        { kind: "comment", at_ms: 123402, comment_id: "456", text: "Follow-up received" },
+      ],
+      coverage: { comments_read: 1, webhook_events_read: 2, webhook_incomplete: false },
+      incomplete: true,
+    });
+    expect(
+      f.api.mock.calls.filter(
+        ([request]) => new URL(String(request)).pathname === "/api/v2/task/abc123",
+      ),
+    ).toHaveLength(1);
+    expect(f.requests).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not access retained hints when task verification fails", async () => {
+    const f = fixture([makeEvent(0)], undefined, 1, { abc123: [404] });
+    await expect(
+      runCatalogOperation(
+        "clickup_get_task_activity_timeline",
+        { task_id: "abc123" },
+        f.enrichedGrant,
+        f.api as typeof fetch,
+      ),
+    ).rejects.toThrow();
+    expect(f.requests).not.toHaveBeenCalled();
+  });
+
+  it("reports unavailable quota metrics explicitly without calling ClickUp", async () => {
+    const f = fixture([makeEvent(0)]);
+    const result = await runCatalogOperation(
+      "clickup_get_api_diagnostics",
+      {},
+      f.enrichedGrant,
+      f.api as typeof fetch,
+    );
+    expect(result).toMatchObject({
+      quota: null,
+      webhook: { retained: 1, pending: 1 },
+      issues: ["quota_diagnostics_unavailable"],
+      incomplete: true,
+    });
+    expect(f.api).not.toHaveBeenCalled();
+  });
+});
 
 describe("pending activity batched pagination", () => {
   it("reads more than one ten-event storage page and groups verified tasks", async () => {

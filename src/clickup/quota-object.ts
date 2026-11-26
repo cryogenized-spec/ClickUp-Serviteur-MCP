@@ -15,6 +15,9 @@ export class ClickUpQuota {
     );
     state.storage.sql.exec("INSERT OR IGNORE INTO limits (id, blocked_until_ms) VALUES (1, 0)");
     state.storage.sql.exec(
+      "CREATE TABLE IF NOT EXISTS diagnostic_day (day INTEGER PRIMARY KEY, allowed INTEGER NOT NULL DEFAULT 0, blocked INTEGER NOT NULL DEFAULT 0, cooldowns INTEGER NOT NULL DEFAULT 0)",
+    );
+    state.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS file_pending (attachment_id TEXT PRIMARY KEY, subject TEXT NOT NULL, clickup_user_id TEXT NOT NULL, generation TEXT NOT NULL, created_ms INTEGER NOT NULL, claimed INTEGER NOT NULL DEFAULT 0)",
     );
     state.storage.sql.exec(
@@ -28,6 +31,7 @@ export class ClickUpQuota {
       request.method !== "POST" ||
       ![
         "/reserve",
+        "/diagnostics",
         "/cooldown",
         "/file-pending-register",
         "/file-pending-verify",
@@ -46,6 +50,32 @@ export class ClickUpQuota {
       return new Response(null, { status: 400 });
     }
     const now = Date.now();
+    const day = Math.floor(now / 86_400_000);
+    const record = (allowed: number, blocked: number, cooldowns: number) => {
+      this.state.storage.sql.exec(
+        "INSERT INTO diagnostic_day(day, allowed, blocked, cooldowns) VALUES (?, ?, ?, ?) ON CONFLICT(day) DO UPDATE SET allowed = allowed + excluded.allowed, blocked = blocked + excluded.blocked, cooldowns = cooldowns + excluded.cooldowns",
+        day,
+        allowed,
+        blocked,
+        cooldowns,
+      );
+      this.state.storage.sql.exec("DELETE FROM diagnostic_day WHERE day < ?", day - 6);
+    };
+    if (route === "/diagnostics") {
+      const block = this.state.storage.sql
+        .exec<{ blocked_until_ms: number }>("SELECT blocked_until_ms FROM limits WHERE id = 1")
+        .one();
+      const days = this.state.storage.sql
+        .exec<{ day: number; allowed: number; blocked: number; cooldowns: number }>(
+          "SELECT day, allowed, blocked, cooldowns FROM diagnostic_day WHERE day >= ? ORDER BY day",
+          day - 6,
+        )
+        .toArray();
+      return Response.json({
+        days,
+        cooldown_remaining_ms: Math.max(0, block.blocked_until_ms - now),
+      });
+    }
     if (route.startsWith("/file-pending-")) {
       // An instance is selected server-side by the immutable Workspace/task/field tuple.
       // Only the worker has access to this internal Durable Object binding.
@@ -132,6 +162,7 @@ export class ClickUpQuota {
           "UPDATE limits SET blocked_until_ms = MAX(blocked_until_ms, ?) WHERE id = 1",
           Math.min(until, now + 3_600_000),
         );
+        record(0, 0, 1);
       });
       return Response.json({ allowed: true });
     }
@@ -139,8 +170,10 @@ export class ClickUpQuota {
     const block = this.state.storage.sql
       .exec<{ blocked_until_ms: number }>("SELECT blocked_until_ms FROM limits WHERE id = 1")
       .one();
+    const allowed = block.blocked_until_ms <= now;
+    this.state.storage.transactionSync(() => record(allowed ? 1 : 0, allowed ? 0 : 1, 0));
     return Response.json({
-      allowed: block.blocked_until_ms <= now,
+      allowed,
       retryAfterMs: Math.max(0, block.blocked_until_ms - now),
     });
   }

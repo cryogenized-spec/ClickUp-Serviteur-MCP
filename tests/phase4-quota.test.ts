@@ -16,11 +16,33 @@ function createStorage() {
     }
   >();
   let claimedAttachment: string | null = null;
+  const diagnosticDays = new Map<
+    number,
+    { day: number; allowed: number; blocked: number; cooldowns: number }
+  >();
   const exec = (sql: string, ...params: (number | string)[]) => {
     statements.push(sql);
     if (sql.startsWith("CREATE TABLE") || sql.startsWith("INSERT OR IGNORE")) return {};
     if (sql.startsWith("SELECT blocked_until"))
       return { one: () => ({ blocked_until_ms: blockedUntil }) };
+    if (sql.startsWith("INSERT INTO diagnostic_day")) {
+      const day = Number(params[0]);
+      const row = diagnosticDays.get(day) ?? { day, allowed: 0, blocked: 0, cooldowns: 0 };
+      row.allowed += Number(params[1]);
+      row.blocked += Number(params[2]);
+      row.cooldowns += Number(params[3]);
+      diagnosticDays.set(day, row);
+      return {};
+    }
+    if (sql.startsWith("DELETE FROM diagnostic_day")) {
+      for (const day of diagnosticDays.keys())
+        if (day < Number(params[0])) diagnosticDays.delete(day);
+      return {};
+    }
+    if (sql.startsWith("SELECT day, allowed, blocked, cooldowns"))
+      return {
+        toArray: () => [...diagnosticDays.values()].filter((row) => row.day >= Number(params[0])),
+      };
     if (sql.startsWith("SELECT subject, clickup_user_id")) {
       const row = pending.get(String(params[0]));
       return { toArray: () => (row ? [row] : []) };
@@ -100,6 +122,25 @@ async function fileLedger(
 afterEach(() => vi.useRealTimers());
 
 describe("ClickUp upstream cooldown without self-imposed rate caps", () => {
+  it("reports allowed and blocked reservations and recorded cooldowns without adding requests", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-02T10:00:00Z"));
+    const quota = new ClickUpQuota(createStorage().state);
+    await invoke(quota, "github:11");
+    await invoke(quota, "github:11", "/cooldown", Date.now() + 30_000);
+    await invoke(quota, "github:11");
+    const response = await quota.fetch(
+      new Request("https://internal.invalid/diagnostics", {
+        method: "POST",
+        body: JSON.stringify({ subject: "github:11" }),
+      }),
+    );
+    expect(await response.json()).toEqual({
+      days: [{ day: Math.floor(Date.now() / 86_400_000), allowed: 1, blocked: 1, cooldowns: 1 }],
+      cooldown_remaining_ms: 30_000,
+    });
+  });
+
   it("permits 120 consecutive calls from one user without an artificial cap", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-11-02T10:00:00Z"));

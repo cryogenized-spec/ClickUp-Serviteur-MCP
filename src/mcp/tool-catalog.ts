@@ -1519,6 +1519,26 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     ["max_results"],
   ),
 
+  tool(
+    "clickup_get_task_activity_timeline",
+    "Get Task Activity Timeline",
+    "reporting",
+    "read",
+    "Combine authorized task snapshot timestamps, current top-level comments and retained webhook hints into chronological evidence. Not a complete native history; always disclose missing threads, retention and pagination.",
+    "Show the chronological progression and correspondence of this task.",
+    ["task_id"],
+    ["max_results", "comment_start", "comment_start_id"],
+  ),
+  tool(
+    "clickup_get_api_diagnostics",
+    "Get API Diagnostics",
+    "reporting",
+    "read",
+    "Read account-scoped quota reservation and cooldown counters plus retained webhook storage health. Does not count all upstream responses or expose private payloads.",
+    "Diagnose API cooldowns and pending event backlog.",
+    [],
+  ),
+
   // PERSISTENT ACTIVITY REGISTER
   tool(
     "clickup_get_pending_activity",
