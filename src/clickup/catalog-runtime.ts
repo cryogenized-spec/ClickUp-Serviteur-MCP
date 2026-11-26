@@ -2029,6 +2029,8 @@ export async function runCatalogOperation(
           (typeof commentId !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(commentId)))
       )
         throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (kind === "instruction_sent" && commentId === undefined)
+        throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_REQUIRED");
       const normalizedAction = {
         task_id: taskId,
         action_key: a["followup_action_key"],
@@ -2064,8 +2066,6 @@ export async function runCatalogOperation(
       // A draft is never recorded as an executed ClickUp comment. Check
       // evidence by traversing the authorized task's actual comment pages.
       // No arbitrary page cap; stop once found or at native pagination end.
-      if (kind === "instruction_sent" && commentId === undefined)
-        throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_REQUIRED");
       let evidenceVerified = false;
       if (!receipt && typeof commentId === "string") {
         const visited = new Set<string>();
