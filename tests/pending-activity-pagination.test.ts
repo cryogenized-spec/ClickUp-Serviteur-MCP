@@ -117,7 +117,7 @@ describe("task activity timeline and diagnostics", () => {
       incomplete: true,
     });
     expect(
-      f.api.mock.calls.filter(([request]) => String(request).endsWith("/task/abc123")),
+      f.api.mock.calls.filter(([request]) => new URL(String(request)).pathname === "/api/v2/task/abc123"),
     ).toHaveLength(1);
     expect(f.requests).toHaveBeenCalledTimes(1);
   });
