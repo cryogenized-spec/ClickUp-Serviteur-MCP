@@ -347,14 +347,13 @@ export class ClickUpWebhookEvents {
           String(envelope["workspaceId"]),
           String(envelope["subject"]),
         );
-        const owner = this.state.storage.sql.exec<{
-          workspace_id: string;
-          subject: string;
-        }>("SELECT workspace_id, subject FROM sync_owner WHERE id = 1").one();
-        if (
-          owner.workspace_id !== envelope["workspaceId"] ||
-          owner.subject !== envelope["subject"]
-        )
+        const owner = this.state.storage.sql
+          .exec<{
+            workspace_id: string;
+            subject: string;
+          }>("SELECT workspace_id, subject FROM sync_owner WHERE id = 1")
+          .one();
+        if (owner.workspace_id !== envelope["workspaceId"] || owner.subject !== envelope["subject"])
           throw new Error("SYNC_OWNER_MISMATCH");
       }
       for (const hint of hints) {
@@ -373,13 +372,15 @@ export class ClickUpWebhookEvents {
           : undefined;
         const eventKey = existing?.event_key ?? hint.key;
         // A retransmitted history item must not trigger a second refresh.
-        const inserted = this.state.storage.sql.exec<{ event_key: string }>(
-          "INSERT OR IGNORE INTO hints(event_key, task_id, event, received_at) VALUES (?, ?, ?, ?) RETURNING event_key",
-          eventKey,
-          hint.taskId,
-          hint.event,
-          hint.receivedAt,
-        ).toArray();
+        const inserted = this.state.storage.sql
+          .exec<{ event_key: string }>(
+            "INSERT OR IGNORE INTO hints(event_key, task_id, event, received_at) VALUES (?, ?, ?, ?) RETURNING event_key",
+            eventKey,
+            hint.taskId,
+            hint.event,
+            hint.receivedAt,
+          )
+          .toArray();
         if (inserted.length) this.taskIndex.markDirty(hint.taskId, hint.event, hint.receivedAt);
         if (hint.metadata)
           this.state.storage.sql.exec(
@@ -516,11 +517,12 @@ export class ClickUpWebhookEvents {
               try {
                 const result = await synchronizeDirtyTask(pending, grant, this.taskIndex, fetch);
                 if (result.complete) this.taskIndex.clearRetry(pending.task_id);
-                else this.taskIndex.deferTask(
-                  pending.task_id,
-                  Date.now() + 15 * 60_000,
-                  pending.attempts + 1,
-                );
+                else
+                  this.taskIndex.deferTask(
+                    pending.task_id,
+                    Date.now() + 15 * 60_000,
+                    pending.attempts + 1,
+                  );
               } catch (error) {
                 this.taskIndex.deferTask(
                   pending.task_id,
@@ -567,5 +569,4 @@ export class ClickUpWebhookEvents {
         await this.state.storage.setAlarm(next);
     }
   }
-
 }
