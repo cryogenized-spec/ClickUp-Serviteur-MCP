@@ -234,14 +234,9 @@ const F = {
     0,
     9_000_000_000_000,
   ),
-  followup_after_due_ms: integer(
-    "Next page cursor: next_after_due_ms returned by the previous page. Supply together with followup_after_task_id.",
-    0,
-    9_000_000_000_000,
-  ),
-  followup_after_task_id: str(
-    "Next page cursor: next_after_task_id returned by the previous page. Supply together with followup_after_due_ms.",
-    80,
+  followup_cursor: str(
+    "Opaque, actor-scoped continuation token from next_cursor; reuse the same followup_due_before_ms and list_id filter for the next page. Expires after 24 hours.",
+    64,
   ),
   activity_event_types: arrayOf(
     "Only investigate these event types; other events remain unprocessed.",
@@ -1640,8 +1635,7 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
       "max_results",
       "list_id",
       "followup_due_before_ms",
-      "followup_after_due_ms",
-      "followup_after_task_id",
+      "followup_cursor",
     ],
   ),
   tool(
