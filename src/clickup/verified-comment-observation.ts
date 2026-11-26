@@ -7,11 +7,17 @@ export type VerifiedCommentObservation = {
   reason?:
     | "private_storage_unavailable"
     | "private_storage_failed"
+    | "private_storage_timeout"
     | "invalid_evidence"
     | "conflicting_record"
     | "concurrent_followup_update"
     | "malformed_private_response";
 };
+
+// A comment has already succeeded before this best-effort observation begins.
+// Bound all three private RPCs under one overall deadline.
+const PRIVATE_OBSERVATION_DEADLINE_MS = 4_000;
+class PrivateObservationTimeout extends Error {}
 
 const states = new Set([
   "detected",
@@ -47,20 +53,57 @@ export async function recordVerifiedCommentObservation(
   if (!grant.taskIndex) return { recorded: false, reason: "private_storage_unavailable" };
 
   const actionKey = "verified-comment:" + commentId;
-  const stub = grant.taskIndex.get(
-    grant.taskIndex.idFromName(grant.workspaceId + ":" + grant.subject) as never,
-  );
+  const deadline = Date.now() + PRIVATE_OBSERVATION_DEADLINE_MS;
 
   try {
+    // Private binding acquisition can throw. Protect it, too: the ClickUp
+    // comment is already posted and its result must still be returned.
+    const stub = grant.taskIndex.get(
+      grant.taskIndex.idFromName(grant.workspaceId + ":" + grant.subject) as never,
+    );
+    const readPrivate = async (request: Request): Promise<{
+      response: Response;
+      payload: unknown;
+    }> => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw new PrivateObservationTimeout();
+      const controller = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          (async () => {
+            // Abort where supported; race guarantees a deadline even if
+            // Durable Object binding ignores the abort signal.
+            const response = await stub.fetch(new Request(request, {
+              signal: controller.signal,
+            }));
+            return {
+              response,
+              payload: response.ok ? await response.json() : null,
+            };
+          })(),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              controller.abort();
+              reject(new PrivateObservationTimeout());
+            }, remaining);
+          }),
+        ]);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+    };
     // An exact committed receipt takes precedence over a fresh current
     // revision. This keeps repeated observations idempotent even if later
     // private follow-up changes have already advanced the state.
     const receiptUrl = new URL("https://internal/followups/receipt");
     receiptUrl.searchParams.set("task_id", taskId);
     receiptUrl.searchParams.set("action_key", actionKey);
-    const receiptResponse = await stub.fetch(new Request(receiptUrl));
+    const { response: receiptResponse, payload: receiptPayload } = await readPrivate(
+      new Request(receiptUrl),
+    );
     if (!receiptResponse.ok) return { recorded: false, reason: "private_storage_failed" };
-    const receiptEnvelope = obj(await receiptResponse.json());
+    const receiptEnvelope = obj(receiptPayload);
     if (!receiptEnvelope) return { recorded: false, reason: "malformed_private_response" };
     const receipt = obj(receiptEnvelope["receipt"]);
     if (receipt) {
@@ -88,9 +131,11 @@ export async function recordVerifiedCommentObservation(
     const stateUrl = new URL("https://internal/followups/task");
     stateUrl.searchParams.set("task_id", taskId);
     stateUrl.searchParams.set("limit", "1");
-    const stateResponse = await stub.fetch(new Request(stateUrl));
+    const { response: stateResponse, payload: statePayload } = await readPrivate(
+      new Request(stateUrl),
+    );
     if (!stateResponse.ok) return { recorded: false, reason: "private_storage_failed" };
-    const snapshot = obj(await stateResponse.json());
+    const snapshot = obj(statePayload);
     if (!snapshot || snapshot["task_id"] !== taskId)
       return { recorded: false, reason: "malformed_private_response" };
     const current = obj(snapshot["state"]);
@@ -134,7 +179,7 @@ export async function recordVerifiedCommentObservation(
       waiting_on_user_id: waitingOn,
       next_check_at_ms: nextCheck,
     };
-    const saved = await stub.fetch(
+    const { response: saved, payload: savedPayload } = await readPrivate(
       new Request("https://internal/followups/record", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -143,7 +188,7 @@ export async function recordVerifiedCommentObservation(
     );
     if (saved.status === 409) return { recorded: false, reason: "concurrent_followup_update" };
     if (!saved.ok) return { recorded: false, reason: "private_storage_failed" };
-    const result = obj(await saved.json());
+    const result = obj(savedPayload);
     if (!result || result["task_id"] !== taskId || !Number.isSafeInteger(result["revision"]))
       return { recorded: false, reason: "malformed_private_response" };
     return {
@@ -151,9 +196,14 @@ export async function recordVerifiedCommentObservation(
       action_key: actionKey,
       revision: result["revision"] as number,
     };
-  } catch {
-    // Never treat a private write timeout/unknown result as reason to repeat
-    // the already-posted ClickUp comment.
-    return { recorded: false, reason: "private_storage_failed" };
+  } catch (error) {
+    // A timed-out private write may still commit later. Report uncertainty
+    // and reconcile by its stable action key; never repeat the ClickUp POST.
+    return {
+      recorded: false,
+      reason: error instanceof PrivateObservationTimeout
+        ? "private_storage_timeout"
+        : "private_storage_failed",
+    };
   }
 }
