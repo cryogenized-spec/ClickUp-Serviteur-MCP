@@ -211,6 +211,57 @@ describe("real SQLite task-index regressions", () => {
     ).toThrow("INVALID_DISCOVERY_BATCH");
   });
 
+  it("queues both missing snapshot sections after definitive denial, with a bounded retry", () => {
+    const store = make();
+    store.storeTask(indexedTask(100, "Initial"), 100);
+    store.storeComments("task123", [indexedComment("c1", "Initial comment")], 100, true);
+    store.markDirty("task123", "taskUpdated", 200);
+    store.discardSnapshots("task123", 300);
+    expect(store.lookup("task123")).toBeNull();
+    expect(store.diagnostics()).toMatchObject({
+      task_refresh_pending: 1,
+      comment_refresh_pending: 1,
+      indexed_comments: 0,
+    });
+    expect(store.nextDirtyDue()).toBe(300 + 15 * 60_000);
+    // Task and comment sections recover only through fresh authorized reads.
+    expect(store.storeTask(indexedTask(400, "Reauthorized"), 900_400)).toBe(true);
+    store.storeComments("task123", [indexedComment("c2", "Restored")], 900_400, true);
+    expect(store.diagnostics()).toMatchObject({
+      task_refresh_pending: 0,
+      comment_refresh_pending: 0,
+      indexed_comments: 1,
+    });
+  });
+
+  it("retains an event processed after a read starts in the same millisecond", () => {
+    const store = make();
+    store.storeTask(indexedTask(100, "Stale"), 200);
+    store.markDirty("task123", "taskUpdated", 200);
+    store.storeTask(indexedTask(100, "Stale"), 200);
+    expect(store.lookup("task123")?.["task_stale"]).toBe(true);
+    expect(store.dirtyTasks(201)).toHaveLength(1);
+    store.storeTask(indexedTask(300, "Fresh"), 202);
+    expect(store.lookup("task123")?.["task_stale"]).toBe(false);
+  });
+
+  it("does not let an older failed alarm restore its backoff after a new webhook", () => {
+    const store = make();
+    store.markDirty("task123", "taskUpdated", 100);
+    store.deferTask("task123", 200, 7);
+    const selected = store.dirtyTasks(250)[0];
+    expect(selected?.attempts).toBe(7);
+    const oldToken = selected!.dirty_token;
+    // New signed change arrives while the selected refresh is in flight.
+    store.markDirty("task123", "taskUpdated", 300);
+    expect(store.deferTaskIfCurrent("task123", 60_000, 8, oldToken)).toBe(false);
+    expect(store.nextDirtyDue()).toBe(0);
+    expect(store.dirtyTasks(301)[0]?.attempts).toBe(0);
+    const newToken = store.dirtyTasks(301)[0]!.dirty_token;
+    expect(store.deferTaskIfCurrent("task123", 2000, 1, newToken)).toBe(true);
+    expect(store.nextDirtyDue()).toBe(2000);
+  });
+
   it("keeps task and comment pending-refresh indicators independent", () => {
     const store = make();
     store.storeTask(indexedTask(100, "A"), 100);
