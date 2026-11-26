@@ -1,9 +1,10 @@
-import { sanitizeWebhookMetadata, type WebhookHint } from "./webhook-ingress.js";
+import {
+  sanitizeWebhookMetadata,
+  validActivityConsumer,
+  type WebhookHint,
+} from "./webhook-ingress.js";
 
 const WEEK = 7 * 24 * 60 * 60 * 1000;
-
-export const validActivityConsumer = (value: unknown): value is string =>
-  typeof value === "string" && /^[a-z][a-z0-9_-]{0,63}$/.test(value);
 
 /** Internal binding only. Partition by approved Workspace and authenticated actor. */
 export class ClickUpWebhookEvents {
