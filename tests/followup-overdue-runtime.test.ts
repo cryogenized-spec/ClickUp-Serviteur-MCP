@@ -5,12 +5,14 @@ import type { ReadGrant } from "../src/clickup/policy.js";
 const due = 1795800000000;
 const cutoff = due + 100;
 
-function fixture(options: {
-  stopAt?: string;
-  allDenied?: boolean;
-  malformedTask?: string;
-  singleDenied?: boolean;
-} = {}) {
+function fixture(
+  options: {
+    stopAt?: string;
+    allDenied?: boolean;
+    malformedTask?: string;
+    singleDenied?: boolean;
+  } = {},
+) {
   const privateCalls = vi.fn(async (request: Request) => {
     const url = new URL(request.url);
     if (url.pathname === "/followups/due") {
@@ -37,7 +39,10 @@ function fixture(options: {
               start_after_task_id: "taskD",
             }
           : {
-              candidates: (options.singleDenied ? ["taskB"] : ["taskA", "taskB", "taskC", "taskD"]).map((task_id) => ({
+              candidates: (options.singleDenied
+                ? ["taskB"]
+                : ["taskA", "taskB", "taskC", "taskD"]
+              ).map((task_id) => ({
                 task_id,
                 state: "awaiting_response",
                 waiting_on_user_id: "707",
