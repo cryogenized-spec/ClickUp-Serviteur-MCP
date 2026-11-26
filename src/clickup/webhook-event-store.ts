@@ -306,7 +306,7 @@ export class ClickUpWebhookEvents {
       (typeof envelope["workspaceId"] !== "string" ||
         envelope["workspaceId"] !== this.env.CLICKUP_WORKSPACE_ID ||
         typeof envelope["subject"] !== "string" ||
-        !/^github:[1-9]\\d{0,15}$/.test(envelope["subject"]))
+        !/^github:[1-9]\d{0,15}$/.test(envelope["subject"]))
     )
       return new Response(null, { status: 400 });
     const now = Date.now();
