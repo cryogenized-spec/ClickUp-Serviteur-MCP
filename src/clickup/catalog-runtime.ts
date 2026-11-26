@@ -2,6 +2,7 @@ import { quotaCall } from "./client.js";
 import { sanitizeWebhookMetadata, validActivityConsumer } from "./webhook-ingress.js";
 import { filePendingLedger } from "./file-field-ledger.js";
 import { getMyAttentionItems } from "./attention-items.js";
+import { captureVerifiedComments, captureVerifiedTask } from "./task-index.js";
 import { readGoalDetails, readSprintTaskSnapshot, readWorkspaceGoals } from "./reporting-reads.js";
 import {
   canonicalPatchComment,
@@ -3886,8 +3887,12 @@ export async function runCatalogOperation(
         incomplete: hasMoreHere || hasNextPage,
       };
     }
-    case "clickup_get_task":
-      return short(await task("task_id"));
+    case "clickup_get_task": {
+      const observedAt = Date.now();
+      const verified = await task("task_id");
+      await captureVerifiedTask(g, verified, observedAt);
+      return short(verified);
+    }
     case "clickup_read_task_image": {
       // Same authoritative Workspace and home-List preflight as task/PDF reads.
       const verified = await task("task_id");
@@ -4306,8 +4311,18 @@ export async function runCatalogOperation(
       };
     }
     case "clickup_get_task_comments": {
-      await task("task_id");
-      return readTaskComments(String(a["task_id"]));
+      const observedAt = Date.now();
+      const verified = await task("task_id");
+      const result = await readTaskComments(String(a["task_id"]));
+      await captureVerifiedTask(g, verified, observedAt);
+      await captureVerifiedComments(
+        g,
+        verified,
+        result["comments"],
+        observedAt,
+        result["incomplete"] === false,
+      );
+      return result;
     }
     case "clickup_get_threaded_replies": {
       await task("task_id");
