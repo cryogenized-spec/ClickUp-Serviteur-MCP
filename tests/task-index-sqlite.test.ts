@@ -107,6 +107,18 @@ describe("real SQLite task-index regressions", () => {
     expect(store.diagnostics()["indexed_comments"]).toBe(1);
   });
 
+  it("never resurrects a deleted comment from an older in-flight read", () => {
+    const store = make();
+    store.storeComments("task123", [indexedComment("c1", "Old note")], 100, true);
+    store.markDirty("task123", "taskCommentUpdated", 200);
+    store.storeComments("task123", [], 300, true);
+    expect(store.diagnostics()["indexed_comments"]).toBe(0);
+    store.storeComments("task123", [indexedComment("c1", "Old note")], 150, false);
+    store.storeComments("task123", [indexedComment("c1", "Old note")], 150, true);
+    expect(store.diagnostics()["indexed_comments"]).toBe(0);
+    expect(store.diagnostics()["comment_refresh_pending"]).toBe(0);
+  });
+
   it("keeps task and comment pending-refresh indicators independent", () => {
     const store = make();
     store.storeTask(indexedTask(100, "A"), 100);
