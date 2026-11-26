@@ -160,7 +160,13 @@ describe("real SQLite task-index regressions", () => {
       unchanged: 0,
     });
     expect(store.dirtyTasks(160)).toEqual([
-      { task_id: "task123", task_dirty: true, comments_dirty: true, attempts: 0, dirty_token: "151:151" },
+      {
+        task_id: "task123",
+        task_dirty: true,
+        comments_dirty: true,
+        attempts: 0,
+        dirty_token: "151:151",
+      },
     ]);
     store.deferTask("task123", 5000, 1);
     expect(store.observeDiscoveredTasks([older], 200)).toMatchObject({
