@@ -145,7 +145,7 @@ describe("verified ClickUp read capture", () => {
       resourceScope: "list" as const,
       apiToken: "private",
       quota: { idFromName: (value: string) => value, get: () => ({ fetch: calls }) },
-      webhookEvents: { idFromName: (value: string) => value, get: () => ({ fetch: calls }) },
+      taskIndex: { idFromName: (value: string) => value, get: () => ({ fetch: calls }) },
     } satisfies ReadGrant;
     return { grant, calls };
   }
