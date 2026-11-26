@@ -470,7 +470,9 @@ export function createServer(deps?: ReadDependencies): McpServer {
             const telemetry = createApiTelemetry(dependencies.fetcher ?? fetch);
             try {
               const value = await runCatalogOperation(spec.name, args, grant, telemetry.fetch);
-              return spec.name === "clickup_read_task_image" ? toolImage(value) : toolSuccess(value);
+              return spec.name === "clickup_read_task_image"
+                ? toolImage(value)
+                : toolSuccess(value);
             } finally {
               await flushApiTelemetry(grant, spec.name, telemetry.snapshot());
             }
