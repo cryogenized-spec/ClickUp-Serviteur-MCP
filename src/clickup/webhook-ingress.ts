@@ -18,7 +18,6 @@ export interface WebhookHint {
   readonly metadata?: WebhookMetadata;
 }
 
-
 // Optional, bounded routing hints. Never copy arbitrary before/after values or text.
 type WebhookMetadata = Record<string, string | number | string[]>;
 
@@ -34,6 +33,7 @@ const fields = new Set([
   "content",
   "name",
   "list",
+  "section_moved",
   "time_estimate",
   "time_spent",
   "custom_field",
@@ -57,15 +57,14 @@ export function sanitizeWebhookMetadata(value: unknown): WebhookMetadata {
   const field = row?.["field"];
   if (typeof field === "string" && fields.has(field)) result["field"] = field;
   const timestamp = row?.["occurred_at"];
-  if (
-    typeof timestamp === "number" &&
-    Number.isSafeInteger(timestamp) &&
-    timestamp > 0
-  )
+  if (typeof timestamp === "number" && Number.isSafeInteger(timestamp) && timestamp > 0)
     result["occurred_at"] = timestamp;
   const mentions = row?.["mentioned_user_ids"];
   if (Array.isArray(mentions)) {
-    const ids = mentions.slice(0, 100).map(numericId).filter((id) => id !== undefined);
+    const ids = mentions
+      .slice(0, 100)
+      .map(numericId)
+      .filter((id) => id !== undefined);
     if (ids.length) result["mentioned_user_ids"] = [...new Set(ids)];
   }
   return result;
