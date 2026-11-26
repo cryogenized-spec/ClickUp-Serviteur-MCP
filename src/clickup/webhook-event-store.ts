@@ -1,4 +1,5 @@
 import type { OAuthEnv } from "../auth/env.js";
+import { FollowupLedger, FollowupLedgerError } from "./followup-ledger.js";
 import { grantForSignedWebhook, retryDelayMs, synchronizeDirtyTask } from "./task-index-sync.js";
 import {
   projectCommentSnapshot,
@@ -18,6 +19,7 @@ const WEEK = 7 * 24 * 60 * 60 * 1000;
 /** Internal binding only. Partition by approved Workspace and authenticated actor. */
 export class ClickUpWebhookEvents {
   private readonly taskIndex: TaskIndexStore;
+  private readonly followups: FollowupLedger;
 
   constructor(
     private readonly state: DurableObjectState,
@@ -46,11 +48,58 @@ export class ClickUpWebhookEvents {
       (statement, ...bindings) => state.storage.sql.exec(statement, ...bindings),
       (action) => state.storage.transactionSync(action),
     );
+    this.followups = new FollowupLedger(
+      (statement, ...bindings) => state.storage.sql.exec(statement, ...bindings),
+      (action) => state.storage.transactionSync(action),
+    );
   }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
+    // Actor/Workspace-private RPCs. The MCP caller must first reverify current
+    // ClickUp task access with this individual OAuth actor; never expose these
+    // routes on the public Worker router.
+    if (request.method === "GET" && path === "/followups/task") {
+      const taskId = url.searchParams.get("task_id") ?? "";
+      const limitRaw = url.searchParams.get("limit") ?? "20";
+      const beforeRaw = url.searchParams.get("before_revision");
+      if (!/^[1-9]\d?$/.test(limitRaw) || (beforeRaw !== null && !/^[1-9]\d{0,9}$/.test(beforeRaw)))
+        return new Response(null, { status: 400 });
+      try {
+        const value = this.followups.read(
+          taskId,
+          Number(limitRaw),
+          beforeRaw === null ? undefined : Number(beforeRaw),
+        );
+        return Response.json(value, { headers: { "Cache-Control": "no-store" } });
+      } catch (error) {
+        if (error instanceof FollowupLedgerError) return new Response(null, { status: 400 });
+        throw error;
+      }
+    }
+    if (request.method === "GET" && path === "/followups/receipt") {
+      const taskId = url.searchParams.get("task_id") ?? "";
+      const actionKey = url.searchParams.get("action_key") ?? "";
+      try {
+        const receipt = this.followups.receipt(taskId, actionKey);
+        return Response.json({ receipt }, { headers: { "Cache-Control": "no-store" } });
+      } catch (error) {
+        if (error instanceof FollowupLedgerError) return new Response(null, { status: 400 });
+        throw error;
+      }
+    }
+    if (request.method === "POST" && path === "/followups/record") {
+      const value: unknown = await request.json().catch(() => null);
+      try {
+        const result = this.followups.record(value, Date.now());
+        return Response.json(result, { headers: { "Cache-Control": "no-store" } });
+      } catch (error) {
+        if (error instanceof FollowupLedgerError)
+          return new Response(null, { status: error.code === "conflict" ? 409 : 400 });
+        throw error;
+      }
+    }
     if (path === "/registry") return this.registry(request);
     // These endpoints are private Durable Object RPCs, never public Worker routes.
     // The caller must have completed its own ClickUp OAuth task verification.

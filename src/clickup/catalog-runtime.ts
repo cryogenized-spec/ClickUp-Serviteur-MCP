@@ -1274,6 +1274,8 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_create_chat_channel",
   "clickup_update_goal_name",
   "clickup_update_key_result_progress",
+  "clickup_get_followup_state",
+  "clickup_record_followup_action",
   "clickup_get_pending_activity",
   "clickup_mark_consumer_activity_processed",
   "clickup_get_task_activity_timeline",
@@ -1970,6 +1972,161 @@ export async function runCatalogOperation(
       );
       // The response acknowledges a native merge; never repeat after uncertainty.
       return { acknowledgement: clip(result), readback_verified: false, retry_safe: false };
+    }
+    case "clickup_get_followup_state":
+    case "clickup_record_followup_action": {
+      if (!g.taskIndex) throw new ReadFailure("CLICKUP_FOLLOWUP_STORAGE_UNAVAILABLE");
+      // The same per-actor SQLite Durable Object is available to List-only
+      // grants even when the Workspace webhook consumer is disabled.
+      // A private ledger never confers task visibility. Always reverify the
+      // individual user's live ClickUp OAuth permission first.
+      const current = await taskInWorkspace(g, f, a["task_id"], true);
+      const taskId = String(current["id"]);
+      const binding = g.taskIndex;
+      const stub = binding.get(binding.idFromName(W + ":" + g.subject) as never);
+      if (name === "clickup_get_followup_state") {
+        const url = new URL("https://internal/followups/task");
+        url.searchParams.set("task_id", taskId);
+        url.searchParams.set("limit", String(N));
+        const before = a["followup_before_revision"];
+        if (before !== undefined) {
+          if (!Number.isSafeInteger(before) || Number(before) <= 0)
+            throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+          url.searchParams.set("before_revision", String(before));
+        }
+        const response = await stub.fetch(new Request(url));
+        if (!response.ok) throw new ReadFailure("CLICKUP_FOLLOWUP_STORAGE_UNAVAILABLE");
+        const ledger = obj(await response.json());
+        if (!ledger || ledger["task_id"] !== taskId) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        return {
+          ...ledger,
+          source: "serviteur-private-followup-ledger",
+          verified_clickup_task: {
+            task_id: taskId,
+            title: current["name"],
+            status: obj(current["status"])?.["status"] ?? null,
+            assignee_user_ids: Array.isArray(current["assignees"])
+              ? current["assignees"]
+                  .map((assignee) => obj(assignee)?.["id"])
+                  .filter((id) => id !== undefined)
+              : [],
+          },
+          task_access_verified: true,
+          ledger_state_is_human_curated: true,
+        };
+      }
+      const note = a["followup_note"];
+      const kind = a["followup_action_kind"];
+      const commentId = a["followup_evidence_comment_id"];
+      if (
+        typeof a["followup_action_key"] !== "string" ||
+        !/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(a["followup_action_key"]) ||
+        typeof kind !== "string" ||
+        typeof a["followup_state_after"] !== "string" ||
+        !Number.isSafeInteger(a["followup_expected_revision"]) ||
+        (note !== undefined && (typeof note !== "string" || note.length > 2000)) ||
+        (commentId !== undefined &&
+          (typeof commentId !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(commentId)))
+      )
+        throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (kind === "instruction_sent" && commentId === undefined)
+        throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_REQUIRED");
+      const normalizedAction = {
+        task_id: taskId,
+        action_key: a["followup_action_key"],
+        action_kind: kind,
+        state_after: a["followup_state_after"],
+        expected_revision: a["followup_expected_revision"],
+        note: note ?? null,
+        evidence_comment_id: commentId ?? null,
+        waiting_on_user_id: a["followup_waiting_on_user_id"] ?? null,
+        next_check_at_ms: a["followup_next_check_at_ms"] ?? null,
+      };
+      // Recheck a committed action's exact private receipt AFTER live task
+      // authorization, but BEFORE fetching evidence that may since have been
+      // deleted. Replayed keys with different payloads must conflict.
+      const receiptUrl = new URL("https://internal/followups/receipt");
+      receiptUrl.searchParams.set("task_id", taskId);
+      receiptUrl.searchParams.set("action_key", String(a["followup_action_key"]));
+      const receiptResponse = await stub.fetch(new Request(receiptUrl));
+      if (!receiptResponse.ok) throw new ReadFailure("CLICKUP_FOLLOWUP_STORAGE_UNAVAILABLE");
+      const receiptEnvelope = obj(await receiptResponse.json());
+      if (!receiptEnvelope) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      const receipt = obj(receiptEnvelope["receipt"]);
+      if (receipt) {
+        if (
+          receipt["task_id"] !== taskId ||
+          receipt["action_key"] !== normalizedAction.action_key ||
+          !Number.isSafeInteger(receipt["revision"]) ||
+          typeof receipt["request_json"] !== "string"
+        )
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        if (receipt["request_json"] !== JSON.stringify(normalizedAction))
+          throw new ReadFailure("CLICKUP_FOLLOWUP_REVISION_CONFLICT");
+      }
+      // A draft is never recorded as an executed ClickUp comment. Check
+      // evidence by traversing the authorized task's actual comment pages.
+      // No arbitrary page cap; stop once found or at native pagination end.
+      let evidenceVerified = false;
+      if (!receipt && typeof commentId === "string") {
+        const visited = new Set<string>();
+        let afterStart: number | undefined;
+        let afterId: string | undefined;
+        for (;;) {
+          // The task has already passed the current user's authorized
+          // preflight. Use the same native comment page adapter directly;
+          // nested catalogue invocation would incorrectly impose Workspace
+          // scope on otherwise-authorized List-only users.
+          const comments = await taskCommentPage(
+            (path) => call("GET", path),
+            taskId,
+            afterStart !== undefined && afterId !== undefined
+              ? { start: afterStart, startId: afterId }
+              : null,
+          );
+          const matchingComment = comments.find((row) => obj(row)?.["id"] === commentId);
+          if (matchingComment !== undefined) {
+            // A posted-comment assertion must refer to an actual comment by
+            // this connected ClickUp actor, not another colleague's reply.
+            if (
+              kind === "instruction_sent" &&
+              String(obj(obj(matchingComment)?.["user"])?.["id"]) !== g.clickupUserId
+            )
+              throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
+            evidenceVerified = true;
+            break;
+          }
+          if (comments.length < 25) break;
+          const next = commentCursorFrom(comments[comments.length - 1]!);
+          if (!next) throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
+          const key = next.start + ":" + next.startId;
+          if (visited.has(key)) throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
+          visited.add(key);
+          afterStart = next.start;
+          afterId = next.startId;
+        }
+        if (!evidenceVerified) throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
+      }
+      const response = await stub.fetch(
+        new Request("https://internal/followups/record", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(normalizedAction),
+        }),
+      );
+      if (response.status === 409) throw new ReadFailure("CLICKUP_FOLLOWUP_REVISION_CONFLICT");
+      if (response.status === 400) throw new ReadFailure("CLICKUP_INVALID_ARGUMENT");
+      if (!response.ok) throw new ReadFailure("CLICKUP_FOLLOWUP_STORAGE_UNAVAILABLE");
+      const ledger = obj(await response.json());
+      if (!ledger || ledger["task_id"] !== taskId || !Number.isSafeInteger(ledger["revision"]))
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      return {
+        ...ledger,
+        provider_comment_evidence_verified: evidenceVerified,
+        prior_exact_receipt_verified: receipt !== null,
+        private_ledger_only: true,
+        clickup_task_unchanged: true,
+      };
     }
     case "clickup_get_pending_activity":
     case "clickup_mark_consumer_activity_processed":
