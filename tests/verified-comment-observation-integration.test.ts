@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { runCatalogOperation } from "../src/clickup/catalog-runtime.js";
 import type { ReadGrant } from "../src/clickup/policy.js";
 
-function fixture(options: {
-  authorId?: number;
-  receiptFails?: boolean;
-  resultId?: string;
-} = {}) {
+function fixture(
+  options: {
+    authorId?: number;
+    receiptFails?: boolean;
+    resultId?: string;
+  } = {},
+) {
   const providerCalls: Array<{ path: string; method: string }> = [];
   const privateCalls: Array<{ path: string; body?: Record<string, unknown> }> = [];
   const commentId = options.resultId ?? "1500260000111534";
@@ -23,35 +25,38 @@ function fixture(options: {
         assignees: [{ id: 707 }],
       });
     }
-    if (path === "/api/v2/list/12345")
-      return Response.json({ id: "12345", space: { id: "777" } });
-    if (path === "/api/v2/team/555/space")
-      return Response.json({ spaces: [{ id: "777" }] });
+    if (path === "/api/v2/list/12345") return Response.json({ id: "12345", space: { id: "777" } });
+    if (path === "/api/v2/team/555/space") return Response.json({ spaces: [{ id: "777" }] });
     if (path === "/api/v2/task/task123/comment") {
       if (method === "POST") return Response.json({ id: commentId });
       if (method === "GET")
         return Response.json({
-          comments: [{
-            id: commentId,
-            user: { id: options.authorId ?? 707 },
-            comment_text: "Please check the supplier's quotation.",
-          }],
+          comments: [
+            {
+              id: commentId,
+              user: { id: options.authorId ?? 707 },
+              comment_text: "Please check the supplier's quotation.",
+            },
+          ],
         });
     }
     throw Error("Unexpected provider call: " + method + " " + path);
   });
   const privateFetch = vi.fn(async (request: Request) => {
     const path = new URL(request.url).pathname;
-    const body = request.method === "POST"
-      ? await request.json() as Record<string, unknown> : undefined;
+    const body =
+      request.method === "POST" ? ((await request.json()) as Record<string, unknown>) : undefined;
     privateCalls.push({ path, body });
     if (path === "/followups/receipt")
       return options.receiptFails
         ? new Response(null, { status: 503 })
         : Response.json({ receipt: null });
-    if (path === "/followups/task") return Response.json({
-      task_id: "task123", state: null, history: [],
-    });
+    if (path === "/followups/task")
+      return Response.json({
+        task_id: "task123",
+        state: null,
+        history: [],
+      });
     if (path === "/followups/record")
       return Response.json({ task_id: "task123", revision: 1, replayed: false });
     throw Error("Unexpected private request " + path);
@@ -94,11 +99,16 @@ describe("factual private ledger capture after own ClickUp comments", () => {
         revision: 1,
       },
     });
-    expect(providerCalls.filter((x) => x.method === "POST")).toEqual([{
-      path: "/api/v2/task/task123/comment", method: "POST",
-    }]);
+    expect(providerCalls.filter((x) => x.method === "POST")).toEqual([
+      {
+        path: "/api/v2/task/task123/comment",
+        method: "POST",
+      },
+    ]);
     expect(privateCalls.map((x) => x.path)).toEqual([
-      "/followups/receipt", "/followups/task", "/followups/record",
+      "/followups/receipt",
+      "/followups/task",
+      "/followups/record",
     ]);
     expect(privateCalls[2]!.body).toMatchObject({
       action_kind: "verified_comment_posted",
@@ -126,7 +136,7 @@ describe("factual private ledger capture after own ClickUp comments", () => {
       },
     });
     expect(privateCalls).toHaveLength(0);
-    expect(providerCalls.filter(x => x.method === "POST")).toHaveLength(1);
+    expect(providerCalls.filter((x) => x.method === "POST")).toHaveLength(1);
   });
 
   it("reports private ledger outage without masking or retrying a successful ClickUp POST", async () => {
@@ -141,8 +151,8 @@ describe("factual private ledger capture after own ClickUp comments", () => {
       verified_by_readback: true,
       followup_observation: { recorded: false, reason: "private_storage_failed" },
     });
-    expect(providerCalls.filter(x => x.method === "POST")).toHaveLength(1);
-    expect(privateCalls.map(x => x.path)).toEqual(["/followups/receipt"]);
+    expect(providerCalls.filter((x) => x.method === "POST")).toHaveLength(1);
+    expect(privateCalls.map((x) => x.path)).toEqual(["/followups/receipt"]);
   });
 
   it("requires a concrete provider comment ID before logging an observation", async () => {
