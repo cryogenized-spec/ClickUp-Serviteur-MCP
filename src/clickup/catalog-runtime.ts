@@ -2052,7 +2052,15 @@ export async function runCatalogOperation(
           );
           const comments = page["comments"];
           if (!Array.isArray(comments)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
-          if (comments.some((row) => obj(row)?.["id"] === commentId)) {
+          const matchingComment = comments.find((row) => obj(row)?.["id"] === commentId);
+          if (matchingComment !== undefined) {
+            // A posted-comment assertion must refer to an actual comment by
+            // this connected ClickUp actor, not another colleague's reply.
+            if (
+              kind === "instruction_sent" &&
+              String(obj(obj(matchingComment)?.["user"])?.["id"]) !== g.clickupUserId
+            )
+              throw new ReadFailure("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
             evidenceVerified = true;
             break;
           }
