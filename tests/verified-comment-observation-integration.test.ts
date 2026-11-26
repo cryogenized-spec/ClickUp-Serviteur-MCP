@@ -67,6 +67,7 @@ function fixture(
     workspaceId: "555",
     listId: "12345",
     resourceScope: "list",
+    companyListTaskAccess: true,
     apiToken: "personal-secret-not-in-output",
     quota: {
       idFromName: (name: string) => name,
