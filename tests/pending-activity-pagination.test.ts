@@ -27,6 +27,7 @@ function fixture(
   events: ReturnType<typeof makeEvent>[],
   rateLimitTask?: string,
   rateLimitAttempts = 1,
+  taskFailures: Record<string, number[]> = {},
 ) {
   let rateLimitFailures = 0;
   const requests = vi.fn(async (request: Request) => {
@@ -51,6 +52,8 @@ function fixture(
     if (task) {
       if (task === rateLimitTask && rateLimitFailures++ < rateLimitAttempts)
         return Response.json({}, { status: 429 });
+      const failure = taskFailures[task]?.shift();
+      if (failure !== undefined) return Response.json({}, { status: failure });
       return Response.json({
         id: task,
         name: `Verified ${task}`,
@@ -103,6 +106,12 @@ describe("pending activity batched pagination", () => {
       2,
     );
     expect(f.requests.mock.calls.every(([request]) => request.method === "GET")).toBe(true);
+    expect(
+      f.api.mock.calls.filter(([request]) => String(request).includes("/list/12345")),
+    ).toHaveLength(1);
+    expect(
+      f.api.mock.calls.filter(([request]) => String(request).includes("/team/555/space")),
+    ).toHaveLength(1);
   });
 
   it("returns the exact cursor at a result cap without skipping later events", async () => {
@@ -218,5 +227,70 @@ describe("pending activity batched pagination", () => {
     expect(
       (response["tasks"] as Array<{ events: unknown[] }>).map((task) => task.events.length),
     ).toEqual([29, 28]);
+  });
+
+  it("continues past a direct task 404 without exposing or acknowledging the missing task", async () => {
+    const events = [makeEvent(0), makeEvent(1, "missing"), makeEvent(2, "later")];
+    const f = fixture(events, undefined, 1, { missing: [404] });
+    const response = await runCatalogOperation(
+      "clickup_get_pending_activity",
+      {},
+      f.enrichedGrant,
+      f.api as typeof fetch,
+    );
+    expect(response).toMatchObject({
+      events_scanned: 3,
+      unverified_task_count: 1,
+      task_not_found_count: 1,
+      incomplete: true,
+      interrupted_reason: null,
+      next_event_after_time: null,
+    });
+    expect((response["tasks"] as Array<{ task_id: string }>).map((t) => t.task_id)).toEqual([
+      "abc123",
+      "later",
+    ]);
+    expect(JSON.stringify(response)).not.toContain('"task_id":"missing"');
+    expect(f.requests.mock.calls.every(([request]) => request.method === "GET")).toBe(true);
+  });
+
+  it("retries transient verification errors on the same event", async () => {
+    const events = [makeEvent(0), makeEvent(1, "flaky"), makeEvent(2, "later")];
+    const f = fixture(events, undefined, 1, { flaky: [503, 502] });
+    const wait = vi.fn(async (_ms: number) => undefined);
+    const response = await runCatalogOperation(
+      "clickup_get_pending_activity",
+      {},
+      f.enrichedGrant,
+      f.api as typeof fetch,
+      wait,
+    );
+    expect(response).toMatchObject({ events_scanned: 3, incomplete: false });
+    expect(wait.mock.calls).toEqual([[1000], [2000]]);
+  });
+
+  it("preserves an existing cursor and exposes a sanitized diagnostic on persistent failure", async () => {
+    const events = [makeEvent(0), makeEvent(1, "flaky"), makeEvent(2, "later")];
+    const f = fixture(events, undefined, 1, { flaky: [503, 503, 503] });
+    const wait = vi.fn(async (_ms: number) => undefined);
+    const response = await runCatalogOperation(
+      "clickup_get_pending_activity",
+      { event_after_time: events[0]!.received_at, event_after_key: events[0]!.event_key },
+      f.enrichedGrant,
+      f.api as typeof fetch,
+      wait,
+    );
+    expect(response).toMatchObject({
+      events_scanned: 0,
+      incomplete: true,
+      interrupted_reason: "task_verification_unavailable",
+      interrupted_code: "CLICKUP_UPSTREAM_UNAVAILABLE",
+      interrupted_http_status: 503,
+      next_event_after_time: events[0]!.received_at,
+      next_event_after_key: events[0]!.event_key,
+      resume_from_beginning: false,
+    });
+    expect(response["tasks"]).toEqual([]);
+    expect(wait).toHaveBeenCalledTimes(2);
   });
 });
