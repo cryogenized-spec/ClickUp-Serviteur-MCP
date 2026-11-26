@@ -1,5 +1,5 @@
 import type { OAuthEnv } from "../auth/env.js";
-import { runCatalogOperation } from "./catalog-runtime.js";
+import { readVerifiedTaskForIndex, runCatalogOperation } from "./catalog-runtime.js";
 import { ReadFailure, requireReadGrant, type ReadGrant } from "./policy.js";
 import { projectCommentSnapshot, projectTaskSnapshot, type TaskIndexStore } from "./task-index.js";
 
@@ -56,17 +56,21 @@ export async function synchronizeDirtyTask(
   transport: typeof fetch,
   call: typeof runCatalogOperation = runCatalogOperation,
   now: () => number = Date.now,
+  readTask: typeof readVerifiedTaskForIndex = readVerifiedTaskForIndex,
 ): Promise<{ complete: boolean; indexed_comments: number }> {
   const startedAt = now();
   if (!Number.isSafeInteger(startedAt) || startedAt <= 0) throw new Error("SYNC_CLOCK_UNAVAILABLE");
   try {
     if (item.task_dirty) {
-      const task = await call("clickup_get_task", { task_id: item.task_id }, grant, transport);
+      const task = await readTask(grant, transport, item.task_id);
       const snapshot = projectTaskSnapshot(task);
       if (!snapshot) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       if (grant.resourceScope !== "workspace" && snapshot.list_id !== grant.listId)
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
-      store.storeTask(snapshot, startedAt);
+      // A late, older upstream revision must not be reported as complete:
+      // its SQLite UPSERT is rejected and the dirty marker remains pending.
+      if (!store.storeTask(snapshot, startedAt))
+        return { complete: false, indexed_comments: 0 };
     }
     if (!item.comments_dirty) return { complete: true, indexed_comments: 0 };
     const page = await call(
@@ -94,6 +98,7 @@ export async function synchronizeDirtyTask(
       error instanceof ReadFailure &&
       (error.code === "CLICKUP_SCOPE_OR_SCHEMA_REJECTED" ||
         error.code === "CLICKUP_ACCESS_DENIED" ||
+        error.code === "CLICKUP_UPSTREAM_DENIED" ||
         (error.code === "CLICKUP_UPSTREAM_UNAVAILABLE" && error.diagnostic?.http_status === 404))
     )
       store.discardSnapshots(item.task_id);
