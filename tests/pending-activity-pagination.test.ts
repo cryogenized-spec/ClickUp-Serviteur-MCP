@@ -108,6 +108,46 @@ function fixture(
   };
 }
 
+describe("comment pagination and persistent index freshness", () => {
+  it("never labels a cursor-started historical page as a complete task-wide scan", async () => {
+    const f = fixture([]);
+    const captures: Array<{ path: string; body: Record<string, unknown> }> = [];
+    const index = {
+      idFromName: (name: string) => name,
+      get: () => ({
+        fetch: async (request: Request) => {
+          captures.push({
+            path: new URL(request.url).pathname,
+            body: (await request.json()) as Record<string, unknown>,
+          });
+          return Response.json({ indexed: true });
+        },
+      }),
+    };
+    const scoped = { ...f.enrichedGrant, taskIndex: index };
+    const olderPage = await runCatalogOperation(
+      "clickup_get_task_comments",
+      { task_id: "abc123", comment_start: 123402, comment_start_id: "456" },
+      scoped,
+      f.api as typeof fetch,
+    );
+    expect(olderPage["incomplete"]).toBe(false);
+    expect(captures.find((entry) => entry.path === "/index/comments")?.body["complete"]).toBe(
+      false,
+    );
+    captures.length = 0;
+    await runCatalogOperation(
+      "clickup_get_task_comments",
+      { task_id: "abc123" },
+      scoped,
+      f.api as typeof fetch,
+    );
+    expect(captures.find((entry) => entry.path === "/index/comments")?.body["complete"]).toBe(
+      true,
+    );
+  });
+});
+
 describe("task activity timeline and diagnostics", () => {
   it("combines chronological comments and webhook hints after a single task verification", async () => {
     const f = fixture([
