@@ -207,8 +207,7 @@ export class TaskIndexStore {
           "SELECT source_updated_at, list_id, observed_at FROM task_discovery_requirements WHERE task_id = ?",
           task.task_id,
         ).toArray()[0] as
-          | { source_updated_at: number; list_id: string; observed_at: number }
-          | undefined;
+          { source_updated_at: number; list_id: string; observed_at: number } | undefined;
         const newerRequirement =
           required === undefined ||
           task.source_updated_at_ms > required.source_updated_at ||
@@ -424,7 +423,8 @@ export class TaskIndexStore {
         (snapshot.source_updated_at_ms < requirement.source_updated_at ||
           (snapshot.source_updated_at_ms === requirement.source_updated_at &&
             snapshot.list_id !== requirement.list_id))
-      ) return;
+      )
+        return;
       this.run(
         "INSERT INTO task_refresh(task_id, task_checked_at) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET task_checked_at = MAX(task_refresh.task_checked_at, excluded.task_checked_at)",
         snapshot.task_id,
