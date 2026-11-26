@@ -2,6 +2,7 @@ import { quotaCall } from "./client.js";
 import { sanitizeWebhookMetadata, validActivityConsumer } from "./webhook-ingress.js";
 import { filePendingLedger } from "./file-field-ledger.js";
 import { getMyAttentionItems } from "./attention-items.js";
+import { recordVerifiedCommentObservation } from "./verified-comment-observation.js";
 import {
   captureVerifiedComments,
   captureVerifiedTask,
@@ -4768,6 +4769,14 @@ export async function runCatalogOperation(
     }
     case "clickup_create_task_comment": {
       await task("task_id");
+      // Only verified ClickUp POST+author readbacks can generate a factual
+      // private follow-up observation. Capture failures never cause reposts.
+      const observeAuthorVerified = async (posted: Json, commentId: string): Promise<Json> => ({
+        ...posted,
+        followup_observation: await recordVerifiedCommentObservation(
+          g, String(a["task_id"]), commentId,
+        ),
+      });
       const richRequested = a["mention_segments"] !== undefined || a["rich_segments"] !== undefined;
       if (
         (a["rich_segments"] !== undefined && a["mention_segments"] !== undefined) ||
@@ -4907,7 +4916,7 @@ export async function runCatalogOperation(
           // The POST returned a valid ID, but readback could not verify it.
           return uncertain(String(commentId));
         }
-        return {
+        return observeAuthorVerified({
           ...posted,
           write_acknowledged: true,
           requested_mention_user_ids: requestedIds,
@@ -4921,7 +4930,7 @@ export async function runCatalogOperation(
           readback_status: mentionIdsVerified ? "full" : "structure_only",
           // ClickUp may notify tagged people even though notify_all is false.
           notification_delivery_unverified: true,
-        };
+        }, String(commentId));
       }
       const comment = {
         comment_text: txt(a["text"], 6000),
@@ -4947,17 +4956,19 @@ export async function runCatalogOperation(
             .find((item) => String(item?.["id"]) === String(commentId));
           if (
             !created ||
+            String(obj(created["user"])?.["id"]) !== g.clickupUserId ||
             String(obj(created["assignee"])?.["id"] ?? created["assignee"]) !== String(assignee)
           )
             throw Error("Assignment did not persist");
         } catch {
           throw new ReadFailure("CLICKUP_WRITE_OUTCOME_UNKNOWN");
         }
-        return {
+        return observeAuthorVerified({
           ...posted,
           assignee_id: String(assignee),
           verified_by_readback: true,
-        };
+          notification_delivery_unverified: true,
+        }, String(commentId));
       }
       // The reply destination must be independently verified against this task.
       const parents = await call("GET", v2("task/" + val(a, "task_id") + "/comment"));
