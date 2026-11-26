@@ -4,6 +4,9 @@ type Json = Record<string, unknown>;
 const object = (value: unknown): Json | null =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Json) : null;
 
+export const validActivityConsumer = (value: unknown): value is string =>
+  typeof value === "string" && /^[a-z][a-z0-9_-]{0,63}$/.test(value);
+
 export interface WebhookRegistration {
   readonly workspaceId: string;
   readonly subject: string;
