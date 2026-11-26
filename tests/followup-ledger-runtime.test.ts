@@ -136,7 +136,11 @@ describe("OAuth-verifying follow-up MCP adapter", () => {
     const request = privateCalls.mock.calls[0]![0];
     expect(request.method).toBe("POST");
     expect(new URL(request.url).pathname).toBe("/followups/record");
-    expect(api.mock.calls.every(([, init]) => !init || init.method === undefined || init.method === "GET")).toBe(true);
+    expect(
+      api.mock.calls.every(
+        ([, init]) => !init || init.method === undefined || init.method === "GET",
+      ),
+    ).toBe(true);
   });
 
   it("refuses a claimed sent action without evidence and verifies the exact provider comment", async () => {
