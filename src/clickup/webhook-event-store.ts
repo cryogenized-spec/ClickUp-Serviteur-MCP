@@ -381,7 +381,7 @@ export class ClickUpWebhookEvents {
             hint.receivedAt,
           )
           .toArray();
-        if (inserted.length) this.taskIndex.markDirty(hint.taskId, hint.event, hint.receivedAt);
+        if (inserted.length) this.taskIndex.markDirty(hint.taskId, hint.event, now);
         if (hint.metadata)
           this.state.storage.sql.exec(
             "INSERT OR IGNORE INTO hint_metadata(event_key, metadata) SELECT event_key, ? FROM hints WHERE event_key = ? AND task_id = ?",
@@ -518,16 +518,21 @@ export class ClickUpWebhookEvents {
                 const result = await synchronizeDirtyTask(pending, grant, this.taskIndex, fetch);
                 if (result.complete) this.taskIndex.clearRetry(pending.task_id);
                 else
-                  this.taskIndex.deferTask(
+                  this.taskIndex.deferTaskIfCurrent(
                     pending.task_id,
                     Date.now() + 15 * 60_000,
                     pending.attempts + 1,
+                    pending.dirty_token,
                   );
               } catch (error) {
-                this.taskIndex.deferTask(
+                // Do not let an older failed request postpone a newer
+                // webhook generation. A definite denial has already queued
+                // both sections and set its own retry checkpoint.
+                this.taskIndex.deferTaskIfCurrent(
                   pending.task_id,
                   Date.now() + retryDelayMs(error, pending.attempts),
                   pending.attempts + 1,
+                  pending.dirty_token,
                 );
               }
             }
