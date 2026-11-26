@@ -74,7 +74,9 @@ export class FollowupLedger {
     run(
       "CREATE TABLE IF NOT EXISTS followup_due_cursors (token TEXT PRIMARY KEY, cutoff_ms INTEGER NOT NULL, scope_key TEXT NOT NULL, after_due_ms INTEGER NOT NULL, after_task_id TEXT NOT NULL, expires_at_ms INTEGER NOT NULL)",
     );
-    run("CREATE INDEX IF NOT EXISTS followup_due_cursor_expiry ON followup_due_cursors(expires_at_ms)");
+    run(
+      "CREATE INDEX IF NOT EXISTS followup_due_cursor_expiry ON followup_due_cursors(expires_at_ms)",
+    );
   }
 
   /** Explicit, optimistic revision prevents concurrent agents from overwriting
@@ -352,7 +354,8 @@ export class FollowupLedger {
       !taskId(afterTask) ||
       !Number.isSafeInteger(now) ||
       now <= 0
-    ) throw new FollowupLedgerError("invalid");
+    )
+      throw new FollowupLedgerError("invalid");
     const token = crypto.randomUUID();
     this.run("DELETE FROM followup_due_cursors WHERE expires_at_ms < ?", now);
     this.run(
@@ -381,16 +384,20 @@ export class FollowupLedger {
       !/^[a-zA-Z0-9:_-]{1,160}$/.test(scopeKey) ||
       !Number.isSafeInteger(now) ||
       now <= 0
-    ) throw new FollowupLedgerError("invalid");
+    )
+      throw new FollowupLedgerError("invalid");
     const row = this.run(
       "SELECT cutoff_ms, scope_key, after_due_ms, after_task_id FROM followup_due_cursors WHERE token = ? AND expires_at_ms >= ?",
-      token, now,
-    ).toArray()[0] as {
-      cutoff_ms: number;
-      scope_key: string;
-      after_due_ms: number;
-      after_task_id: string;
-    } | undefined;
+      token,
+      now,
+    ).toArray()[0] as
+      | {
+          cutoff_ms: number;
+          scope_key: string;
+          after_due_ms: number;
+          after_task_id: string;
+        }
+      | undefined;
     // An old/tampered token, changed cutoff or changed authorization filter
     // must never silently restart the scan from the beginning.
     if (!row || row.cutoff_ms !== cutoff || row.scope_key !== scopeKey)
