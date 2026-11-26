@@ -277,16 +277,18 @@ describe("OAuth-verifying follow-up MCP adapter", () => {
       followup_state_after: "verified",
       followup_expected_revision: 0,
     };
-    await expect(runCatalogOperation(
-      "clickup_record_followup_action", action, grant, api as typeof fetch,
-    )).rejects.toThrow("CLICKUP_FOLLOWUP_EVIDENCE_REQUIRED");
+    await expect(
+      runCatalogOperation("clickup_record_followup_action", action, grant, api as typeof fetch),
+    ).rejects.toThrow("CLICKUP_FOLLOWUP_EVIDENCE_REQUIRED");
     expect(privateCalls).not.toHaveBeenCalled();
-    await expect(runCatalogOperation(
-      "clickup_record_followup_action",
-      { ...action, followup_evidence_comment_id: "1500260000111534" },
-      grant, api as typeof fetch,
-    )).rejects.toThrow("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
+    await expect(
+      runCatalogOperation(
+        "clickup_record_followup_action",
+        { ...action, followup_evidence_comment_id: "1500260000111534" },
+        grant,
+        api as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
     expect(privateCalls).toHaveBeenCalledTimes(1);
   });
-
 });
