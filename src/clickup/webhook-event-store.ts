@@ -79,31 +79,49 @@ export class ClickUpWebhookEvents {
       }
     }
     if (request.method === "GET" && path === "/followups/due") {
-      // Only the private Durable Object returns these raw actor-local rows.
-      // The MCP adapter must independently verify each task's current ClickUp
-      // permissions before disclosing any item or associated metadata.
-      const cutoff = url.searchParams.get("cutoff_ms");
-      const limit = url.searchParams.get("limit") ?? "20";
-      const afterDue = url.searchParams.get("after_due_ms");
-      const afterTask = url.searchParams.get("after_task_id");
+      // Private actor/Workspace Durable Object RPC. The model-facing MCP
+      // adapter MUST reauthorize each task before exposing any metadata.
+      const cutoffRaw = url.searchParams.get("cutoff_ms");
+      const limitRaw = url.searchParams.get("limit") ?? "20";
+      const scopeKey = url.searchParams.get("scope_key") ?? "";
+      const cursor = url.searchParams.get("cursor");
       if (
-        cutoff === null ||
-        !/^\d{1,13}$/.test(cutoff) ||
-        !/^(?:[1-9]|[1-4]\d|50)$/.test(limit) ||
-        (afterDue === null) !== (afterTask === null) ||
-        (afterDue !== null && !/^\d{1,13}$/.test(afterDue))
-      )
-        return new Response(null, { status: 400 });
+        cutoffRaw === null ||
+        !/^\d{1,13}$/.test(cutoffRaw) ||
+        !/^(?:[1-9]|[1-4]\d|50)$/.test(limitRaw) ||
+        !/^[a-zA-Z0-9:_-]{1,160}$/.test(scopeKey) ||
+        (cursor !== null &&
+          !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(cursor))
+      ) return new Response(null, { status: 400 });
       try {
+        const cutoff = Number(cutoffRaw);
+        const now = Date.now();
+        const previous = cursor === null
+          ? null
+          : this.followups.resolveDueCursor(cursor, cutoff, scopeKey, now);
         const page = this.followups.dueCandidates(
-          Number(cutoff),
-          Number(limit),
-          afterDue === null ? undefined : Number(afterDue),
-          afterTask === null ? undefined : afterTask,
+          cutoff,
+          Number(limitRaw),
+          previous?.after_due_ms,
+          previous?.after_task_id,
         );
-        return Response.json(page, { headers: { "Cache-Control": "no-store" } });
+        const nextCursor =
+          page.incomplete &&
+          page.next_after_due_ms !== null &&
+          page.next_after_task_id !== null
+            ? this.followups.issueDueCursor(
+                cutoff, scopeKey, page.next_after_due_ms, page.next_after_task_id, now,
+              )
+            : null;
+        return Response.json({
+          ...page,
+          next_cursor: nextCursor,
+          start_after_due_ms: previous?.after_due_ms ?? null,
+          start_after_task_id: previous?.after_task_id ?? null,
+        }, { headers: { "Cache-Control": "no-store" } });
       } catch (error) {
-        if (error instanceof FollowupLedgerError) return new Response(null, { status: 400 });
+        if (error instanceof FollowupLedgerError)
+          return new Response(null, { status: 400 });
         throw error;
       }
     }
