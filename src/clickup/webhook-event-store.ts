@@ -92,13 +92,13 @@ export class ClickUpWebhookEvents {
         !/^[a-zA-Z0-9:_-]{1,160}$/.test(scopeKey) ||
         (cursor !== null &&
           !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(cursor))
-      ) return new Response(null, { status: 400 });
+      )
+        return new Response(null, { status: 400 });
       try {
         const cutoff = Number(cutoffRaw);
         const now = Date.now();
-        const previous = cursor === null
-          ? null
-          : this.followups.resolveDueCursor(cursor, cutoff, scopeKey, now);
+        const previous =
+          cursor === null ? null : this.followups.resolveDueCursor(cursor, cutoff, scopeKey, now);
         const page = this.followups.dueCandidates(
           cutoff,
           Number(limitRaw),
@@ -106,22 +106,26 @@ export class ClickUpWebhookEvents {
           previous?.after_task_id,
         );
         const nextCursor =
-          page.incomplete &&
-          page.next_after_due_ms !== null &&
-          page.next_after_task_id !== null
+          page.incomplete && page.next_after_due_ms !== null && page.next_after_task_id !== null
             ? this.followups.issueDueCursor(
-                cutoff, scopeKey, page.next_after_due_ms, page.next_after_task_id, now,
+                cutoff,
+                scopeKey,
+                page.next_after_due_ms,
+                page.next_after_task_id,
+                now,
               )
             : null;
-        return Response.json({
-          ...page,
-          next_cursor: nextCursor,
-          start_after_due_ms: previous?.after_due_ms ?? null,
-          start_after_task_id: previous?.after_task_id ?? null,
-        }, { headers: { "Cache-Control": "no-store" } });
+        return Response.json(
+          {
+            ...page,
+            next_cursor: nextCursor,
+            start_after_due_ms: previous?.after_due_ms ?? null,
+            start_after_task_id: previous?.after_task_id ?? null,
+          },
+          { headers: { "Cache-Control": "no-store" } },
+        );
       } catch (error) {
-        if (error instanceof FollowupLedgerError)
-          return new Response(null, { status: 400 });
+        if (error instanceof FollowupLedgerError) return new Response(null, { status: 400 });
         throw error;
       }
     }
