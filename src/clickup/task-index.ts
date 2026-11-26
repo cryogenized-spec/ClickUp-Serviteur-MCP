@@ -123,6 +123,9 @@ export class TaskIndexStore {
     run(
       "CREATE TABLE IF NOT EXISTS sync_backoff (task_id TEXT PRIMARY KEY, retry_at INTEGER NOT NULL, attempts INTEGER NOT NULL)",
     );
+    run(
+      "CREATE TABLE IF NOT EXISTS snapshot_denials (task_id TEXT PRIMARY KEY, denied_at INTEGER NOT NULL)",
+    );
   }
 
   markDirty(id: string, event: string, at: number): void {
@@ -195,12 +198,28 @@ export class TaskIndexStore {
 
   /** A task that is no longer authorized must not remain retrievable by future
    * cached-reading tools. The webhook hint history is independent. */
-  discardSnapshots(id: string): void {
-    if (!taskId(id)) throw new Error("INVALID_SYNC_TASK");
+  discardSnapshots(id: string, deniedAt = Date.now()): void {
+    if (!taskId(id) || !validObserved(deniedAt)) throw new Error("INVALID_SYNC_TASK");
     this.transactionSync(() => {
+      // A definitive access denial is a durable barrier. A previously
+      // authorized GET that finishes afterward must not restore private
+      // content fetched before the permission change was observed.
+      this.run(
+        "INSERT INTO snapshot_denials(task_id, denied_at) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET denied_at = MAX(snapshot_denials.denied_at, excluded.denied_at)",
+        id,
+        deniedAt,
+      );
       this.run("DELETE FROM comment_snapshots WHERE task_id = ?", id);
       this.run("DELETE FROM task_snapshots WHERE task_id = ?", id);
     });
+  }
+
+  private deniedBefore(id: string, observedAt: number): boolean {
+    const record = this.run(
+      "SELECT denied_at FROM snapshot_denials WHERE task_id = ?",
+      id,
+    ).toArray()[0] as { denied_at: number } | undefined;
+    return record !== undefined && observedAt <= record.denied_at;
   }
 
   storeTask(snapshot: TaskSnapshot, observedAt: number): boolean {
@@ -215,6 +234,7 @@ export class TaskIndexStore {
       throw new Error("INVALID_TASK_SNAPSHOT");
     let applied = false;
     this.transactionSync(() => {
+      if (this.deniedBefore(snapshot.task_id, observedAt)) return;
       // RETURNING identifies whether this read was accepted, not merely
       // attempted. A rejected older source revision must leave dirty state.
       const accepted = this.run(
@@ -251,6 +271,7 @@ export class TaskIndexStore {
       seen.add(comment.comment_id);
     }
     this.transactionSync(() => {
+      if (this.deniedBefore(id, observedAt)) return;
       // A previously completed later scan may have deleted these comments.
       // Reject ALL earlier reads before the UPSERT, including partial pages.
       const prior = this.run(
