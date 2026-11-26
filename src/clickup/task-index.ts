@@ -204,7 +204,8 @@ export class TaskIndexStore {
       if (
         (prior?.comments_checked_at ?? 0) > observedAt ||
         (latest.last_observed ?? 0) > observedAt
-      ) return;
+      )
+        return;
       if (comments.length) {
         const placeholders = comments.map(() => "?").join(", ");
         this.run(
