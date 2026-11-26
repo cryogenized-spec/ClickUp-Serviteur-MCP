@@ -245,11 +245,18 @@ describe("real SQLite task-index regressions", () => {
     store.storeComments("task123", [indexedComment("c1", "Original comment")], 150, true);
     expect(store.lookup("task123")?.["comments_stale"]).toBe(false);
     store.storeTask(indexedTask(200, "Task-only refresh"), 250);
-    expect(store.observeDiscoveredTasks([{
-      task_id: "task123",
-      list_id: "901202442802",
-      source_updated_at_ms: 200,
-    }], 300)).toMatchObject({ unchanged: 1 });
+    expect(
+      store.observeDiscoveredTasks(
+        [
+          {
+            task_id: "task123",
+            list_id: "901202442802",
+            source_updated_at_ms: 200,
+          },
+        ],
+        300,
+      ),
+    ).toMatchObject({ unchanged: 1 });
     expect(store.lookup("task123")?.["comments_stale"]).toBe(true);
     expect(store.diagnostics()["comment_refresh_pending"]).toBe(1);
   });
