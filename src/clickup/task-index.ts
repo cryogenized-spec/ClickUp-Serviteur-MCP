@@ -178,6 +178,13 @@ export class TaskIndexStore {
       seen.add(comment.comment_id);
     }
     this.transactionSync(() => {
+      // A previously completed later scan may have deleted these comments.
+      // Reject ALL earlier reads before the UPSERT, including partial pages.
+      const prior = this.run(
+        "SELECT comments_checked_at FROM task_refresh WHERE task_id = ?",
+        id,
+      ).toArray()[0] as { comments_checked_at: number } | undefined;
+      if ((prior?.comments_checked_at ?? 0) > observedAt) return;
       for (const comment of comments) {
         this.run(
           "INSERT INTO comment_snapshots(task_id, comment_id, snapshot_json, source_at, observed_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(task_id, comment_id) DO UPDATE SET snapshot_json = excluded.snapshot_json, source_at = excluded.source_at, observed_at = excluded.observed_at WHERE excluded.observed_at >= comment_snapshots.observed_at",
@@ -191,10 +198,6 @@ export class TaskIndexStore {
       // Partial pages can add unique comments, but never declare the complete
       // collection synchronized or delete anything not visible on that page.
       if (!complete) return;
-      const prior = this.run(
-        "SELECT comments_checked_at FROM task_refresh WHERE task_id = ?",
-        id,
-      ).toArray()[0] as { comments_checked_at: number } | undefined;
       const latest = this.run(
         "SELECT MAX(observed_at) AS last_observed FROM comment_snapshots WHERE task_id = ?",
         id,
