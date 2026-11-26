@@ -42,7 +42,7 @@ task index. It introduces no extra ClickUp GETs on that list query.
 
 - **Not a periodic scan yet.** A missed event is detected only when an
   authorized task-list read subsequently encounters the affected task. Existing
-  NeonSales watches may provide those reads but should not be assumed to do so
+  Company watches may provide those reads but should not be assumed to do so
   unless their actual prompts explicitly invoke filtered/My Tasks reads.
 - A comment change that does not advance the task's `date_updated` is not
   guaranteed to be captured by this task-summary check. A later bounded
