@@ -280,7 +280,7 @@ export class TaskIndexStore {
     attempts: number,
     expectedToken: string,
   ): boolean {
-    if (!taskId(id) || !/^\\d+:\\d+$/.test(expectedToken))
+    if (!taskId(id) || !/^\d+:\d+$/.test(expectedToken))
       throw new Error("INVALID_SYNC_RETRY");
     let applied = false;
     this.transactionSync(() => {
