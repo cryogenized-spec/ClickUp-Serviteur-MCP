@@ -476,18 +476,44 @@ async function taskInWorkspace(
   f: typeof fetch,
   taskId: unknown,
   allowSharedTask = false,
+  pendingVerifiedLists?: Map<string, number>,
 ): Promise<Json> {
-  const task = await send(
-    grant,
-    f,
-    "GET",
-    v2("task/" + id(taskId) + "?include_markdown_description=true"),
-  );
+  let task: Json;
+  try {
+    task = await send(
+      grant,
+      f,
+      "GET",
+      v2("task/" + id(taskId) + "?include_markdown_description=true"),
+    );
+  } catch (error) {
+    // A direct task GET returning 404 cannot authorize that task. Distinguish
+    // it from a parent List or Workspace lookup failing with the same status.
+    if (
+      pendingVerifiedLists &&
+      error instanceof ReadFailure &&
+      error.code === "CLICKUP_UPSTREAM_UNAVAILABLE" &&
+      error.diagnostic?.http_status === 404
+    )
+      throw new ReadFailure("CLICKUP_PENDING_TASK_NOT_FOUND", error.diagnostic);
+    throw error;
+  }
   if (String(task["id"]) !== String(taskId))
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   const homeList = obj(task["list"])?.["id"];
   try {
-    await listInWorkspace(grant, f, homeList);
+    if (pendingVerifiedLists) {
+      // Cache only successful parent authorization, within this single read
+      // and briefly. Every distinct task still requires its own fresh GET.
+      const listKey = id(homeList);
+      const verifiedUntil = pendingVerifiedLists.get(listKey) ?? 0;
+      if (Date.now() >= verifiedUntil) {
+        await listInWorkspace(grant, f, homeList);
+        pendingVerifiedLists.set(listKey, Date.now() + 10_000);
+      }
+    } else {
+      await listInWorkspace(grant, f, homeList);
+    }
   } catch (error) {
     if (
       !allowSharedTask ||
@@ -1918,6 +1944,8 @@ export async function runCatalogOperation(
       // page, task-verification or requests-per-minute budget.
       const grouped = new Map<string, Json>();
       const denied = new Set<string>();
+      const notFound = new Set<string>();
+      const verifiedLists = new Map<string, number>();
       const eventLimit = a["max_results"] === undefined ? Infinity : N;
       let cursorTime = afterTime as number | undefined;
       let cursorKey = afterKey as string | undefined;
@@ -1925,6 +1953,8 @@ export async function runCatalogOperation(
       let pagesScanned = 0;
       let hasMore = true;
       let interruptedReason: string | null = null;
+      let interruptedCode: string | null = null;
+      let interruptedHttpStatus: number | null = null;
       while (hasMore && eventsScanned < eventLimit) {
         const url = new URL("https://internal/pending");
         if (cursorTime !== undefined && cursorKey !== undefined) {
@@ -1969,9 +1999,10 @@ export async function runCatalogOperation(
             // pauses this read, then resumes the *same* event; there is no
             // artificial retry-count or request-rate ceiling. If the MCP
             // caller disconnects, unacknowledged storage remains untouched.
+            let transientRetries = 0;
             for (;;) {
               try {
-                const item = await taskInWorkspace(g, f, taskId, true);
+                const item = await taskInWorkspace(g, f, taskId, true, verifiedLists);
                 group = {
                   task_id: item["id"],
                   name: item["name"],
@@ -1984,7 +2015,27 @@ export async function runCatalogOperation(
               } catch (error) {
                 if (!(error instanceof ReadFailure)) throw error;
                 if (error.code === "CLICKUP_RATE_LIMITED") {
+                  verifiedLists.clear();
                   await waitAfterRateLimit(60_000);
+                  continue;
+                }
+                if (error.code === "CLICKUP_PENDING_TASK_NOT_FOUND") {
+                  // Deleted/inaccessible tasks must not block all later hints.
+                  // Keep their events unacknowledged and report only a count.
+                  notFound.add(taskId);
+                  denied.add(taskId);
+                  break;
+                }
+                const status = error.diagnostic?.http_status;
+                const retryable =
+                  error.code === "CLICKUP_QUOTA_UNAVAILABLE" ||
+                  error.code === "CLICKUP_BAD_RESPONSE" ||
+                  (error.code === "CLICKUP_UPSTREAM_UNAVAILABLE" &&
+                    (status === undefined || status === 408 || status === 425 || status >= 500));
+                if (retryable && transientRetries < 2) {
+                  verifiedLists.clear();
+                  transientRetries++;
+                  await waitAfterRateLimit(transientRetries * 1000);
                   continue;
                 }
                 if (
@@ -1993,6 +2044,8 @@ export async function runCatalogOperation(
                   error.code !== "CLICKUP_WORKSPACE_SCOPE_REQUIRED"
                 ) {
                   interruptedReason = "task_verification_unavailable";
+                  interruptedCode = error.code;
+                  interruptedHttpStatus = error.diagnostic?.http_status ?? null;
                   hasMore = true;
                   break;
                 }
@@ -2022,13 +2075,16 @@ export async function runCatalogOperation(
       return {
         tasks: [...grouped.values()],
         unverified_task_count: denied.size,
+        task_not_found_count: notFound.size,
         events_scanned: eventsScanned,
         pages_scanned: pagesScanned,
         partial: incomplete,
         interrupted_reason: interruptedReason,
+        interrupted_code: interruptedCode,
+        interrupted_http_status: interruptedHttpStatus,
         next_event_after_time: hasMore ? (cursorTime ?? null) : null,
         next_event_after_key: hasMore ? (cursorKey ?? null) : null,
-        resume_from_beginning: hasMore && eventsScanned === 0,
+        resume_from_beginning: hasMore && eventsScanned === 0 && afterTime === undefined,
         incomplete,
         read_only: true,
         note: "Reading never acknowledges events. Follow both cursor fields whenever incomplete and a cursor is present; if resume_from_beginning is true, retry without a cursor. Retrieve comments for task context before briefing.",
