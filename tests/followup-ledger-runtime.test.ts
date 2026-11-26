@@ -2,9 +2,15 @@ import { describe, expect, it, vi } from "vitest";
 import { runCatalogOperation } from "../src/clickup/catalog-runtime.js";
 import type { ReadGrant } from "../src/clickup/policy.js";
 
-function setup(denied = false, foreignCommentAuthor = false) {
+function setup(
+  denied = false,
+  foreignCommentAuthor = false,
+  priorReceipt: Record<string, unknown> | null = null,
+  commentDeleted = false,
+) {
   const privateCalls = vi.fn(async (request: Request) => {
     const path = new URL(request.url).pathname;
+    if (path === "/followups/receipt") return Response.json({ receipt: priorReceipt });
     if (path === "/followups/task")
       return Response.json({
         task_id: "abc123",
@@ -18,7 +24,7 @@ function setup(denied = false, foreignCommentAuthor = false) {
       return Response.json({
         task_id: body.task_id,
         revision: 1,
-        replayed: false,
+        replayed: priorReceipt !== null,
         state: { state: "awaiting_response", revision: 1 },
       });
     }
@@ -39,6 +45,7 @@ function setup(denied = false, foreignCommentAuthor = false) {
           });
     }
     if (path === "/api/v2/task/abc123/comment") {
+      if (commentDeleted) return Response.json({ comments: [] });
       return Response.json({
         comments: [
           {
@@ -63,13 +70,14 @@ function setup(denied = false, foreignCommentAuthor = false) {
     clickupUserId: "707",
     workspaceId: "555",
     listId: "12345",
-    resourceScope: "workspace",
+    resourceScope: "list",
     apiToken: "private",
     quota: {
       idFromName: (name: string) => name,
       get: () => ({ fetch: async () => Response.json({ allowed: true }) }),
     },
-    webhookEvents: {
+    // Private task index exists even for List-only OAuth grants with no webhooks.
+    taskIndex: {
       idFromName: (name: string) => name,
       get: () => ({ fetch: privateCalls }),
     },
@@ -133,7 +141,8 @@ describe("OAuth-verifying follow-up MCP adapter", () => {
       provider_comment_evidence_verified: false,
       clickup_task_unchanged: true,
     });
-    const request = privateCalls.mock.calls[0]![0];
+    expect(privateCalls).toHaveBeenCalledTimes(2);
+    const request = privateCalls.mock.calls[1]![0];
     expect(request.method).toBe("POST");
     expect(new URL(request.url).pathname).toBe("/followups/record");
     expect(
@@ -160,7 +169,81 @@ describe("OAuth-verifying follow-up MCP adapter", () => {
         api as typeof fetch,
       ),
     ).rejects.toThrow("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
-    expect(privateCalls).not.toHaveBeenCalled();
+    expect(privateCalls).toHaveBeenCalledTimes(1);
+    expect(new URL(privateCalls.mock.calls[0]![0].url).pathname).toBe("/followups/receipt");
+  });
+
+  it("accepts a committed identical replay after the original comment was deleted", async () => {
+    const action = {
+      task_id: "abc123",
+      action_key: "comment:1500260000111534",
+      action_kind: "instruction_sent",
+      state_after: "awaiting_response",
+      expected_revision: 0,
+      note: null,
+      evidence_comment_id: "1500260000111534",
+      waiting_on_user_id: null,
+      next_check_at_ms: null,
+    };
+    const { api, grant, privateCalls } = setup(
+      false,
+      false,
+      {
+        task_id: "abc123",
+        action_key: action.action_key,
+        revision: 1,
+        request_json: JSON.stringify(action),
+      },
+      true,
+    );
+    const result = await runCatalogOperation(
+      "clickup_record_followup_action",
+      {
+        task_id: action.task_id,
+        followup_action_key: action.action_key,
+        followup_action_kind: action.action_kind,
+        followup_state_after: action.state_after,
+        followup_expected_revision: action.expected_revision,
+        followup_evidence_comment_id: action.evidence_comment_id,
+      },
+      grant,
+      api as typeof fetch,
+    );
+    expect(result).toMatchObject({
+      replayed: true,
+      prior_exact_receipt_verified: true,
+      provider_comment_evidence_verified: false,
+    });
+    expect(privateCalls).toHaveBeenCalledTimes(2);
+    expect(api.mock.calls.some(([request]) => String(request).includes("/comment"))).toBe(false);
+  });
+
+  it("rejects conflicting payloads even when the action key already exists", async () => {
+    const { api, grant, privateCalls } = setup(
+      false,
+      false,
+      {
+        task_id: "abc123",
+        action_key: "review:123",
+        revision: 1,
+        request_json: JSON.stringify({ incorrect: "payload" }),
+      },
+    );
+    await expect(
+      runCatalogOperation(
+        "clickup_record_followup_action",
+        {
+          task_id: "abc123",
+          followup_action_key: "review:123",
+          followup_action_kind: "observation",
+          followup_state_after: "awaiting_response",
+          followup_expected_revision: 0,
+        },
+        grant,
+        api as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_FOLLOWUP_REVISION_CONFLICT");
+    expect(privateCalls).toHaveBeenCalledTimes(1);
   });
 
   it("refuses a claimed sent action without evidence and verifies the exact provider comment", async () => {
@@ -186,7 +269,7 @@ describe("OAuth-verifying follow-up MCP adapter", () => {
       revision: 1,
       provider_comment_evidence_verified: true,
     });
-    expect(privateCalls).toHaveBeenCalledTimes(1);
+    expect(privateCalls).toHaveBeenCalledTimes(2);
     expect(api.mock.calls.some(([request]) => String(request).includes("/comment"))).toBe(true);
   });
 });
