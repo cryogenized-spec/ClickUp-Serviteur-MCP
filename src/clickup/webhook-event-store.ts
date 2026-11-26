@@ -78,6 +78,17 @@ export class ClickUpWebhookEvents {
         throw error;
       }
     }
+    if (request.method === "GET" && path === "/followups/receipt") {
+      const taskId = url.searchParams.get("task_id") ?? "";
+      const actionKey = url.searchParams.get("action_key") ?? "";
+      try {
+        const receipt = this.followups.receipt(taskId, actionKey);
+        return Response.json({ receipt }, { headers: { "Cache-Control": "no-store" } });
+      } catch (error) {
+        if (error instanceof FollowupLedgerError) return new Response(null, { status: 400 });
+        throw error;
+      }
+    }
     if (request.method === "POST" && path === "/followups/record") {
       const value: unknown = await request.json().catch(() => null);
       try {
