@@ -95,6 +95,19 @@ export function projectCommentSnapshot(value: unknown) {
   };
 }
 
+/** Small, untrusted list-summary projection. A list entry never overwrites
+ * a complete task snapshot; it can only flag the task for a verified refresh.
+ */
+export function projectTaskDiscovery(value: unknown) {
+  const task = object(value);
+  const id = taskId(task?.["id"]);
+  const list = numericId(object(task?.["list"])?.["id"]);
+  const updated = milliseconds(task?.["date_updated"]);
+  if (!id || !list || !updated) return null;
+  return { task_id: id, list_id: list, source_updated_at_ms: updated };
+}
+
+export type TaskDiscovery = NonNullable<ReturnType<typeof projectTaskDiscovery>>;
 export type TaskSnapshot = NonNullable<ReturnType<typeof projectTaskSnapshot>>;
 export type CommentSnapshot = NonNullable<ReturnType<typeof projectCommentSnapshot>>;
 const validObserved = (value: unknown): value is number =>
@@ -139,6 +152,68 @@ export class TaskIndexStore {
     );
     // A fresh, signed change invalidates any earlier retry deferral.
     this.run("DELETE FROM sync_backoff WHERE task_id = ?", id);
+  }
+
+  /** Compare a previously authorized task-list page against full snapshots.
+   * This is an opportunistic reconciliation hint, never a cached substitute
+   * for the actor's current task-level ClickUp authorization.
+   */
+  observeDiscoveredTasks(
+    tasks: readonly TaskDiscovery[],
+    observedAt: number,
+  ): { enqueued: number; already_pending: number; unchanged: number } {
+    if (!validObserved(observedAt) || tasks.length > 50)
+      throw new Error("INVALID_DISCOVERY_BATCH");
+    const ids = new Set<string>();
+    for (const task of tasks) {
+      if (
+        !taskId(task.task_id) ||
+        !numericId(task.list_id) ||
+        !validObserved(task.source_updated_at_ms) ||
+        ids.has(task.task_id)
+      )
+        throw new Error("INVALID_DISCOVERY_BATCH");
+      ids.add(task.task_id);
+    }
+    const metrics = { enqueued: 0, already_pending: 0, unchanged: 0 };
+    this.transactionSync(() => {
+      for (const task of tasks) {
+        // An older list read cannot reinstate records invalidated after
+        // a definitive task-access denial.
+        if (this.deniedBefore(task.task_id, observedAt)) {
+          metrics.unchanged++;
+          continue;
+        }
+        const existing = this.run(
+          "SELECT source_updated_at, list_id FROM task_snapshots WHERE task_id = ?",
+          task.task_id,
+        ).toArray()[0] as { source_updated_at: number; list_id: string } | undefined;
+        if (
+          existing &&
+          existing.source_updated_at >= task.source_updated_at_ms &&
+          existing.list_id === task.list_id
+        ) {
+          metrics.unchanged++;
+          continue;
+        }
+        const pending = this.run(
+          "SELECT task_dirty_at, task_checked_at FROM task_refresh WHERE task_id = ?",
+          task.task_id,
+        ).toArray()[0] as { task_dirty_at: number; task_checked_at: number } | undefined;
+        // Avoid re-invalidating an already-pending task or erasing its retry
+        // deadline every time the same list page is read by an automation.
+        if (pending && pending.task_dirty_at > pending.task_checked_at) {
+          metrics.already_pending++;
+          continue;
+        }
+        this.markDirty(task.task_id, "taskUpdated", observedAt);
+        // For newly discovered tasks, comments have never been indexed.
+        // Existing tasks with changed timestamps may also have changed comments.
+        this.markDirty(task.task_id, "taskCommentUpdated", observedAt);
+        metrics.enqueued++;
+      }
+    });
+    return metrics;
   }
 
   /** Bounded work batch, not a lifetime quota: unprocessed tasks remain durable. */
@@ -377,7 +452,7 @@ export class TaskIndexStore {
  * prevent an otherwise successful authoritative ClickUp read. */
 async function writeIndex(
   grant: ReadGrant,
-  path: "/index/task" | "/index/comments",
+  path: "/index/task" | "/index/comments" | "/index/discovery",
   body: Json,
 ): Promise<boolean> {
   if (!grant.taskIndex) return false;
@@ -395,6 +470,30 @@ async function writeIndex(
   } catch {
     return false;
   }
+}
+
+/** Read-through reconciliation: the existing authorized list reader can
+ * flag missing/changed tasks without extra upstream API calls.
+ * A list-page hint is NOT proof of current individual task authorization.
+ */
+export async function captureVerifiedTaskDiscoveries(
+  grant: ReadGrant,
+  rawTasks: unknown,
+  observedAt: number,
+): Promise<boolean> {
+  if (!grant.taskIndex || !Array.isArray(rawTasks) || rawTasks.length > 50) return false;
+  const projected = rawTasks.map(projectTaskDiscovery);
+  if (projected.some((item) => item === null)) return false;
+  const discoveries = projected.filter(
+    (item): item is TaskDiscovery => item !== null,
+  );
+  if (
+    discoveries.some(
+      (item) => grant.resourceScope !== "workspace" && item.list_id !== grant.listId,
+    )
+  ) return false;
+  if (discoveries.length === 0) return true;
+  return writeIndex(grant, "/index/discovery", { tasks: discoveries, observed_at: observedAt });
 }
 
 export async function captureVerifiedTask(
