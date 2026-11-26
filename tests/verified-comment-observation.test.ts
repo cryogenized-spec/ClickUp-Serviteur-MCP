@@ -11,7 +11,7 @@ function fixture(
     conflict?: boolean;
   } = {},
 ) {
-  const calls: Array<{ path: string; body?: Record<string, unknown> }> = [];
+  const calls: Array<{ path: string; body?: Record<string, unknown> | undefined }> = [];
   const privateFetch = vi.fn(async (req: Request) => {
     const path = new URL(req.url).pathname;
     const body =
