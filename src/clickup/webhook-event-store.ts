@@ -36,8 +36,9 @@ export class ClickUpWebhookEvents {
     state.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS reviewed (event_key TEXT PRIMARY KEY, acknowledged_at INTEGER NOT NULL)",
     );
-    this.taskIndex = new TaskIndexStore((statement, ...bindings) =>
-      state.storage.sql.exec(statement, ...bindings),
+    this.taskIndex = new TaskIndexStore(
+      (statement, ...bindings) => state.storage.sql.exec(statement, ...bindings),
+      (action) => state.storage.transactionSync(action),
     );
   }
 
