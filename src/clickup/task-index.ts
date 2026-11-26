@@ -144,11 +144,14 @@ export class TaskIndexStore {
   markDirty(id: string, event: string, at: number): void {
     if (!taskId(id) || !validObserved(at)) throw new Error("INVALID_TASK_HINT");
     const isComment = event === "taskCommentPosted" || event === "taskCommentUpdated";
+    // Dirty markers are logical watermarks, not source event timestamps.
+    // +1 preserves an event delivered AFTER a read starts in the same
+    // millisecond, even when a previous successful read already checked it.
     this.run(
-      "INSERT INTO task_refresh(task_id, task_dirty_at, comments_dirty_at) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET task_dirty_at = MAX(task_refresh.task_dirty_at, excluded.task_dirty_at), comments_dirty_at = MAX(task_refresh.comments_dirty_at, excluded.comments_dirty_at)",
+      "INSERT INTO task_refresh(task_id, task_dirty_at, comments_dirty_at) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET task_dirty_at = CASE WHEN excluded.task_dirty_at > 0 THEN MAX(task_refresh.task_dirty_at + 1, task_refresh.task_checked_at + 1, excluded.task_dirty_at) ELSE task_refresh.task_dirty_at END, comments_dirty_at = CASE WHEN excluded.comments_dirty_at > 0 THEN MAX(task_refresh.comments_dirty_at + 1, task_refresh.comments_checked_at + 1, excluded.comments_dirty_at) ELSE task_refresh.comments_dirty_at END",
       id,
-      isComment ? 0 : at,
-      isComment ? at : 0,
+      isComment ? 0 : at + 1,
+      isComment ? at + 1 : 0,
     );
     // A fresh, signed change invalidates any earlier retry deferral.
     this.run("DELETE FROM sync_backoff WHERE task_id = ?", id);
@@ -225,6 +228,7 @@ export class TaskIndexStore {
     task_dirty: boolean;
     comments_dirty: boolean;
     attempts: number;
+    dirty_token: string;
   }> {
     if (!validObserved(now) || !Number.isInteger(limit) || limit < 1 || limit > 25)
       throw new Error("INVALID_SYNC_REQUEST");
@@ -245,6 +249,7 @@ export class TaskIndexStore {
       task_dirty: row.task_dirty_at > row.task_checked_at,
       comments_dirty: row.comments_dirty_at > row.comments_checked_at,
       attempts: row.attempts,
+      dirty_token: row.task_dirty_at + ":" + row.comments_dirty_at,
     }));
   }
 
@@ -264,6 +269,33 @@ export class TaskIndexStore {
       retryAt,
       attempts,
     );
+  }
+
+  /** Only the same pending generation may be deferred. Otherwise an older
+   * alarm would undo a fresh webhook's backoff reset and delay new work.
+   */
+  deferTaskIfCurrent(
+    id: string,
+    retryAt: number,
+    attempts: number,
+    expectedToken: string,
+  ): boolean {
+    if (!taskId(id) || !/^\\d+:\\d+$/.test(expectedToken))
+      throw new Error("INVALID_SYNC_RETRY");
+    let applied = false;
+    this.transactionSync(() => {
+      const state = this.run(
+        "SELECT task_dirty_at, comments_dirty_at FROM task_refresh WHERE task_id = ?",
+        id,
+      ).toArray()[0] as
+        | { task_dirty_at: number; comments_dirty_at: number }
+        | undefined;
+      if (!state) return;
+      if (state.task_dirty_at + ":" + state.comments_dirty_at !== expectedToken) return;
+      this.deferTask(id, retryAt, attempts);
+      applied = true;
+    });
+    return applied;
   }
 
   clearRetry(id: string): void {
@@ -286,6 +318,17 @@ export class TaskIndexStore {
       );
       this.run("DELETE FROM comment_snapshots WHERE task_id = ?", id);
       this.run("DELETE FROM task_snapshots WHERE task_id = ?", id);
+      // Both task AND comment snapshots have been removed. Revalidate both
+      // after permission is restored, even when only one was originally dirty.
+      this.markDirty(id, "taskUpdated", deniedAt);
+      this.markDirty(id, "taskCommentUpdated", deniedAt);
+      // Definitive denial should not cause a tight 403 retry loop. A genuinely
+      // new signed event can clear this deferral in markDirty().
+      this.run(
+        "INSERT INTO sync_backoff(task_id, retry_at, attempts) VALUES (?, ?, 1) ON CONFLICT(task_id) DO UPDATE SET retry_at = excluded.retry_at, attempts = sync_backoff.attempts + 1",
+        id,
+        deniedAt + 15 * 60_000,
+      );
     });
   }
 
