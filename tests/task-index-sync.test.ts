@@ -7,7 +7,10 @@ import {
 } from "../src/clickup/task-index-sync.js";
 import type { TaskIndexStore } from "../src/clickup/task-index.js";
 import type { OAuthEnv } from "../src/auth/env.js";
-import type { readVerifiedTaskForIndex, runCatalogOperation } from "../src/clickup/catalog-runtime.js";
+import type {
+  readVerifiedTaskForIndex,
+  runCatalogOperation,
+} from "../src/clickup/catalog-runtime.js";
 
 const grant: ReadGrant = {
   subject: "github:11",
@@ -127,8 +130,9 @@ describe("signed-event automatic synchronization", () => {
 
   it("treats an upstream 403 as definitive permission loss and discards stale snapshots", async () => {
     const { store, index, syncCall } = fixture();
-    const provider = vi.fn(async () =>
-      new Response("denied", { status: 403, headers: { "content-type": "text/plain" } }),
+    const provider = vi.fn(
+      async () =>
+        new Response("denied", { status: 403, headers: { "content-type": "text/plain" } }),
     ) as unknown as typeof fetch;
     await expect(
       synchronizeDirtyTask(
