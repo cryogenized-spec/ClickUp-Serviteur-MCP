@@ -77,6 +77,17 @@ describe("append-only actor-local follow-up ledger with real SQLite", () => {
       replayed: true,
     });
     expect(ledger.read("task123").history).toHaveLength(1);
+    const receipt = ledger.receipt("task123", first.action_key);
+    expect(receipt).toMatchObject({
+      task_id: "task123",
+      action_key: first.action_key,
+      revision: 1,
+    });
+    expect(JSON.parse(receipt!.request_json)).toMatchObject({
+      action_kind: "instruction_sent",
+      evidence_comment_id: "1500260000111534",
+      expected_revision: 0,
+    });
     expect(() =>
       ledger.record({ ...first, note: "conflicting claim" }, 1795690000001),
     ).toThrowError(FollowupLedgerError);
