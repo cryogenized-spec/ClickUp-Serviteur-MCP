@@ -184,23 +184,29 @@ export class FollowupLedger {
   /** Existing exact-key receipt for safe retries after an uncertain response.
    * This private result does not confer task authorization or create actions.
    * The MCP adapter must reverify live task access before looking it up. */
-  receipt(task: string, actionKey: string): {
+  receipt(
+    task: string,
+    actionKey: string,
+  ): {
     task_id: string;
     action_key: string;
     revision: number;
     request_json: string;
   } | null {
-    if (
-      !taskId(task) ||
-      !/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(actionKey)
-    ) throw new FollowupLedgerError("invalid");
+    if (!taskId(task) || !/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(actionKey))
+      throw new FollowupLedgerError("invalid");
     const found = this.run(
       "SELECT revision, request_json FROM followup_actions WHERE task_id = ? AND action_key = ?",
       task,
       actionKey,
     ).toArray()[0] as { revision: number; request_json: string } | undefined;
     return found
-      ? { task_id: task, action_key: actionKey, revision: found.revision, request_json: found.request_json }
+      ? {
+          task_id: task,
+          action_key: actionKey,
+          revision: found.revision,
+          request_json: found.request_json,
+        }
       : null;
   }
 
