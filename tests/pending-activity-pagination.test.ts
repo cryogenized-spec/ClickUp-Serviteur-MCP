@@ -142,9 +142,7 @@ describe("comment pagination and persistent index freshness", () => {
       scoped,
       f.api as typeof fetch,
     );
-    expect(captures.find((entry) => entry.path === "/index/comments")?.body["complete"]).toBe(
-      true,
-    );
+    expect(captures.find((entry) => entry.path === "/index/comments")?.body["complete"]).toBe(true);
   });
 });
 
