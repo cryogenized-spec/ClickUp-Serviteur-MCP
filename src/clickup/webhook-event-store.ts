@@ -16,6 +16,9 @@ export class ClickUpWebhookEvents {
     );
     state.storage.sql.exec("CREATE INDEX IF NOT EXISTS hints_received ON hints(received_at)");
     state.storage.sql.exec(
+      "CREATE INDEX IF NOT EXISTS hints_identity ON hints(task_id, event, substr(event_key, 38))",
+    );
+    state.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS consumer_processed (consumer TEXT NOT NULL, event_key TEXT NOT NULL, processed_at INTEGER NOT NULL, PRIMARY KEY(consumer, event_key))",
     );
     state.storage.sql.exec(
@@ -216,9 +219,23 @@ export class ClickUpWebhookEvents {
     }
     this.state.storage.transactionSync(() => {
       for (const hint of hints) {
+        const identity = hint.key.slice(37);
+        // Signed history digests identify the same task/event across subscriptions.
+        // Existing event keys stay stable for pagination and consumer receipts.
+        const existing = /^[a-f0-9]{64}$/.test(identity)
+          ? this.state.storage.sql
+              .exec<{ event_key: string }>(
+                "SELECT event_key FROM hints WHERE task_id = ? AND event = ? AND substr(event_key, 38) = ? ORDER BY received_at, event_key LIMIT 1",
+                hint.taskId,
+                hint.event,
+                identity,
+              )
+              .toArray()[0]
+          : undefined;
+        const eventKey = existing?.event_key ?? hint.key;
         this.state.storage.sql.exec(
           "INSERT OR IGNORE INTO hints(event_key, task_id, event, received_at) VALUES (?, ?, ?, ?)",
-          hint.key,
+          eventKey,
           hint.taskId,
           hint.event,
           hint.receivedAt,
@@ -227,7 +244,7 @@ export class ClickUpWebhookEvents {
           this.state.storage.sql.exec(
             "INSERT OR IGNORE INTO hint_metadata(event_key, metadata) SELECT event_key, ? FROM hints WHERE event_key = ? AND task_id = ?",
             JSON.stringify(hint.metadata),
-            hint.key,
+            eventKey,
             hint.taskId,
           );
       }
