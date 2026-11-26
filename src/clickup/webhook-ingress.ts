@@ -212,21 +212,37 @@ export async function receiveClickUpWebhook(
       if (item) ids.set(String(historyId), historyMetadata(item));
     }
   } else if (history !== undefined) return response(400);
-  // Some event types omit history_items. Deduplicate exact retransmissions by digest.
+  const hash = async (bytes: Uint8Array) => {
+    const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(
+      "",
+    );
+  };
+  const hints: WebhookHint[] = [];
   if (!ids.size) {
-    const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(body));
-    const digestHex = Array.from(new Uint8Array(digest), (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    ).join("");
-    ids.set(digestHex, {});
+    // Without a history ID only exact retransmissions can be identified safely.
+    hints.push({
+      key: webhookId + ":" + (await hash(body)),
+      taskId,
+      event,
+      receivedAt: now,
+    });
+  } else {
+    for (const [id, metadata] of ids) {
+      // The digest is independent of subscription, but distinguishes event types.
+      // A generic update must never replace a specialized notification.
+      const identity = await hash(
+        new TextEncoder().encode(JSON.stringify(["history-v2", taskId, event, id])),
+      );
+      hints.push({
+        key: webhookId + ":" + identity,
+        taskId,
+        event,
+        receivedAt: now,
+        ...(Object.keys(metadata).length ? { metadata } : {}),
+      });
+    }
   }
-  const hints = [...ids].map(([id, metadata]) => ({
-    key: webhookId + ":" + id,
-    taskId,
-    event,
-    receivedAt: now,
-    ...(Object.keys(metadata).length ? { metadata } : {}),
-  }));
   try {
     await deps.persist(registration, hints);
     return response(204);
