@@ -69,8 +69,7 @@ export async function synchronizeDirtyTask(
         throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
       // A late, older upstream revision must not be reported as complete:
       // its SQLite UPSERT is rejected and the dirty marker remains pending.
-      if (!store.storeTask(snapshot, startedAt))
-        return { complete: false, indexed_comments: 0 };
+      if (!store.storeTask(snapshot, startedAt)) return { complete: false, indexed_comments: 0 };
     }
     if (!item.comments_dirty) return { complete: true, indexed_comments: 0 };
     const page = await call(
