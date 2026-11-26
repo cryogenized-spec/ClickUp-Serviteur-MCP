@@ -7,6 +7,8 @@ function fixture(
     authorId?: number;
     receiptFails?: boolean;
     resultId?: string;
+    bindingFailure?: "id" | "get";
+    privateStallAt?: "/followups/receipt" | "/followups/task" | "/followups/record";
   } = {},
 ) {
   const providerCalls: Array<{ path: string; method: string }> = [];
@@ -47,6 +49,7 @@ function fixture(
     const body =
       request.method === "POST" ? ((await request.json()) as Record<string, unknown>) : undefined;
     privateCalls.push({ path, body });
+    if (path === options.privateStallAt) return new Promise<Response>(() => {});
     if (path === "/followups/receipt")
       return options.receiptFails
         ? new Response(null, { status: 503 })
@@ -74,8 +77,14 @@ function fixture(
       get: () => ({ fetch: async () => Response.json({ allowed: true }) }),
     },
     taskIndex: {
-      idFromName: (name: string) => name,
-      get: () => ({ fetch: privateFetch }),
+      idFromName: (name: string) => {
+        if (options.bindingFailure === "id") throw Error("private id allocation unavailable");
+        return name;
+      },
+      get: () => {
+        if (options.bindingFailure === "get") throw Error("private stub unavailable");
+        return { fetch: privateFetch };
+      },
     },
   };
   return { api, grant, providerCalls, privateCalls };
@@ -169,4 +178,54 @@ describe("factual private ledger capture after own ClickUp comments", () => {
     });
     expect(privateCalls).toHaveLength(0);
   });
+  it("preserves successful ClickUp POST when private stub initialization fails", async () => {
+    for (const bindingFailure of ["id", "get"] as const) {
+      const { api, grant, providerCalls, privateCalls } = fixture({ bindingFailure });
+      const result = await runCatalogOperation(
+        "clickup_create_task_comment",
+        { task_id: "task123", text: "Please check the supplier's quotation." },
+        grant,
+        api as typeof fetch,
+      );
+      expect(result).toMatchObject({
+        id: "1500260000111534",
+        verified_by_readback: true,
+        followup_observation: { recorded: false, reason: "private_storage_failed" },
+      });
+      expect(providerCalls.filter((x) => x.method === "POST")).toHaveLength(1);
+      expect(privateCalls).toHaveLength(0);
+    }
+  });
+
+  it.each([
+    "/followups/receipt",
+    "/followups/task",
+    "/followups/record",
+  ] as const)("returns ClickUp's confirmed result on a stalled %s private RPC", async (privateStallAt) => {
+    vi.useFakeTimers();
+    try {
+      const { api, grant, providerCalls, privateCalls } = fixture({ privateStallAt });
+      const operation = runCatalogOperation(
+        "clickup_create_task_comment",
+        { task_id: "task123", text: "Please check the supplier's quotation." },
+        grant,
+        api as typeof fetch,
+      );
+      await vi.advanceTimersByTimeAsync(4_050);
+      const result = await operation;
+      expect(result).toMatchObject({
+        id: "1500260000111534",
+        verified_by_readback: true,
+        followup_observation: {
+          recorded: false,
+          reason: "private_storage_timeout",
+        },
+      });
+      expect(providerCalls.filter((x) => x.method === "POST")).toHaveLength(1);
+      expect(privateCalls.some((c) => c.path === privateStallAt)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
 });
