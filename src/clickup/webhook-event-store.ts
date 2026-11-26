@@ -92,7 +92,8 @@ export class ClickUpWebhookEvents {
         !/^(?:[1-9]|[1-4]\d|50)$/.test(limit) ||
         (afterDue === null) !== (afterTask === null) ||
         (afterDue !== null && !/^\d{1,13}$/.test(afterDue))
-      ) return new Response(null, { status: 400 });
+      )
+        return new Response(null, { status: 400 });
       try {
         const page = this.followups.dueCandidates(
           Number(cutoff),
@@ -102,8 +103,7 @@ export class ClickUpWebhookEvents {
         );
         return Response.json(page, { headers: { "Cache-Control": "no-store" } });
       } catch (error) {
-        if (error instanceof FollowupLedgerError)
-          return new Response(null, { status: 400 });
+        if (error instanceof FollowupLedgerError) return new Response(null, { status: 400 });
         throw error;
       }
     }
