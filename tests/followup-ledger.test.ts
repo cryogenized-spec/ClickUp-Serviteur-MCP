@@ -257,6 +257,34 @@ describe("append-only actor-local follow-up ledger with real SQLite", () => {
     expect(ledger.dueCandidates(1796000000000).candidates).toHaveLength(0);
   });
 
+  it("keeps continuation IDs and due dates inside opaque, persistent SQLite tokens", () => {
+    const { create } = make();
+    const ledger = create();
+    const token = ledger.issueDueCursor(
+      1795800000100, "list:555:12345", 1795800000000, "private-taskB", 1795700000000,
+    );
+    expect(token).toMatch(/^[a-f0-9-]{36}$/i);
+    expect(token).not.toContain("private-taskB");
+    expect(token).not.toContain("1795800000000");
+    const restarted = create();
+    expect(restarted.resolveDueCursor(
+      token, 1795800000100, "list:555:12345", 1795700000001,
+    )).toEqual({ after_due_ms: 1795800000000, after_task_id: "private-taskB" });
+    expect(() => restarted.resolveDueCursor(
+      token, 1795800000101, "list:555:12345", 1795700000001,
+    )).toThrowError(FollowupLedgerError);
+    expect(() => restarted.resolveDueCursor(
+      token, 1795800000100, "list:555:another", 1795700000001,
+    )).toThrowError(FollowupLedgerError);
+    expect(() => restarted.resolveDueCursor(
+      token.slice(0, -1) + (token.endsWith("0") ? "1" : "0"),
+      1795800000100, "list:555:12345", 1795700000001,
+    )).toThrowError(FollowupLedgerError);
+    expect(() => restarted.resolveDueCursor(
+      token, 1795800000100, "list:555:12345", 1795700000000 + 24 * 60 * 60 * 1000 + 1,
+    )).toThrowError(FollowupLedgerError);
+  });
+
   it("rejects malformed keyset cursors and out-of-range dates", () => {
     const ledger = make().create();
     expect(() => ledger.dueCandidates(100, 2, 50)).toThrowError(FollowupLedgerError);
