@@ -252,6 +252,7 @@ export const COMPANY_SAFE_WRITE_OPERATIONS: ReadonlySet<string> = new Set([
   "clickup_update_key_result_progress",
   "clickup_acknowledge_activity",
   "clickup_mark_consumer_activity_processed",
+  "clickup_record_followup_action",
   "clickup_create_list_from_template",
   "clickup_create_folder_from_template",
   "create_scoped_task",
