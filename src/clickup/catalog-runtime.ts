@@ -2059,7 +2059,8 @@ export async function runCatalogOperation(
           receipt["action_key"] !== normalizedAction.action_key ||
           !Number.isSafeInteger(receipt["revision"]) ||
           typeof receipt["request_json"] !== "string"
-        ) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        )
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
         if (receipt["request_json"] !== JSON.stringify(normalizedAction))
           throw new ReadFailure("CLICKUP_FOLLOWUP_REVISION_CONFLICT");
       }
