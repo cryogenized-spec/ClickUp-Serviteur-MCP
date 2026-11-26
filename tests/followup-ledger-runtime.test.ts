@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { runCatalogOperation } from "../src/clickup/catalog-runtime.js";
 import type { ReadGrant } from "../src/clickup/policy.js";
 
-function setup(denied = false) {
+function setup(denied = false, foreignCommentAuthor = false) {
   const privateCalls = vi.fn(async (request: Request) => {
     const path = new URL(request.url).pathname;
     if (path === "/followups/task")
@@ -44,7 +44,7 @@ function setup(denied = false) {
           {
             id: "1500260000111534",
             date: "1795680000000",
-            user: { id: 707 },
+            user: { id: foreignCommentAuthor ? 999 : 707 },
             comment_text: "Original verified message",
           },
         ],
@@ -141,6 +141,26 @@ describe("OAuth-verifying follow-up MCP adapter", () => {
         ([, init]) => !init || init.method === undefined || init.method === "GET",
       ),
     ).toBe(true);
+  });
+
+  it("does not mistake another employee's comment for Gareth's sent instruction", async () => {
+    const { api, grant, privateCalls } = setup(false, true);
+    await expect(
+      runCatalogOperation(
+        "clickup_record_followup_action",
+        {
+          task_id: "abc123",
+          followup_action_key: "comment:1500260000111534",
+          followup_action_kind: "instruction_sent",
+          followup_state_after: "awaiting_response",
+          followup_expected_revision: 0,
+          followup_evidence_comment_id: "1500260000111534",
+        },
+        grant,
+        api as typeof fetch,
+      ),
+    ).rejects.toThrow("CLICKUP_FOLLOWUP_EVIDENCE_UNVERIFIED");
+    expect(privateCalls).not.toHaveBeenCalled();
   });
 
   it("refuses a claimed sent action without evidence and verifies the exact provider comment", async () => {
