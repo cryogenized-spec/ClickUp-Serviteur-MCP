@@ -103,6 +103,6 @@ export async function synchronizeDirtyTask(
 
 export function retryDelayMs(error: unknown, attempts: number): number {
   if (error instanceof ReadFailure && error.code === "CLICKUP_RATE_LIMITED") return 60_000;
-  const count = Math.max(0, Math.min(6, attempts));
+  const count = Math.max(0, Math.min(7, attempts));
   return Math.min(60 * 60_000, 30_000 * 2 ** count);
 }
