@@ -89,7 +89,9 @@ export class FollowupLedger {
       !taskId(a["task_id"]) ||
       typeof a["action_key"] !== "string" ||
       !/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(a["action_key"]) ||
+      typeof a["action_kind"] !== "string" ||
       !kinds.has(a["action_kind"]) ||
+      typeof a["state_after"] !== "string" ||
       !states.has(a["state_after"]) ||
       !Number.isSafeInteger(a["expected_revision"]) ||
       Number(a["expected_revision"]) < 0 ||
