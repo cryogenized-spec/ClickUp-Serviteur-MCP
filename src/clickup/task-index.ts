@@ -165,8 +165,7 @@ export class TaskIndexStore {
     tasks: readonly TaskDiscovery[],
     observedAt: number,
   ): { enqueued: number; already_pending: number; unchanged: number } {
-    if (!validObserved(observedAt) || tasks.length > 50)
-      throw new Error("INVALID_DISCOVERY_BATCH");
+    if (!validObserved(observedAt) || tasks.length > 50) throw new Error("INVALID_DISCOVERY_BATCH");
     const ids = new Set<string>();
     for (const task of tasks) {
       if (
@@ -280,16 +279,13 @@ export class TaskIndexStore {
     attempts: number,
     expectedToken: string,
   ): boolean {
-    if (!taskId(id) || !/^\d+:\d+$/.test(expectedToken))
-      throw new Error("INVALID_SYNC_RETRY");
+    if (!taskId(id) || !/^\d+:\d+$/.test(expectedToken)) throw new Error("INVALID_SYNC_RETRY");
     let applied = false;
     this.transactionSync(() => {
       const state = this.run(
         "SELECT task_dirty_at, comments_dirty_at FROM task_refresh WHERE task_id = ?",
         id,
-      ).toArray()[0] as
-        | { task_dirty_at: number; comments_dirty_at: number }
-        | undefined;
+      ).toArray()[0] as { task_dirty_at: number; comments_dirty_at: number } | undefined;
       if (!state) return;
       if (state.task_dirty_at + ":" + state.comments_dirty_at !== expectedToken) return;
       this.deferTask(id, retryAt, attempts);
@@ -527,14 +523,11 @@ export async function captureVerifiedTaskDiscoveries(
   if (!grant.taskIndex || !Array.isArray(rawTasks) || rawTasks.length > 50) return false;
   const projected = rawTasks.map(projectTaskDiscovery);
   if (projected.some((item) => item === null)) return false;
-  const discoveries = projected.filter(
-    (item): item is TaskDiscovery => item !== null,
-  );
+  const discoveries = projected.filter((item): item is TaskDiscovery => item !== null);
   if (
-    discoveries.some(
-      (item) => grant.resourceScope !== "workspace" && item.list_id !== grant.listId,
-    )
-  ) return false;
+    discoveries.some((item) => grant.resourceScope !== "workspace" && item.list_id !== grant.listId)
+  )
+    return false;
   if (discoveries.length === 0) return true;
   return writeIndex(grant, "/index/discovery", { tasks: discoveries, observed_at: observedAt });
 }
