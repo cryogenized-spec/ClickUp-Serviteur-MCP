@@ -2,33 +2,37 @@ import { describe, expect, it, vi } from "vitest";
 import { recordVerifiedCommentObservation } from "../src/clickup/verified-comment-observation.js";
 import type { ReadGrant } from "../src/clickup/policy.js";
 
-function fixture(options: {
-  prior?: boolean;
-  state?: Record<string, unknown> | null;
-  failReceipt?: boolean;
-  failWrite?: boolean;
-  conflict?: boolean;
-} = {}) {
+function fixture(
+  options: {
+    prior?: boolean;
+    state?: Record<string, unknown> | null;
+    failReceipt?: boolean;
+    failWrite?: boolean;
+    conflict?: boolean;
+  } = {},
+) {
   const calls: Array<{ path: string; body?: Record<string, unknown> }> = [];
   const privateFetch = vi.fn(async (req: Request) => {
     const path = new URL(req.url).pathname;
-    const body = req.method === "POST"
-      ? await req.json() as Record<string, unknown> : undefined;
+    const body =
+      req.method === "POST" ? ((await req.json()) as Record<string, unknown>) : undefined;
     calls.push({ path, body });
     if (path === "/followups/receipt") {
       if (options.failReceipt) return new Response(null, { status: 503 });
       return Response.json({
-        receipt: options.prior ? {
-          task_id: "task123",
-          action_key: "verified-comment:6001",
-          revision: 4,
-          request_json: JSON.stringify({
-            task_id: "task123",
-            action_key: "verified-comment:6001",
-            action_kind: "verified_comment_posted",
-            evidence_comment_id: "6001",
-          }),
-        } : null,
+        receipt: options.prior
+          ? {
+              task_id: "task123",
+              action_key: "verified-comment:6001",
+              revision: 4,
+              request_json: JSON.stringify({
+                task_id: "task123",
+                action_key: "verified-comment:6001",
+                action_kind: "verified_comment_posted",
+                evidence_comment_id: "6001",
+              }),
+            }
+          : null,
       });
     }
     if (path === "/followups/task") {
@@ -80,7 +84,9 @@ describe("verified own-comment private observation", () => {
     });
     expect(identity).toHaveBeenCalledWith("555:github:11");
     expect(calls.map((r) => r.path)).toEqual([
-      "/followups/receipt", "/followups/task", "/followups/record",
+      "/followups/receipt",
+      "/followups/task",
+      "/followups/record",
     ]);
     expect(calls[2]!.body).toMatchObject({
       task_id: "task123",
@@ -92,7 +98,9 @@ describe("verified own-comment private observation", () => {
       waiting_on_user_id: "707",
       next_check_at_ms: 1795800000000,
     });
-    expect(String(calls[2]!.body?.["note"])).toContain("delivery and recipient response unverified");
+    expect(String(calls[2]!.body?.["note"])).toContain(
+      "delivery and recipient response unverified",
+    );
   });
 
   it("starts a neutral verified record without inventing follow-up responsibility or due date", async () => {
