@@ -4197,10 +4197,10 @@ export async function runCatalogOperation(
           }),
         );
         if (!result.ok) throw new Error("quota unavailable");
-        quota = obj(await result.json());
-        if (!quota || !Array.isArray(quota["days"])) throw new Error("quota unavailable");
+        const parsed = obj(await result.json());
+        if (!parsed || !Array.isArray(parsed["days"])) throw new Error("quota unavailable");
+        quota = parsed;
       } catch {
-        quota = null;
         issues.push("quota_diagnostics_unavailable");
       }
       if (g.webhookEvents) {
