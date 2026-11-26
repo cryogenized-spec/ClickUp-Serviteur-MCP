@@ -39,6 +39,11 @@ function createStorage() {
         if (day < Number(params[0])) diagnosticDays.delete(day);
       return {};
     }
+    if (
+      sql.startsWith("SELECT day, status, SUM(count)") ||
+      sql.startsWith("SELECT operation, category, method, status, SUM(count)")
+    )
+      return { toArray: () => [] };
     if (sql.startsWith("SELECT day, allowed, blocked, cooldowns"))
       return {
         toArray: () => [...diagnosticDays.values()].filter((row) => row.day >= Number(params[0])),
@@ -137,6 +142,9 @@ describe("ClickUp upstream cooldown without self-imposed rate caps", () => {
     );
     expect(await response.json()).toEqual({
       days: [{ day: Math.floor(Date.now() / 86_400_000), allowed: 1, blocked: 1, cooldowns: 1 }],
+      upstream_outcomes: [],
+      endpoint_failures: [],
+      endpoint_failures_incomplete: false,
       cooldown_remaining_ms: 30_000,
     });
   });
