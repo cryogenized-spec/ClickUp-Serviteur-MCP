@@ -413,8 +413,7 @@ async function listInWorkspace(grant: ReadGrant, f: typeof fetch, listId: unknow
   if (grant.resourceScope !== "workspace" && String(listId) !== grant.listId)
     throw new ReadFailure("CLICKUP_SCOPE_OR_SCHEMA_REJECTED");
   const list = await send(grant, f, "GET", v2("list/" + id(listId)));
-  if (String(list["id"]) !== String(listId))
-    throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+  if (String(list["id"]) !== String(listId)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
   try {
     await inWorkspace(grant, f, obj(list["space"])?.["id"]);
   } catch (error) {
@@ -506,8 +505,7 @@ async function taskInWorkspace(
   }
   // A successful 200 response with a missing or wrong ID is a malformed
   // provider result, not evidence that the actor cannot access this task.
-  if (String(task["id"]) !== String(taskId))
-    throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+  if (String(task["id"]) !== String(taskId)) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
   const homeList = obj(task["list"])?.["id"];
   try {
     if (pendingVerifiedLists) {
@@ -2003,7 +2001,10 @@ export async function runCatalogOperation(
       // Bind the opaque cursor to the verified actor's current resource scope
       // and optional List filter, never expose its private keyset to callers.
       const scopeKey =
-        (workspaceScope ? "workspace" : "list") + ":" + W + ":" +
+        (workspaceScope ? "workspace" : "list") +
+        ":" +
+        W +
+        ":" +
         (onlyList === undefined ? (workspaceScope ? "all" : g.listId) : String(onlyList));
       url.searchParams.set("scope_key", scopeKey);
       if (cursor !== undefined) url.searchParams.set("cursor", cursor as string);
@@ -2030,9 +2031,10 @@ export async function runCatalogOperation(
             Number(startDue) > Number(cutoff) ||
             typeof startTask !== "string" ||
             !/^[a-zA-Z0-9_-]{1,80}$/.test(startTask)))
-      ) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+      )
+        throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       let previousDue = startDue === null ? 0 : Number(startDue);
-      let previousTask = startTask === null ? "" : startTask as string;
+      let previousTask = startTask === null ? "" : (startTask as string);
       const validated: Array<{
         task_id: string;
         state: string;
@@ -2077,7 +2079,9 @@ export async function runCatalogOperation(
           nextDue !== previousDue ||
           nextTask !== previousTask ||
           typeof nextCursor !== "string" ||
-          !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(nextCursor))
+          !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(
+            nextCursor,
+          ))
       )
         throw new ReadFailure("CLICKUP_BAD_RESPONSE");
       if (!incomplete && (nextDue !== null || nextTask !== null || nextCursor !== null))
