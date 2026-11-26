@@ -174,6 +174,44 @@ const F = {
     "Stable name for one independent event consumer, such as hourly-watch.",
     64,
   ),
+  followup_action_key: str(
+    "Stable idempotency key for ONE verified follow-up action; reuse only for the identical action.",
+    128,
+  ),
+  followup_action_kind: {
+    type: "string",
+    description: "Actually observed or performed; instruction_sent requires a ClickUp comment ID verified live.",
+    enum: ["observation", "draft_prepared", "instruction_sent", "response_received", "followup_checked", "resolution_confirmed", "note"],
+  },
+  followup_state_after: {
+    type: "string",
+    description: "Human-curated follow-up state, independent of ClickUp task status.",
+    enum: ["detected", "verified", "action_required", "action_taken", "awaiting_response", "response_received", "resolved"],
+  },
+  followup_expected_revision: integer(
+    "Revision from clickup_get_followup_state (zero when untracked); prevents stale writes.",
+    0,
+    1_000_000_000,
+  ),
+  followup_note: str(
+    "Bounded factual reason and next step; not proof of external execution.",
+    2000,
+  ),
+  followup_evidence_comment_id: str(
+    "Exact ClickUp task comment ID; instruction_sent is independently verified.",
+    100,
+  ),
+  followup_waiting_on_user_id: memberId,
+  followup_next_check_at_ms: integer(
+    "Next follow-up due as Unix milliseconds; omit to clear the previous follow-up time.",
+    0,
+    9_000_000_000_000,
+  ),
+  followup_before_revision: integer(
+    "Older history cursor: next_before_revision from preceding page.",
+    1,
+    1_000_000_000,
+  ),
   activity_event_types: arrayOf(
     "Only investigate these event types; other events remain unprocessed.",
     str("Exact ClickUp task event name.", 80),
@@ -1556,6 +1594,28 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     "Read account-scoped quota reservation and cooldown counters plus retained webhook storage health. Does not count all upstream responses or expose private payloads.",
     "Diagnose API cooldowns and pending event backlog.",
     [],
+  ),
+
+  // ACTOR-LOCAL FOLLOW-UP LEDGER (NO CLICKUP TASK WRITES)
+  tool(
+    "clickup_get_followup_state",
+    "Get Follow-Up State",
+    "reporting",
+    "read",
+    "Verify current individual OAuth task access, then read private follow-up state and append-only history. Human-curated coordination, not authoritative ClickUp history.",
+    "What have we done on this case, and who are we waiting for?",
+    ["task_id"],
+    ["max_results", "followup_before_revision"],
+  ),
+  tool(
+    "clickup_record_followup_action",
+    "Record Follow-Up Action",
+    "reporting",
+    "write",
+    "Append private actor/Workspace-scoped follow-up evidence using an idempotency key and optimistic revision. Does not post to ClickUp, contact customers, or acknowledge webhook events.",
+    "Record that my verified comment was posted and that we now await Sameer's response.",
+    ["task_id", "followup_action_key", "followup_action_kind", "followup_state_after", "followup_expected_revision"],
+    ["followup_note", "followup_evidence_comment_id", "followup_waiting_on_user_id", "followup_next_check_at_ms"],
   ),
 
   // PERSISTENT ACTIVITY REGISTER
