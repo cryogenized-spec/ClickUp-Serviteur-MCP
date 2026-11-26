@@ -1,6 +1,12 @@
 import type { ReadGrant } from "./policy.js";
 
 type Json = Record<string, unknown>;
+/** Provider-independent SQL cursor; ClickUp application code does not depend on
+ * Cloudflare DurableObjectState types in the MCP-only TypeScript build. */
+export type SqlRunner = (
+  statement: string,
+  ...bindings: (string | number | null)[]
+) => { one(): unknown; toArray(): unknown[] };
 const object = (value: unknown): Json | null =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Json) : null;
 const taskId = (value: unknown): string | null =>
@@ -100,15 +106,15 @@ const validObserved = (value: unknown): value is number =>
  * verify the task using the current user's own ClickUp OAuth credential.
  */
 export class TaskIndexStore {
-  constructor(private readonly sql: DurableObjectState["storage"]["sql"]) {
-    sql.exec(
+  constructor(private readonly run: SqlRunner) {
+    run(
       "CREATE TABLE IF NOT EXISTS task_snapshots (task_id TEXT PRIMARY KEY, list_id TEXT NOT NULL, snapshot_json TEXT NOT NULL, source_updated_at INTEGER NOT NULL, observed_at INTEGER NOT NULL)",
     );
-    sql.exec("CREATE INDEX IF NOT EXISTS task_snapshots_list ON task_snapshots(list_id)");
-    sql.exec(
+    run("CREATE INDEX IF NOT EXISTS task_snapshots_list ON task_snapshots(list_id)");
+    run(
       "CREATE TABLE IF NOT EXISTS comment_snapshots (task_id TEXT NOT NULL, comment_id TEXT NOT NULL, snapshot_json TEXT NOT NULL, source_at INTEGER NOT NULL, observed_at INTEGER NOT NULL, PRIMARY KEY(task_id, comment_id))",
     );
-    sql.exec(
+    run(
       "CREATE TABLE IF NOT EXISTS task_refresh (task_id TEXT PRIMARY KEY, task_dirty_at INTEGER NOT NULL DEFAULT 0, comments_dirty_at INTEGER NOT NULL DEFAULT 0, task_checked_at INTEGER NOT NULL DEFAULT 0, comments_checked_at INTEGER NOT NULL DEFAULT 0)",
     );
   }
@@ -116,7 +122,7 @@ export class TaskIndexStore {
   markDirty(id: string, event: string, at: number): void {
     if (!taskId(id) || !validObserved(at)) throw new Error("INVALID_TASK_HINT");
     const isComment = event === "taskCommentPosted" || event === "taskCommentUpdated";
-    this.sql.exec(
+    this.run(
       "INSERT INTO task_refresh(task_id, task_dirty_at, comments_dirty_at) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET task_dirty_at = MAX(task_refresh.task_dirty_at, excluded.task_dirty_at), comments_dirty_at = MAX(task_refresh.comments_dirty_at, excluded.comments_dirty_at)",
       id,
       isComment ? 0 : at,
@@ -134,7 +140,7 @@ export class TaskIndexStore {
       })
     )
       throw new Error("INVALID_TASK_SNAPSHOT");
-    this.sql.exec(
+    this.run(
       "INSERT INTO task_snapshots(task_id, list_id, snapshot_json, source_updated_at, observed_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET list_id = excluded.list_id, snapshot_json = excluded.snapshot_json, source_updated_at = excluded.source_updated_at, observed_at = excluded.observed_at WHERE excluded.observed_at >= task_snapshots.observed_at AND excluded.source_updated_at >= task_snapshots.source_updated_at",
       snapshot.task_id,
       snapshot.list_id,
@@ -142,7 +148,7 @@ export class TaskIndexStore {
       snapshot.source_updated_at_ms,
       observedAt,
     );
-    this.sql.exec(
+    this.run(
       "INSERT INTO task_refresh(task_id, task_checked_at) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET task_checked_at = MAX(task_refresh.task_checked_at, excluded.task_checked_at)",
       snapshot.task_id,
       observedAt,
@@ -159,7 +165,7 @@ export class TaskIndexStore {
       throw new Error("INVALID_COMMENT_SNAPSHOT");
     for (const comment of comments) {
       if (!taskId(comment.comment_id)) throw new Error("INVALID_COMMENT_SNAPSHOT");
-      this.sql.exec(
+      this.run(
         "INSERT INTO comment_snapshots(task_id, comment_id, snapshot_json, source_at, observed_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(task_id, comment_id) DO UPDATE SET snapshot_json = excluded.snapshot_json, source_at = excluded.source_at, observed_at = excluded.observed_at WHERE excluded.observed_at >= comment_snapshots.observed_at",
         id,
         comment.comment_id,
@@ -171,7 +177,7 @@ export class TaskIndexStore {
     // Only a complete comment scan can clear a dirty flag. Partial pages
     // still contribute useful unique records without claiming synchronization.
     if (complete)
-      this.sql.exec(
+      this.run(
         "INSERT INTO task_refresh(task_id, comments_checked_at) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET comments_checked_at = MAX(task_refresh.comments_checked_at, excluded.comments_checked_at)",
         id,
         observedAt,
@@ -179,17 +185,15 @@ export class TaskIndexStore {
   }
 
   diagnostics(): Json {
-    const tasks = this.sql
-      .exec<{ count: number }>("SELECT COUNT(*) AS count FROM task_snapshots")
-      .one();
-    const comments = this.sql
-      .exec<{ count: number }>("SELECT COUNT(*) AS count FROM comment_snapshots")
-      .one();
-    const dirty = this.sql
-      .exec<{ tasks: number; comments: number }>(
-        "SELECT COUNT(CASE WHEN task_dirty_at > task_checked_at THEN 1 END) AS tasks, COUNT(CASE WHEN comments_dirty_at > comments_checked_at THEN 1 END) AS comments FROM task_refresh",
-      )
-      .one();
+    const tasks = this.run("SELECT COUNT(*) AS count FROM task_snapshots").one() as {
+      count: number;
+    };
+    const comments = this.run("SELECT COUNT(*) AS count FROM comment_snapshots").one() as {
+      count: number;
+    };
+    const dirty = this.run(
+      "SELECT COUNT(CASE WHEN task_dirty_at > task_checked_at THEN 1 END) AS tasks, COUNT(CASE WHEN comments_dirty_at > comments_checked_at THEN 1 END) AS comments FROM task_refresh",
+    ).one() as { tasks: number; comments: number };
     return {
       indexed_tasks: tasks.count,
       indexed_comments: comments.count,
@@ -200,25 +204,23 @@ export class TaskIndexStore {
 
   lookup(id: string): Json | null {
     if (!taskId(id)) return null;
-    const rows = this.sql
-      .exec<{ snapshot_json: string; observed_at: number }>(
-        "SELECT snapshot_json, observed_at FROM task_snapshots WHERE task_id = ?",
-        id,
-      )
-      .toArray();
+    const rows = this.run(
+      "SELECT snapshot_json, observed_at FROM task_snapshots WHERE task_id = ?",
+      id,
+    ).toArray() as Array<{ snapshot_json: string; observed_at: number }>;
     const row = rows[0];
     if (!row) return null;
-    const refresh = this.sql
-      .exec<{
-        task_dirty_at: number;
-        comments_dirty_at: number;
-        task_checked_at: number;
-        comments_checked_at: number;
-      }>(
-        "SELECT task_dirty_at, comments_dirty_at, task_checked_at, comments_checked_at FROM task_refresh WHERE task_id = ?",
-        id,
-      )
-      .toArray()[0];
+    const refresh = this.run(
+      "SELECT task_dirty_at, comments_dirty_at, task_checked_at, comments_checked_at FROM task_refresh WHERE task_id = ?",
+      id,
+    ).toArray()[0] as
+      | {
+          task_dirty_at: number;
+          comments_dirty_at: number;
+          task_checked_at: number;
+          comments_checked_at: number;
+        }
+      | undefined;
     return {
       task: JSON.parse(row.snapshot_json) as unknown,
       observed_at_ms: row.observed_at,
