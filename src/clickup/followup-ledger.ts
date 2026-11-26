@@ -294,13 +294,18 @@ export class FollowupLedger {
       (afterDueMs !== undefined &&
         (!Number.isSafeInteger(afterDueMs) || afterDueMs < 0 || afterDueMs > at)) ||
       (afterTaskId !== undefined && !taskId(afterTaskId))
-    ) throw new FollowupLedgerError("invalid");
+    )
+      throw new FollowupLedgerError("invalid");
 
     const cursorDue = afterDueMs ?? 0;
     const cursorTask = afterTaskId ?? "";
     const rows = this.run(
       "SELECT task_id, state, waiting_on_user_id, next_check_at_ms, revision FROM followup_current WHERE next_check_at_ms IS NOT NULL AND next_check_at_ms <= ? AND state != 'resolved' AND (next_check_at_ms > ? OR (next_check_at_ms = ? AND task_id > ?)) ORDER BY next_check_at_ms, task_id LIMIT ?",
-      at, cursorDue, cursorDue, cursorTask, limit + 1,
+      at,
+      cursorDue,
+      cursorDue,
+      cursorTask,
+      limit + 1,
     ).toArray() as Array<{
       task_id: string;
       state: string;
