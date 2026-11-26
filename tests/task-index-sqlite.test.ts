@@ -119,6 +119,40 @@ describe("real SQLite task-index regressions", () => {
     expect(store.diagnostics()["comment_refresh_pending"]).toBe(0);
   });
 
+  it("blocks late in-flight task and comment reads after a definitive access denial", () => {
+    const store = make();
+    store.storeTask(indexedTask(100, "Initially authorized"), 100);
+    store.storeComments("task123", [indexedComment("c1", "Private content")], 100, true);
+    // The later request observes revoked access and purges both collections.
+    store.discardSnapshots("task123", 300);
+    expect(store.lookup("task123")).toBeNull();
+    expect(store.diagnostics()["indexed_comments"]).toBe(0);
+    // Both older requests return AFTER the 403. Their original start
+    // timestamps must remain older than the durable denial watermark.
+    expect(store.storeTask(indexedTask(200, "Late task response"), 200)).toBe(false);
+    store.storeComments("task123", [indexedComment("c1", "Resurrected")], 250, false);
+    store.storeComments("task123", [indexedComment("c2", "Resurrected")], 250, true);
+    expect(store.lookup("task123")).toBeNull();
+    expect(store.diagnostics()["indexed_comments"]).toBe(0);
+    expect(store.storeTask(indexedTask(300, "Same-millisecond response"), 300)).toBe(false);
+    // A genuinely NEW authorized request after the denial can revalidate
+    // and restore content without bypassing the native ClickUp preflight.
+    expect(store.storeTask(indexedTask(400, "Newly authorized"), 400)).toBe(true);
+    store.storeComments("task123", [indexedComment("c3", "Fresh")], 400, true);
+    expect((store.lookup("task123")?.["task"] as { title: string }).title).toBe(
+      "Newly authorized",
+    );
+    expect(store.diagnostics()["indexed_comments"]).toBe(1);
+  });
+
+  it("never lowers an existing access-denial watermark", () => {
+    const store = make();
+    store.discardSnapshots("task123", 400);
+    store.discardSnapshots("task123", 300);
+    expect(store.storeTask(indexedTask(350, "Prior access"), 350)).toBe(false);
+    expect(store.lookup("task123")).toBeNull();
+  });
+
   it("keeps task and comment pending-refresh indicators independent", () => {
     const store = make();
     store.storeTask(indexedTask(100, "A"), 100);
