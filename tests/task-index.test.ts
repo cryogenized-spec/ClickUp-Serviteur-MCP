@@ -83,7 +83,7 @@ describe("actor-local SQLite index operations", () => {
       executed.push({ sql, params });
       return { one: () => ({ count: 0, tasks: 0, comments: 0 }), toArray: () => [] };
     });
-    const store = new TaskIndexStore({ exec } as unknown as DurableObjectState["storage"]["sql"]);
+    const store = new TaskIndexStore((sql, ...params) => exec(sql, ...params));
     return { executed, store };
   }
 
