@@ -114,6 +114,47 @@ describe("pending activity batched pagination", () => {
     ).toHaveLength(1);
   });
 
+  it("exposes only sanitized metadata on verified tasks and none on denied tasks", async () => {
+    const metadata = {
+      actor_user_id: "183",
+      field: "comment",
+      comment_id: "648893191",
+      mentioned_user_ids: ["707", "707", "invalid"],
+      raw_comment: "private comment",
+    };
+    const events = [
+      { ...makeEvent(0), metadata },
+      { ...makeEvent(1, "denied"), metadata: { ...metadata, actor_user_id: "999" } },
+    ];
+    const f = fixture(events, undefined, 1, { denied: [404] });
+    const response = await runCatalogOperation(
+      "clickup_get_pending_activity",
+      {},
+      f.enrichedGrant,
+      f.api as typeof fetch,
+    );
+    expect(response).toMatchObject({
+      tasks: [
+        {
+          task_id: "abc123",
+          events: [
+            {
+              metadata: {
+                actor_user_id: "183",
+                field: "comment",
+                comment_id: "648893191",
+                mentioned_user_ids: ["707"],
+              },
+            },
+          ],
+        },
+      ],
+      unverified_task_count: 1,
+    });
+    expect(JSON.stringify(response)).not.toContain("private comment");
+    expect(JSON.stringify(response)).not.toContain('"actor_user_id":"999"');
+  });
+
   it("returns the exact cursor at a result cap without skipping later events", async () => {
     const events = Array.from({ length: 27 }, (_, i) => makeEvent(i));
     const f = fixture(events);
