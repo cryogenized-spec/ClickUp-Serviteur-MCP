@@ -176,10 +176,7 @@ describe("real SQLite task-index regressions", () => {
       enqueued: 0,
     });
     expect(
-      store.observeDiscoveredTasks(
-        [{ ...older, source_updated_at_ms: 200 }],
-        5800,
-      ),
+      store.observeDiscoveredTasks([{ ...older, source_updated_at_ms: 200 }], 5800),
     ).toMatchObject({ enqueued: 1 });
     expect(store.dirtyTasks(5900)[0]).toMatchObject({
       task_id: "task123",
@@ -277,8 +274,20 @@ describe("real SQLite task-index regressions", () => {
     store.markDirty("task1", "taskCreated", 1000);
     store.markDirty("task2", "taskCommentPosted", 1100);
     expect(store.dirtyTasks(1200, 10)).toEqual([
-      { task_id: "task1", task_dirty: true, comments_dirty: false, attempts: 0, dirty_token: "1001:0" },
-      { task_id: "task2", task_dirty: false, comments_dirty: true, attempts: 0, dirty_token: "0:1101" },
+      {
+        task_id: "task1",
+        task_dirty: true,
+        comments_dirty: false,
+        attempts: 0,
+        dirty_token: "1001:0",
+      },
+      {
+        task_id: "task2",
+        task_dirty: false,
+        comments_dirty: true,
+        attempts: 0,
+        dirty_token: "0:1101",
+      },
     ]);
     store.deferTask("task1", 5000, 1);
     expect(store.dirtyTasks(1200, 10).map((item) => item.task_id)).toEqual(["task2"]);
