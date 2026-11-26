@@ -229,6 +229,20 @@ const F = {
     1,
     1_000_000_000,
   ),
+  followup_due_before_ms: integer(
+    "Overdue cutoff in Unix milliseconds; defaults to the time this query starts. Reuse the same cutoff for every continuation page.",
+    0,
+    9_000_000_000_000,
+  ),
+  followup_after_due_ms: integer(
+    "Next page cursor: next_after_due_ms returned by the previous page. Supply together with followup_after_task_id.",
+    0,
+    9_000_000_000_000,
+  ),
+  followup_after_task_id: str(
+    "Next page cursor: next_after_task_id returned by the previous page. Supply together with followup_after_due_ms.",
+    80,
+  ),
   activity_event_types: arrayOf(
     "Only investigate these event types; other events remain unprocessed.",
     str("Exact ClickUp task event name.", 80),
@@ -1614,6 +1628,16 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
   ),
 
   // ACTOR-LOCAL FOLLOW-UP LEDGER (NO CLICKUP TASK WRITES)
+  tool(
+    "clickup_get_overdue_followups",
+    "Get Overdue Follow-Ups",
+    "reporting",
+    "read",
+    "Read due obligations from the current actor's private persistent register, verifying each candidate against live ClickUp OAuth task permissions before exposing any details. Returns keyset continuation cursors and explicitly discloses partial candidate coverage; it is neither a native ClickUp Inbox nor proof that customer contact occurred.",
+    "Which of my documented follow-ups are due for attention?",
+    [],
+    ["max_results", "list_id", "followup_due_before_ms", "followup_after_due_ms", "followup_after_task_id"],
+  ),
   tool(
     "clickup_get_followup_state",
     "Get Follow-Up State",
