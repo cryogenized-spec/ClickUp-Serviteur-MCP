@@ -14,13 +14,18 @@ export type VerifiedCommentObservation = {
 };
 
 const states = new Set([
-  "detected", "verified", "action_required", "action_taken",
-  "awaiting_response", "response_received", "resolved",
+  "detected",
+  "verified",
+  "action_required",
+  "action_taken",
+  "awaiting_response",
+  "response_received",
+  "resolved",
 ]);
 
 const obj = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 
 /**
@@ -37,12 +42,9 @@ export async function recordVerifiedCommentObservation(
   taskId: string,
   commentId: string,
 ): Promise<VerifiedCommentObservation> {
-  if (
-    !/^[a-zA-Z0-9_-]{1,80}$/.test(taskId) ||
-    !/^[a-zA-Z0-9_-]{1,100}$/.test(commentId)
-  ) return { recorded: false, reason: "invalid_evidence" };
-  if (!grant.taskIndex)
-    return { recorded: false, reason: "private_storage_unavailable" };
+  if (!/^[a-zA-Z0-9_-]{1,80}$/.test(taskId) || !/^[a-zA-Z0-9_-]{1,100}$/.test(commentId))
+    return { recorded: false, reason: "invalid_evidence" };
+  if (!grant.taskIndex) return { recorded: false, reason: "private_storage_unavailable" };
 
   const actionKey = "verified-comment:" + commentId;
   const stub = grant.taskIndex.get(
@@ -57,15 +59,15 @@ export async function recordVerifiedCommentObservation(
     receiptUrl.searchParams.set("task_id", taskId);
     receiptUrl.searchParams.set("action_key", actionKey);
     const receiptResponse = await stub.fetch(new Request(receiptUrl));
-    if (!receiptResponse.ok)
-      return { recorded: false, reason: "private_storage_failed" };
+    if (!receiptResponse.ok) return { recorded: false, reason: "private_storage_failed" };
     const receiptEnvelope = obj(await receiptResponse.json());
-    if (!receiptEnvelope)
-      return { recorded: false, reason: "malformed_private_response" };
+    if (!receiptEnvelope) return { recorded: false, reason: "malformed_private_response" };
     const receipt = obj(receiptEnvelope["receipt"]);
     if (receipt) {
-      const original = typeof receipt["request_json"] === "string"
-        ? obj(JSON.parse(receipt["request_json"])) : null;
+      const original =
+        typeof receipt["request_json"] === "string"
+          ? obj(JSON.parse(receipt["request_json"]))
+          : null;
       if (
         receipt["task_id"] !== taskId ||
         receipt["action_key"] !== actionKey ||
@@ -74,7 +76,8 @@ export async function recordVerifiedCommentObservation(
         original["action_key"] !== actionKey ||
         original["action_kind"] !== "verified_comment_posted" ||
         original["evidence_comment_id"] !== commentId
-      ) return { recorded: false, reason: "conflicting_record" };
+      )
+        return { recorded: false, reason: "conflicting_record" };
       return {
         recorded: true,
         action_key: actionKey,
@@ -86,8 +89,7 @@ export async function recordVerifiedCommentObservation(
     stateUrl.searchParams.set("task_id", taskId);
     stateUrl.searchParams.set("limit", "1");
     const stateResponse = await stub.fetch(new Request(stateUrl));
-    if (!stateResponse.ok)
-      return { recorded: false, reason: "private_storage_failed" };
+    if (!stateResponse.ok) return { recorded: false, reason: "private_storage_failed" };
     const snapshot = obj(await stateResponse.json());
     if (!snapshot || snapshot["task_id"] !== taskId)
       return { recorded: false, reason: "malformed_private_response" };
@@ -106,11 +108,12 @@ export async function recordVerifiedCommentObservation(
         !states.has(state) ||
         !Number.isSafeInteger(revision) ||
         Number(revision) < 1 ||
-        (waiting !== null && waiting !== undefined &&
+        (waiting !== null &&
+          waiting !== undefined &&
           (typeof waiting !== "string" || !/^[1-9]\d{0,23}$/.test(waiting))) ||
-        (due !== null && due !== undefined &&
-          (!Number.isSafeInteger(due) || Number(due) < 0))
-      ) return { recorded: false, reason: "malformed_private_response" };
+        (due !== null && due !== undefined && (!Number.isSafeInteger(due) || Number(due) < 0))
+      )
+        return { recorded: false, reason: "malformed_private_response" };
       expectedRevision = revision as number;
       stateAfter = state;
       waitingOn = typeof waiting === "string" ? waiting : null;
@@ -131,20 +134,18 @@ export async function recordVerifiedCommentObservation(
       waiting_on_user_id: waitingOn,
       next_check_at_ms: nextCheck,
     };
-    const saved = await stub.fetch(new Request("https://internal/followups/record", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }));
-    if (saved.status === 409)
-      return { recorded: false, reason: "concurrent_followup_update" };
+    const saved = await stub.fetch(
+      new Request("https://internal/followups/record", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+    if (saved.status === 409) return { recorded: false, reason: "concurrent_followup_update" };
     if (!saved.ok) return { recorded: false, reason: "private_storage_failed" };
     const result = obj(await saved.json());
-    if (
-      !result ||
-      result["task_id"] !== taskId ||
-      !Number.isSafeInteger(result["revision"])
-    ) return { recorded: false, reason: "malformed_private_response" };
+    if (!result || result["task_id"] !== taskId || !Number.isSafeInteger(result["revision"]))
+      return { recorded: false, reason: "malformed_private_response" };
     return {
       recorded: true,
       action_key: actionKey,
