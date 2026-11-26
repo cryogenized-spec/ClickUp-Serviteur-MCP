@@ -335,13 +335,15 @@ export class ClickUpWebhookEvents {
               .toArray()[0]
           : undefined;
         const eventKey = existing?.event_key ?? hint.key;
-        const inserted = this.state.storage.sql.exec<{ event_key: string }>(
-          "INSERT OR IGNORE INTO hints(event_key, task_id, event, received_at) VALUES (?, ?, ?, ?) RETURNING event_key",
-          eventKey,
-          hint.taskId,
-          hint.event,
-          hint.receivedAt,
-        ).toArray();
+        const inserted = this.state.storage.sql
+          .exec<{ event_key: string }>(
+            "INSERT OR IGNORE INTO hints(event_key, task_id, event, received_at) VALUES (?, ?, ?, ?) RETURNING event_key",
+            eventKey,
+            hint.taskId,
+            hint.event,
+            hint.receivedAt,
+          )
+          .toArray();
         // Replayed webhooks must not make a successfully refreshed task stale.
         if (inserted.length) this.taskIndex.markDirty(hint.taskId, hint.event, hint.receivedAt);
         if (hint.metadata)
