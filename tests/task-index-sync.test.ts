@@ -28,7 +28,7 @@ function fixture() {
     storeComments: vi.fn(),
     discardSnapshots: vi.fn(),
   } as unknown as TaskIndexStore;
-  const call = vi.fn(async (name: string) => {
+  const call = vi.fn(async (name: string): Promise<Record<string, unknown>> => {
     if (name === "clickup_get_task")
       return {
         id: "task1",
@@ -45,7 +45,7 @@ function fixture() {
     throw new Error("Unexpected operation " + name);
   });
   const syncCall = call as unknown as typeof runCatalogOperation;
-  const index = store as {
+  const index = store as unknown as {
     storeTask: ReturnType<typeof vi.fn>;
     storeComments: ReturnType<typeof vi.fn>;
     discardSnapshots: ReturnType<typeof vi.fn>;
