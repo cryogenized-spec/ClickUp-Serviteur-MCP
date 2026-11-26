@@ -151,6 +151,127 @@ describe("real SQLite task-index regressions", () => {
     expect(store.lookup("task123")).toBeNull();
   });
 
+  it("discovers missing and changed tasks without resetting an outstanding retry", () => {
+    const store = make();
+    const older = { task_id: "task123", list_id: "901202442802", source_updated_at_ms: 100 };
+    expect(store.observeDiscoveredTasks([older], 150)).toEqual({
+      enqueued: 1,
+      already_pending: 0,
+      unchanged: 0,
+    });
+    expect(store.dirtyTasks(160)).toEqual([
+      {
+        task_id: "task123",
+        task_dirty: true,
+        comments_dirty: true,
+        attempts: 0,
+        dirty_token: "151:151",
+      },
+    ]);
+    store.deferTask("task123", 5000, 1);
+    expect(store.observeDiscoveredTasks([older], 200)).toMatchObject({
+      already_pending: 1,
+      enqueued: 0,
+    });
+    expect(store.dirtyTasks(300)).toHaveLength(0);
+    expect(store.nextDirtyDue()).toBe(5000);
+    store.storeTask(indexedTask(100, "Authorized full read"), 5500);
+    store.storeComments("task123", [], 5500, true);
+    expect(store.observeDiscoveredTasks([older], 5600)).toMatchObject({
+      unchanged: 1,
+      enqueued: 0,
+    });
+    expect(
+      store.observeDiscoveredTasks([{ ...older, source_updated_at_ms: 200 }], 5800),
+    ).toMatchObject({ enqueued: 1 });
+    expect(store.dirtyTasks(5900)[0]).toMatchObject({
+      task_id: "task123",
+      task_dirty: true,
+      comments_dirty: true,
+    });
+  });
+
+  it("never requeues an older list page across a confirmed access-denial barrier", () => {
+    const store = make();
+    store.discardSnapshots("task123", 300);
+    expect(
+      store.observeDiscoveredTasks(
+        [{ task_id: "task123", list_id: "901202442802", source_updated_at_ms: 100 }],
+        200,
+      ),
+    ).toMatchObject({ enqueued: 0, unchanged: 1 });
+    expect(store.dirtyTasks(500)).toEqual([]);
+  });
+
+  it("retains a newer discovered revision while an older refresh is in flight", () => {
+    const store = make();
+    const task = (revision: number) => ({
+      task_id: "task123",
+      list_id: "901202442802",
+      source_updated_at_ms: revision,
+    });
+    expect(store.observeDiscoveredTasks([task(100)], 150)).toMatchObject({ enqueued: 1 });
+    store.deferTask("task123", 500, 1);
+    expect(store.observeDiscoveredTasks([task(300)], 350)).toMatchObject({
+      already_pending: 1,
+    });
+    // A new source revision MUST NOT reset an existing provider cooldown.
+    expect(store.nextDirtyDue()).toBe(500);
+    expect(store.storeTask(indexedTask(100, "Old read"), 200)).toBe(false);
+    expect(store.lookup("task123")?.["task_stale"]).toBe(true);
+    expect(store.dirtyTasks(501)[0]?.task_dirty).toBe(true);
+    expect(store.storeTask(indexedTask(300, "Required newer revision"), 600)).toBe(true);
+    expect(store.lookup("task123")?.["task_stale"]).toBe(false);
+  });
+
+  it("keeps a first-ever partial comment capture pending until a complete read", () => {
+    const store = make();
+    store.storeComments("task123", [indexedComment("c1", "Only the first page")], 100, false);
+    expect(store.diagnostics()).toMatchObject({
+      indexed_comments: 1,
+      comment_refresh_pending: 1,
+    });
+    expect(store.dirtyTasks(200)[0]?.comments_dirty).toBe(true);
+    store.storeComments("task123", [], 201, true);
+    expect(store.diagnostics()).toMatchObject({
+      indexed_comments: 0,
+      comment_refresh_pending: 0,
+    });
+  });
+
+  it("invalidates complete comments when a task-only capture advances the source revision", () => {
+    const store = make();
+    store.storeTask(indexedTask(100, "First revision"), 100);
+    store.storeComments("task123", [indexedComment("c1", "Original comment")], 150, true);
+    expect(store.lookup("task123")?.["comments_stale"]).toBe(false);
+    store.storeTask(indexedTask(200, "Task-only refresh"), 250);
+    expect(
+      store.observeDiscoveredTasks(
+        [
+          {
+            task_id: "task123",
+            list_id: "901202442802",
+            source_updated_at_ms: 200,
+          },
+        ],
+        300,
+      ),
+    ).toMatchObject({ unchanged: 1 });
+    expect(store.lookup("task123")?.["comments_stale"]).toBe(true);
+    expect(store.diagnostics()["comment_refresh_pending"]).toBe(1);
+  });
+
+  it("rejects duplicate or malformed discovery summaries", () => {
+    const store = make();
+    const discovered = { task_id: "task123", list_id: "901202442802", source_updated_at_ms: 100 };
+    expect(() => store.observeDiscoveredTasks([discovered, discovered], 200)).toThrow(
+      "INVALID_DISCOVERY_BATCH",
+    );
+    expect(() =>
+      store.observeDiscoveredTasks([{ ...discovered, source_updated_at_ms: 0 }], 200),
+    ).toThrow("INVALID_DISCOVERY_BATCH");
+  });
+
   it("queues both missing snapshot sections after definitive denial, with a bounded retry", () => {
     const store = make();
     store.storeTask(indexedTask(100, "Initial"), 100);

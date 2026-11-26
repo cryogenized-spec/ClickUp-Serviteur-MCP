@@ -1,3 +1,17 @@
+# 26 November 2026 — Opportunistic read-through index reconciliation (draft PR #172)
+
+The owner directed continuation of the persistent ClickUp task intelligence work without a parallel application or database product. A separately reviewable [draft PR #172](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/172) extends the existing actor/Workspace SQLite task index and optional Durable Object sync developed in prerequisite draft [PR #170](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/170) and [PR #171](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/171).
+
+**Scope:** Read-through reconciliation from existing native-OAuth-verified `clickup_filter_tasks` and `clickup_get_my_tasks` responses. Project only task IDs, primary List IDs and source update timestamps; compare them with complete persisted task revisions, enqueue missing/changed records in the existing bounded refresh queue, and preserve pending retry deadlines across repeated reads. Private Durable Object RPC only; no public cache-read tool, additional ClickUp GETs on source-list requests, new database, ClickUp writes or extra authorization layer. See [reconciliation specification](PERSISTENT_INDEX_READTHROUGH_2026-11-26.md).
+
+**Evidence:** Exact code commit `5a3ed17059f78fc3020dce3b7783f81e14f033c8` passed Strict CI [45828257134](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/actions/runs/45828257134) and CodeQL [45828257300](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/actions/runs/45828257300). Tests include actual SQLite duplicate discovery/retry, denial-watermark behavior, private handler pending-only semantics, actor/List capture, minimal data and task/comment synchronization regressions. This documentation commit requires fresh exact-head checks; an independent Codex review is not yet complete.
+
+**Limits:** This increment is opportunistic: it only identifies missed task changes encountered by existing authorized list queries. It cannot claim complete coverage of closed/deleted tasks, comments that do not change task revision or Lists never queried. Durable scheduled pagination and sampled comment auditing remain future increments. The prerequisite #171 remains under final Codex re-review following three further important consistency fixes; #170 already passed its focused review. All three PRs remain draft/unmerged; production is unchanged.
+
+**One next action:** Verify fresh exact-head CI and CodeQL for #172, obtain focused specialist review, resolve actionable findings, then complete the sequenced owner-controlled release process without prematurely enabling production automatic refresh.
+
+---
+
 # 26 November 2026 — Event-driven persistent task index synchronization (draft PR #171)
 
 After the owner directed continuation, first-stage [PR #170](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/pull/170) incorporated the original four Codex P2 corrections, then two additional stale-comment/webhook-replay findings. Real SQLite regression tests were added. The reviewed index foundation is source-only: Strict CI SUCCESS [45818860624](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/actions/runs/45818860624), CodeQL SUCCESS [45818860653](https://github.com/cryogenized-spec/ClickUp-Serviteur-MCP/actions/runs/45818860653), and Codex's final re-review of `baa101eed439129aacade0c551995ded8d7f3b58` found no major issues. PR #170 remains a draft, not merged or deployed.

@@ -95,6 +95,19 @@ export function projectCommentSnapshot(value: unknown) {
   };
 }
 
+/** Small, untrusted list-summary projection. A list entry never overwrites
+ * a complete task snapshot; it can only flag the task for a verified refresh.
+ */
+export function projectTaskDiscovery(value: unknown) {
+  const task = object(value);
+  const id = taskId(task?.["id"]);
+  const list = numericId(object(task?.["list"])?.["id"]);
+  const updated = milliseconds(task?.["date_updated"]);
+  if (!id || !list || !updated) return null;
+  return { task_id: id, list_id: list, source_updated_at_ms: updated };
+}
+
+export type TaskDiscovery = NonNullable<ReturnType<typeof projectTaskDiscovery>>;
 export type TaskSnapshot = NonNullable<ReturnType<typeof projectTaskSnapshot>>;
 export type CommentSnapshot = NonNullable<ReturnType<typeof projectCommentSnapshot>>;
 const validObserved = (value: unknown): value is number =>
@@ -126,6 +139,11 @@ export class TaskIndexStore {
     run(
       "CREATE TABLE IF NOT EXISTS snapshot_denials (task_id TEXT PRIMARY KEY, denied_at INTEGER NOT NULL)",
     );
+    // Latest source revision required by an already-authorized list discovery.
+    // A pending refresh must not erase this newer requirement.
+    run(
+      "CREATE TABLE IF NOT EXISTS task_discovery_requirements (task_id TEXT PRIMARY KEY, list_id TEXT NOT NULL, source_updated_at INTEGER NOT NULL, observed_at INTEGER NOT NULL)",
+    );
   }
 
   markDirty(id: string, event: string, at: number): void {
@@ -142,6 +160,94 @@ export class TaskIndexStore {
     );
     // A fresh, signed change invalidates any earlier retry deferral.
     this.run("DELETE FROM sync_backoff WHERE task_id = ?", id);
+  }
+
+  /** Compare a previously authorized task-list page against full snapshots.
+   * This is an opportunistic reconciliation hint, never a cached substitute
+   * for the actor's current task-level ClickUp authorization.
+   */
+  observeDiscoveredTasks(
+    tasks: readonly TaskDiscovery[],
+    observedAt: number,
+  ): { enqueued: number; already_pending: number; unchanged: number } {
+    if (!validObserved(observedAt) || tasks.length > 50) throw new Error("INVALID_DISCOVERY_BATCH");
+    const ids = new Set<string>();
+    for (const task of tasks) {
+      if (
+        !taskId(task.task_id) ||
+        !numericId(task.list_id) ||
+        !validObserved(task.source_updated_at_ms) ||
+        ids.has(task.task_id)
+      )
+        throw new Error("INVALID_DISCOVERY_BATCH");
+      ids.add(task.task_id);
+    }
+    const metrics = { enqueued: 0, already_pending: 0, unchanged: 0 };
+    this.transactionSync(() => {
+      for (const task of tasks) {
+        // An older list read cannot reinstate records invalidated after
+        // a definitive task-access denial.
+        if (this.deniedBefore(task.task_id, observedAt)) {
+          metrics.unchanged++;
+          continue;
+        }
+        const existing = this.run(
+          "SELECT source_updated_at, list_id FROM task_snapshots WHERE task_id = ?",
+          task.task_id,
+        ).toArray()[0] as { source_updated_at: number; list_id: string } | undefined;
+        if (
+          existing &&
+          existing.source_updated_at >= task.source_updated_at_ms &&
+          existing.list_id === task.list_id
+        ) {
+          metrics.unchanged++;
+          continue;
+        }
+        const required = this.run(
+          "SELECT source_updated_at, list_id, observed_at FROM task_discovery_requirements WHERE task_id = ?",
+          task.task_id,
+        ).toArray()[0] as
+          { source_updated_at: number; list_id: string; observed_at: number } | undefined;
+        const newerRequirement =
+          required === undefined ||
+          task.source_updated_at_ms > required.source_updated_at ||
+          (task.source_updated_at_ms === required.source_updated_at &&
+            task.list_id !== required.list_id &&
+            observedAt > required.observed_at);
+        if (newerRequirement) {
+          this.run(
+            "INSERT INTO task_discovery_requirements(task_id, list_id, source_updated_at, observed_at) VALUES (?, ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET list_id = excluded.list_id, source_updated_at = excluded.source_updated_at, observed_at = excluded.observed_at WHERE excluded.source_updated_at > task_discovery_requirements.source_updated_at OR (excluded.source_updated_at = task_discovery_requirements.source_updated_at AND excluded.observed_at > task_discovery_requirements.observed_at)",
+            task.task_id,
+            task.list_id,
+            task.source_updated_at_ms,
+            observedAt,
+          );
+        }
+        const pending = this.run(
+          "SELECT task_dirty_at, task_checked_at FROM task_refresh WHERE task_id = ?",
+          task.task_id,
+        ).toArray()[0] as { task_dirty_at: number; task_checked_at: number } | undefined;
+        if (pending && pending.task_dirty_at > pending.task_checked_at) {
+          // Preserve existing retry/backoff, but a genuinely newer observed
+          // revision must supersede an older in-flight refresh. Same-revision
+          // discoveries do not endlessly bump the dirty generation.
+          if (newerRequirement) {
+            this.run(
+              "INSERT INTO task_refresh(task_id, task_dirty_at, comments_dirty_at) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET task_dirty_at = MAX(task_refresh.task_dirty_at + 1, task_refresh.task_checked_at + 1, excluded.task_dirty_at), comments_dirty_at = MAX(task_refresh.comments_dirty_at + 1, task_refresh.comments_checked_at + 1, excluded.comments_dirty_at)",
+              task.task_id,
+              observedAt + 1,
+              observedAt + 1,
+            );
+          }
+          metrics.already_pending++;
+          continue;
+        }
+        this.markDirty(task.task_id, "taskUpdated", observedAt);
+        this.markDirty(task.task_id, "taskCommentUpdated", observedAt);
+        metrics.enqueued++;
+      }
+    });
+    return metrics;
   }
 
   /** Bounded work batch, not a lifetime quota: unprocessed tasks remain durable. */
@@ -275,6 +381,10 @@ export class TaskIndexStore {
     let applied = false;
     this.transactionSync(() => {
       if (this.deniedBefore(snapshot.task_id, observedAt)) return;
+      const previous = this.run(
+        "SELECT source_updated_at, list_id FROM task_snapshots WHERE task_id = ?",
+        snapshot.task_id,
+      ).toArray()[0] as { source_updated_at: number; list_id: string } | undefined;
       // RETURNING identifies whether this read was accepted, not merely
       // attempted. A rejected older source revision must leave dirty state.
       const accepted = this.run(
@@ -286,6 +396,35 @@ export class TaskIndexStore {
         observedAt,
       ).toArray();
       if (!accepted.length) return;
+      // A task-only GET can consume the very revision that would otherwise
+      // expose a missed comment edit to the next list reconciliation. Whenever
+      // a *previously indexed* task advances, invalidate the separate comment
+      // collection until an authoritative complete comment read follows.
+      if (
+        previous &&
+        (snapshot.source_updated_at_ms > previous.source_updated_at ||
+          snapshot.list_id !== previous.list_id)
+      ) {
+        this.run(
+          "INSERT INTO task_refresh(task_id, comments_dirty_at) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET comments_dirty_at = MAX(task_refresh.comments_dirty_at + 1, task_refresh.comments_checked_at + 1, excluded.comments_dirty_at)",
+          snapshot.task_id,
+          observedAt + 1,
+        );
+      }
+      const requirement = this.run(
+        "SELECT source_updated_at, list_id FROM task_discovery_requirements WHERE task_id = ?",
+        snapshot.task_id,
+      ).toArray()[0] as { source_updated_at: number; list_id: string } | undefined;
+      // An older in-flight verified read can update a partial snapshot, but
+      // must not clear the required refresh until the discovered version is
+      // actually observed.
+      if (
+        requirement &&
+        (snapshot.source_updated_at_ms < requirement.source_updated_at ||
+          (snapshot.source_updated_at_ms === requirement.source_updated_at &&
+            snapshot.list_id !== requirement.list_id))
+      )
+        return;
       this.run(
         "INSERT INTO task_refresh(task_id, task_checked_at) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET task_checked_at = MAX(task_refresh.task_checked_at, excluded.task_checked_at)",
         snapshot.task_id,
@@ -331,7 +470,15 @@ export class TaskIndexStore {
       }
       // Partial pages can add unique comments, but never declare the complete
       // collection synchronized or delete anything not visible on that page.
-      if (!complete) return;
+      // A first-ever partial read with no webhook still needs a full refresh.
+      if (!complete) {
+        this.run(
+          "INSERT INTO task_refresh(task_id, comments_dirty_at) VALUES (?, ?) ON CONFLICT(task_id) DO UPDATE SET comments_dirty_at = CASE WHEN task_refresh.comments_dirty_at > task_refresh.comments_checked_at THEN task_refresh.comments_dirty_at ELSE MAX(task_refresh.comments_checked_at + 1, excluded.comments_dirty_at) END",
+          id,
+          observedAt + 1,
+        );
+        return;
+      }
       const latest = this.run(
         "SELECT MAX(observed_at) AS last_observed FROM comment_snapshots WHERE task_id = ?",
         id,
@@ -417,7 +564,7 @@ export class TaskIndexStore {
  * prevent an otherwise successful authoritative ClickUp read. */
 async function writeIndex(
   grant: ReadGrant,
-  path: "/index/task" | "/index/comments",
+  path: "/index/task" | "/index/comments" | "/index/discovery",
   body: Json,
 ): Promise<boolean> {
   if (!grant.taskIndex) return false;
@@ -435,6 +582,27 @@ async function writeIndex(
   } catch {
     return false;
   }
+}
+
+/** Read-through reconciliation: the existing authorized list reader can
+ * flag missing/changed tasks without extra upstream API calls.
+ * A list-page hint is NOT proof of current individual task authorization.
+ */
+export async function captureVerifiedTaskDiscoveries(
+  grant: ReadGrant,
+  rawTasks: unknown,
+  observedAt: number,
+): Promise<boolean> {
+  if (!grant.taskIndex || !Array.isArray(rawTasks) || rawTasks.length > 50) return false;
+  const projected = rawTasks.map(projectTaskDiscovery);
+  if (projected.some((item) => item === null)) return false;
+  const discoveries = projected.filter((item): item is TaskDiscovery => item !== null);
+  if (
+    discoveries.some((item) => grant.resourceScope !== "workspace" && item.list_id !== grant.listId)
+  )
+    return false;
+  if (discoveries.length === 0) return true;
+  return writeIndex(grant, "/index/discovery", { tasks: discoveries, observed_at: observedAt });
 }
 
 export async function captureVerifiedTask(

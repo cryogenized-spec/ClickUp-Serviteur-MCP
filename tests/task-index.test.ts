@@ -3,6 +3,8 @@ import {
   TaskIndexStore,
   captureVerifiedComments,
   captureVerifiedTask,
+  captureVerifiedTaskDiscoveries,
+  projectTaskDiscovery,
   projectCommentSnapshot,
   projectTaskSnapshot,
 } from "../src/clickup/task-index.js";
@@ -163,6 +165,37 @@ describe("verified ClickUp read capture", () => {
     const body = (await request.json()) as Record<string, unknown>;
     expect((body["snapshot"] as { task_id: string }).task_id).toBe("task123");
     expect(JSON.stringify(body)).not.toContain("signed-private");
+  });
+
+  it("sends only minimal task revision hints from an authorized list read", async () => {
+    const { grant, calls } = fixture();
+    expect(projectTaskDiscovery(upstreamTask)).toEqual({
+      task_id: "task123",
+      list_id: "901202442802",
+      source_updated_at_ms: 1795528779756,
+    });
+    expect(await captureVerifiedTaskDiscoveries(grant, [upstreamTask], 1795681000000)).toBe(true);
+    expect(calls).toHaveBeenCalledTimes(1);
+    const request = calls.mock.calls[0]![0];
+    expect(new URL(request.url).pathname).toBe("/index/discovery");
+    const content = await request.text();
+    expect(content).toContain("1795528779756");
+    expect(content).not.toContain("Cabinet guide");
+    expect(content).not.toContain("signed-private");
+    expect(content).not.toContain("Needs replacement guide");
+  });
+
+  it("refuses foreign-list or malformed discovery items without a private write", async () => {
+    const { grant, calls } = fixture("999999");
+    expect(await captureVerifiedTaskDiscoveries(grant, [upstreamTask], 1795681000000)).toBe(false);
+    expect(
+      await captureVerifiedTaskDiscoveries(
+        grant,
+        [{ id: "task12", list: { id: "999999" }, date_updated: null }],
+        1795681000000,
+      ),
+    ).toBe(false);
+    expect(calls).not.toHaveBeenCalled();
   });
 
   it("does not cache a foreign-List task even if a caller supplies its record", async () => {
