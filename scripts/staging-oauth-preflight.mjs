@@ -10,8 +10,11 @@ export function missingStagingOAuthBindings(bindings) {
   const find = (name) => bindings.find((binding) => binding?.name === name);
   const missing = [];
   const allowlist = find("ALLOWED_GITHUB_IDS");
+  const ids = typeof allowlist?.text === "string"
+    ? allowlist.text.split(",").map((entry) => entry.trim()) : [];
   if (!allowlist || allowlist.type !== "plain_text" ||
-      !/^[1-9]\d*(?:,[1-9]\d*){0,3}$/.test(allowlist.text ?? "")) {
+      ids.length < 1 || ids.length > 4 || new Set(ids).size !== ids.length ||
+      ids.some((id) => !/^[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id)))) {
     missing.push("ALLOWED_GITHUB_IDS");
   }
   const id = find("GITHUB_CLIENT_ID");
