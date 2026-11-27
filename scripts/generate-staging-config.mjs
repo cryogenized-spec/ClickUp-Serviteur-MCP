@@ -26,6 +26,7 @@ if (typeof buildSha !== "string" || !/^[a-f0-9]{40}$/.test(buildSha)) {
 const stage = {
   name: "clickup-serviteur-staging",
   vars: {
+    MCP_PUBLIC_ORIGIN: "https://clickup-serviteur-staging.cryogenized.workers.dev",
     CLICKUP_WORKSPACE_GITHUB_IDS: workspaceOwnerIds,
     CLICKUP_RESOURCE_SCOPE: "workspace",
     MCP_BUILD_SHA: buildSha,
