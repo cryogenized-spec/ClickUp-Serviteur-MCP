@@ -55,6 +55,9 @@ class StagingManifestTests(unittest.TestCase):
         assert config is not None
         self.assertEqual("111222333,444555666", config["vars"]["CLICKUP_WORKSPACE_GITHUB_IDS"])
         self.assertEqual("clickup-serviteur-staging", config["name"])
+        self.assertEqual("https://clickup-serviteur-staging.cryogenized.workers.dev", config["vars"]["MCP_PUBLIC_ORIGIN"])
+        self.assertNotIn("GITHUB_CLIENT_SECRET", config["vars"])
+        self.assertNotIn("ALLOWED_GITHUB_IDS", config["vars"])
         self.assertEqual("b" * 40, config["vars"]["MCP_BUILD_SHA"])
         self.assertTrue(config["keep_vars"])
 

@@ -27,6 +27,11 @@ jobs:
           cache: npm
       - name: Reproducible install
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify existing staging OAuth configuration before deployment
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/staging-oauth-preflight.mjs
       - name: Mandatory full verification before any deploy
         run: |
           python3 scripts/check_repo_policy.py
