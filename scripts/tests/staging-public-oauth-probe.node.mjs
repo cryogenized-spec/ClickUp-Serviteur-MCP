@@ -6,6 +6,8 @@ import {
   stagingOrigin,
 } from "../staging-public-oauth-probe.mjs";
 
+import { missingStagingOAuthBindings, stagingOAuthPreflight } from "../staging-oauth-preflight.mjs";
+
 const ORIGIN = "https://clickup-serviteur-staging.cryogenized.workers.dev";
 const META = ORIGIN + "/.well-known/oauth-protected-resource/mcp";
 const AUTH = ORIGIN + "/.well-known/oauth-authorization-server";
@@ -145,5 +147,61 @@ describe("staging public OAuth perimeter smoke (no token or MCP connection)", ()
   it("keeps transport failures generic without exposing remote exception contents", async () => {
     const fail = async () => { throw new Error("private secret or credentials"); };
     await assertStage(probeStagingPublicOAuth(fail), "challenge");
+  });
+});
+
+describe("staging OAuth deployment preflight", () => {
+  const configured = [
+    { name: "ALLOWED_GITHUB_IDS", type: "plain_text", text: "11, 22" },
+    { name: "GITHUB_CLIENT_ID", type: "plain_text", text: "synthetic-client-id" },
+    { name: "GITHUB_CLIENT_SECRET", type: "secret_text" },
+  ];
+
+  it("rejects the actual missing staging configuration before deployment", () => {
+    assert.deepEqual(missingStagingOAuthBindings([]), [
+      "ALLOWED_GITHUB_IDS", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET",
+    ]);
+    assert.deepEqual(missingStagingOAuthBindings(configured.slice(0, 1)), [
+      "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET",
+    ]);
+  });
+
+  it("accepts isolated configured credentials without reading secret values", () => {
+    assert.deepEqual(missingStagingOAuthBindings(configured), []);
+    assert.deepEqual(missingStagingOAuthBindings([
+      ...configured.slice(0, 2),
+      { name: "GITHUB_CLIENT_SECRET", type: "plain_text", text: "not-a-secret-binding" },
+    ]), ["GITHUB_CLIENT_SECRET"]);
+    for (const text of ["11,11", "9007199254740992", "0"]) {
+      assert.deepEqual(missingStagingOAuthBindings([
+        { ...configured[0], text }, ...configured.slice(1),
+      ]), ["ALLOWED_GITHUB_IDS"]);
+    }
+  });
+
+  it("reads only staging settings and never follows redirects", async () => {
+    const account = "a".repeat(32);
+    const calls = [];
+    const fetcher = async (url, init) => {
+      calls.push({ url, init });
+      return Response.json({ success: true, result: { bindings: configured } });
+    };
+    assert.deepEqual(await stagingOAuthPreflight(fetcher, account, "synthetic-token"), []);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "https://api.cloudflare.com/client/v4/accounts/" + account +
+      "/workers/scripts/clickup-serviteur-staging/settings");
+    assert.equal(calls[0].init.method, "GET");
+    assert.equal(calls[0].init.redirect, "error");
+  });
+
+  it("reports generic errors for unavailable settings, without leaking response details", async () => {
+    await assert.rejects(
+      stagingOAuthPreflight(async () => { throw new Error("synthetic private value"); }, "a".repeat(32), "synthetic-token"),
+      { message: "STAGING_BINDINGS_UNAVAILABLE" },
+    );
+    await assert.rejects(
+      stagingOAuthPreflight(async () => Response.json({ success: false }), "a".repeat(32), "synthetic-token"),
+      { message: "STAGING_BINDINGS_UNAVAILABLE" },
+    );
   });
 });
