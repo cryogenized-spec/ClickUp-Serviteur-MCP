@@ -5,6 +5,7 @@ import {
   type AttentionSnapshot,
 } from "./automatic-attention.js";
 import { FollowupLedger, FollowupLedgerError } from "./followup-ledger.js";
+import { AttentionDeliveryLedger } from "./attention-delivery-ledger.js";
 import { grantForSignedWebhook, retryDelayMs, synchronizeDirtyTask } from "./task-index-sync.js";
 import {
   projectCommentSnapshot,
@@ -25,6 +26,7 @@ const WEEK = 7 * 24 * 60 * 60 * 1000;
 export class ClickUpWebhookEvents {
   private readonly taskIndex: TaskIndexStore;
   private readonly followups: FollowupLedger;
+  private readonly deliveries: AttentionDeliveryLedger;
 
   constructor(
     private readonly state: DurableObjectState,
@@ -57,6 +59,9 @@ export class ClickUpWebhookEvents {
       (statement, ...bindings) => state.storage.sql.exec(statement, ...bindings),
       (action) => state.storage.transactionSync(action),
     );
+    this.deliveries = new AttentionDeliveryLedger(
+      (statement, ...bindings) => state.storage.sql.exec(statement, ...bindings),
+    );
     state.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS automatic_attention (task_id TEXT PRIMARY KEY, last_received_at_ms INTEGER NOT NULL DEFAULT 0, last_event_key TEXT NOT NULL DEFAULT '', processed_at_ms INTEGER NOT NULL, source_updated_at_ms INTEGER NOT NULL, ownership TEXT NOT NULL, needs_attention INTEGER NOT NULL, reason TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0)",
     );
@@ -82,6 +87,7 @@ export class ClickUpWebhookEvents {
         {
           task_id: taskId,
           checkpoint,
+          delivery: this.deliveries.taskSummary(taskId),
           state_maintained_by: "durable-object-alarm",
           notification_delivery_verified: false,
         },
@@ -731,6 +737,17 @@ export class ClickUpWebhookEvents {
         decision.reason,
         (previous?.revision ?? 0) + 1,
       );
+      if (decision.needs_attention && rows.length > 0) {
+        // An alert is NOT a delivered report. Keep it in an independent
+        // outbox until a platform-owned publisher can confirm publication.
+        this.deliveries.enqueue(
+          taskId,
+          (previous?.revision ?? 0) + 1,
+          rows.map((row) => row.event_key),
+          decision.reason,
+          Date.now(),
+        );
+      }
       for (const row of rows)
         this.state.storage.sql.exec(
           "INSERT OR IGNORE INTO consumer_processed(consumer, event_key, processed_at) VALUES ('backend-attention', ?, ?)",
