@@ -197,6 +197,65 @@ describe("Durable Object backend checkpoint", () => {
     });
   });
 
+  it("does not drop an event arriving late with the same millisecond and a lower key", async () => {
+    const { db, instance, checkpoint } = fixture();
+    const at = Date.now();
+    const prefix = "7689a169-a000-4985-8676-6902b96d6627:";
+    const send = (suffix: string) =>
+      instance.fetch(
+        new Request("https://internal/ingest", {
+          method: "POST",
+          body: JSON.stringify([
+            {
+              key: prefix + suffix,
+              taskId: "task1",
+              event: "taskStatusUpdated",
+              receivedAt: at,
+              metadata: { actor_user_id: other, field: "status" },
+            },
+          ]),
+        }),
+      );
+    const index = (observedAt: number) =>
+      instance.fetch(
+        new Request("https://internal/index/task", {
+          method: "POST",
+          body: JSON.stringify({
+            observed_at: observedAt,
+            snapshot: projectTaskSnapshot({
+              id: "task1",
+              name: "Verified",
+              list: { id: "12345" },
+              assignees: [{ id: self }],
+              date_updated: at + 1,
+            }),
+          }),
+        }),
+      );
+    expect((await send("historyzzzz")).status).toBe(204);
+    expect((await index(at + 1000)).status).toBe(200);
+    checkpoint(at);
+    // The next signed event has the SAME receipt millisecond, but sorts
+    // before the previously committed cursor key. Its receipt must win.
+    expect((await send("historyaaaa")).status).toBe(204);
+    expect((await index(at + 2000)).status).toBe(200);
+    checkpoint(at + 1);
+    const state = (await (
+      await instance.fetch(new Request("https://internal/attention/task?task_id=task1"))
+    ).json()) as {
+      checkpoint: { revision: number; last_event_key: string };
+    };
+    expect(state.checkpoint).toMatchObject({
+      revision: 2,
+      last_event_key: prefix + "historyzzzz",
+    });
+    expect(
+      db.prepare(
+        "SELECT COUNT(*) AS n FROM consumer_processed WHERE consumer = 'backend-attention'",
+      ).get(),
+    ).toMatchObject({ n: 2 });
+  });
+
   it("does not mark a still-dirty snapshot as processed", async () => {
     const { instance, checkpoint } = fixture();
     const at = Date.now();
