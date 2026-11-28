@@ -1666,6 +1666,17 @@ export const CLICKUP_MODEL_TOOL_CATALOG: readonly ModelToolDefinition[] = [
     ],
   ),
 
+  // BACKEND-MAINTAINED ATTENTION CHECKPOINT (read-only)
+  tool(
+    "clickup_get_automatic_attention_state",
+    "Get Automatic Attention State",
+    "reporting",
+    "read",
+    "After fresh ClickUp task authorization, read the attention checkpoint maintained by the Durable Object alarm. Checkpoints indicate processed events and routing, NOT notification delivery or confirmed user awareness. Requires backend autosync to be enabled.",
+    "Was this task changed since the last successful system refresh, and is it still assigned to me?",
+    ["task_id"],
+  ),
+
   // PERSISTENT ACTIVITY REGISTER
   tool(
     "clickup_get_pending_activity",
