@@ -683,12 +683,9 @@ export class ClickUpWebhookEvents {
           received_at: number;
           metadata_json: string | null;
         }>(
-          "SELECT h.event_key, h.event, h.received_at, m.metadata AS metadata_json FROM hints h LEFT JOIN hint_metadata m ON m.event_key = h.event_key WHERE h.task_id = ? AND h.received_at <= ? AND (h.received_at > ? OR (h.received_at = ? AND h.event_key > ?)) ORDER BY h.received_at, h.event_key",
+          "SELECT h.event_key, h.event, h.received_at, m.metadata AS metadata_json FROM hints h LEFT JOIN hint_metadata m ON m.event_key = h.event_key LEFT JOIN consumer_processed p ON p.event_key = h.event_key AND p.consumer = 'backend-attention' WHERE h.task_id = ? AND h.received_at <= ? AND p.event_key IS NULL ORDER BY h.received_at, h.event_key",
           taskId,
           cutoff,
-          at,
-          at,
-          key,
         )
         .toArray();
       const hints: AttentionHint[] = rows.map((row) => {
@@ -716,8 +713,12 @@ export class ClickUpWebhookEvents {
       );
       if (previous && !hints.length && previous.ownership === decision.ownership) return;
       const last = rows[rows.length - 1];
-      const receivedAt = last?.received_at ?? at;
-      const eventKey = last?.event_key ?? key;
+      const advances =
+        last &&
+        (last.received_at > at ||
+          (last.received_at === at && last.event_key > key));
+      const receivedAt = advances ? last.received_at : at;
+      const eventKey = advances ? last.event_key : key;
       // Persist the high-water mark, routing decision and the private internal
       // consumer receipts as one SQLite transaction.
       this.state.storage.sql.exec(
