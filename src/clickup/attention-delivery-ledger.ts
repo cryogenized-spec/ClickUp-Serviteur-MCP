@@ -79,7 +79,8 @@ export class AttentionDeliveryLedger {
     reason: string;
     queued_at_ms: number;
   }> {
-    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("ATTENTION_DELIVERY_INVALID");
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+      throw new Error("ATTENTION_DELIVERY_INVALID");
     const rows = this.run(
       "SELECT alert_id, task_id, attention_revision, event_keys_json, reason, queued_at_ms FROM attention_delivery_outbox WHERE published_at_ms IS NULL ORDER BY queued_at_ms, alert_id LIMIT ?",
       limit,
