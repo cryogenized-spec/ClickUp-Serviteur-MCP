@@ -250,9 +250,11 @@ describe("Durable Object backend checkpoint", () => {
       last_event_key: prefix + "historyzzzz",
     });
     expect(
-      db.prepare(
-        "SELECT COUNT(*) AS n FROM consumer_processed WHERE consumer = 'backend-attention'",
-      ).get(),
+      db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM consumer_processed WHERE consumer = 'backend-attention'",
+        )
+        .get(),
     ).toMatchObject({ n: 2 });
   });
 
