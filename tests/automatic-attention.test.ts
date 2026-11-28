@@ -148,13 +148,14 @@ describe("Durable Object backend checkpoint", () => {
       metadata: { actor_user_id: other, field: "status" },
     };
     const ingest = (item: typeof event) =>
-      instance.fetch(new Request("https://internal/ingest", {
-        method: "POST",
-        body: JSON.stringify([item]),
-      }));
+      instance.fetch(
+        new Request("https://internal/ingest", {
+          method: "POST",
+          body: JSON.stringify([item]),
+        }),
+      );
     expect((await ingest(event)).status).toBe(204);
-    const read = () =>
-      instance.fetch(new Request("https://internal/attention/task?task_id=task1"));
+    const read = () => instance.fetch(new Request("https://internal/attention/task?task_id=task1"));
     expect(await (await read()).json()).toMatchObject({ checkpoint: null });
     const indexed = projectTaskSnapshot({
       id: "task1",
@@ -165,10 +166,12 @@ describe("Durable Object backend checkpoint", () => {
       date_updated: at + 1,
     });
     expect(indexed).not.toBeNull();
-    const stored = await instance.fetch(new Request("https://internal/index/task", {
-      method: "POST",
-      body: JSON.stringify({ snapshot: indexed, observed_at: at + 1000 }),
-    }));
+    const stored = await instance.fetch(
+      new Request("https://internal/index/task", {
+        method: "POST",
+        body: JSON.stringify({ snapshot: indexed, observed_at: at + 1000 }),
+      }),
+    );
     expect(stored.status).toBe(200);
     checkpoint(at);
     const first = (await (await read()).json()) as {
@@ -180,7 +183,10 @@ describe("Durable Object backend checkpoint", () => {
       last_event_key: event.key,
     });
     expect(
-      db.prepare("SELECT COUNT(*) AS n FROM consumer_processed WHERE consumer = 'backend-attention'")
+      db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM consumer_processed WHERE consumer = 'backend-attention'",
+        )
         .get(),
     ).toMatchObject({ n: 1 });
     // Replays and repeated alarms do not advance the system checkpoint.
@@ -200,10 +206,12 @@ describe("Durable Object backend checkpoint", () => {
       event: "taskCommentPosted",
       receivedAt: at,
     };
-    await instance.fetch(new Request("https://internal/ingest", {
-      method: "POST",
-      body: JSON.stringify([event]),
-    }));
+    await instance.fetch(
+      new Request("https://internal/ingest", {
+        method: "POST",
+        body: JSON.stringify([event]),
+      }),
+    );
     checkpoint(at + 1);
     const response = await instance.fetch(
       new Request("https://internal/attention/task?task_id=task1"),
