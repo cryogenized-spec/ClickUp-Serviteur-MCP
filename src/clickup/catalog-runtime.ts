@@ -1277,6 +1277,7 @@ export const OPERATIONAL_CATALOG_NAMES: readonly string[] = [
   "clickup_update_key_result_progress",
   "clickup_get_overdue_followups",
   "clickup_get_followup_state",
+  "clickup_get_automatic_attention_state",
   "clickup_record_followup_action",
   "clickup_get_pending_activity",
   "clickup_mark_consumer_activity_processed",
@@ -2175,6 +2176,7 @@ export async function runCatalogOperation(
           "One live candidate page, not the ClickUp Inbox. Continue the opaque cursor with the same due_before_ms and List filter while incomplete; cursor expires after 24 hours. Notes are curated, not evidence of customer contact.",
       };
     }
+    case "clickup_get_automatic_attention_state":
     case "clickup_get_followup_state":
     case "clickup_record_followup_action": {
       if (!g.taskIndex) throw new ReadFailure("CLICKUP_FOLLOWUP_STORAGE_UNAVAILABLE");
@@ -2186,6 +2188,31 @@ export async function runCatalogOperation(
       const taskId = String(current["id"]);
       const binding = g.taskIndex;
       const stub = binding.get(binding.idFromName(W + ":" + g.subject) as never);
+      if (name === "clickup_get_automatic_attention_state") {
+        const url = new URL("https://internal/attention/task");
+        url.searchParams.set("task_id", taskId);
+        const response = await stub.fetch(new Request(url));
+        if (!response.ok) throw new ReadFailure("CLICKUP_ATTENTION_STORAGE_UNAVAILABLE");
+        const value = obj(await response.json());
+        if (!value || value["task_id"] !== taskId)
+          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        return {
+          ...value,
+          verified_clickup_task: {
+            task_id: taskId,
+            title: current["name"],
+            status: obj(current["status"])?.["status"] ?? null,
+            assignee_user_ids: Array.isArray(current["assignees"])
+              ? current["assignees"]
+                  .map((assignee) => obj(assignee)?.["id"])
+                  .filter((id) => id !== undefined)
+              : [],
+          },
+          task_access_verified: true,
+          note:
+            "System checkpoint is backend processing progress, not an acknowledgement that any user received or read an alert. A null checkpoint means autosync has not yet completed for this task.",
+        };
+      }
       if (name === "clickup_get_followup_state") {
         const url = new URL("https://internal/followups/task");
         url.searchParams.set("task_id", taskId);
