@@ -23,9 +23,11 @@ notification. Reporting/delivery acknowledgement remains a separate concern.
 4. The checkpoint contains the task ID, last accepted event receipt time and key,
    sync time, source task revision, owner classification, whether the latest
    processed batch warrants the user's attention, and a monotonic revision.
-5. The next alarm compares event identities against the persisted compound
-   high-water mark. No new movement -> no new checkpoint revision. Duplicate
-   webhook deliveries -> no new revision.
+5. The next alarm queries unprocessed exact event identifiers using the private
+   `backend-attention` receipts as its authority. The compound high-water mark
+   is retained for inspection, but never used alone to suppress an event;
+   late same-millisecond deliveries are therefore still processed. No new
+   movement -> no new checkpoint revision. Duplicate deliveries -> no revision.
 6. A webhook arriving during an upstream read invalidates the task's dirty
    generation. The alarm must not advance the attention checkpoint for the
    stale generation; an independent alarm processes the new one.
