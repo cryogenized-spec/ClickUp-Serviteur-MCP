@@ -1,4 +1,5 @@
 import type { OAuthEnv } from "../auth/env.js";
+import { classifyAutomaticAttention, type AttentionHint, type AttentionSnapshot } from "./automatic-attention.js";
 import { FollowupLedger, FollowupLedgerError } from "./followup-ledger.js";
 import { grantForSignedWebhook, retryDelayMs, synchronizeDirtyTask } from "./task-index-sync.js";
 import {
@@ -52,6 +53,9 @@ export class ClickUpWebhookEvents {
       (statement, ...bindings) => state.storage.sql.exec(statement, ...bindings),
       (action) => state.storage.transactionSync(action),
     );
+    state.storage.sql.exec(
+      "CREATE TABLE IF NOT EXISTS automatic_attention (task_id TEXT PRIMARY KEY, last_received_at_ms INTEGER NOT NULL DEFAULT 0, last_event_key TEXT NOT NULL DEFAULT '', processed_at_ms INTEGER NOT NULL, source_updated_at_ms INTEGER NOT NULL, ownership TEXT NOT NULL, needs_attention INTEGER NOT NULL, reason TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0)",
+    );
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -60,6 +64,22 @@ export class ClickUpWebhookEvents {
     // Actor/Workspace-private RPCs. The MCP caller must first reverify current
     // ClickUp task access with this individual OAuth actor; never expose these
     // routes on the public Worker router.
+    if (request.method === "GET" && path === "/attention/task") {
+      const taskId = url.searchParams.get("task_id") ?? "";
+      if (!/^[a-zA-Z0-9_-]{1,80}$/.test(taskId))
+        return new Response(null, { status: 400 });
+      const checkpoint =
+        this.state.storage.sql
+          .exec(
+            "SELECT task_id, last_received_at_ms, last_event_key, processed_at_ms, source_updated_at_ms, ownership, needs_attention, reason, revision FROM automatic_attention WHERE task_id = ?",
+            taskId,
+          )
+          .toArray()[0] ?? null;
+      return Response.json(
+        { task_id: taskId, checkpoint, state_maintained_by: "durable-object-alarm", notification_delivery_verified: false },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
     if (request.method === "GET" && path === "/followups/task") {
       const taskId = url.searchParams.get("task_id") ?? "";
       const limitRaw = url.searchParams.get("limit") ?? "20";
@@ -617,6 +637,101 @@ export class ClickUpWebhookEvents {
    * Each invocation processes a bounded batch, preserving the remainder in
    * SQLite; retries are durable and respect ClickUp's per-user quota handling.
    */
+  /**
+   * Advance the backend-only event checkpoint after a successful, authorised
+   * task/comment refresh. The cutoff is captured BEFORE the upstream requests:
+   * an event arriving during refresh must remain unprocessed for the next alarm.
+   * This is NOT a proof that any briefing reached the user.
+   */
+  private checkpointAttention(taskId: string, actorUserId: string, cutoff: number): void {
+    this.state.storage.transactionSync(() => {
+      const indexed = this.taskIndex.lookup(taskId);
+      if (!indexed || indexed["task_stale"] || indexed["comments_stale"]) return;
+      const snapshot = indexed["task"] as AttentionSnapshot | undefined;
+      if (
+        !snapshot ||
+        snapshot.task_id !== taskId ||
+        !Array.isArray(snapshot.assignee_ids) ||
+        !Number.isSafeInteger(snapshot.source_updated_at_ms)
+      ) return;
+      const previous = this.state.storage.sql
+        .exec<{
+          last_received_at_ms: number;
+          last_event_key: string;
+          ownership: string;
+          revision: number;
+        }>(
+          "SELECT last_received_at_ms, last_event_key, ownership, revision FROM automatic_attention WHERE task_id = ?",
+          taskId,
+        )
+        .toArray()[0];
+      const at = previous?.last_received_at_ms ?? 0;
+      const key = previous?.last_event_key ?? "";
+      const rows = this.state.storage.sql
+        .exec<{
+          event_key: string;
+          event: string;
+          received_at: number;
+          metadata_json: string | null;
+        }>(
+          "SELECT h.event_key, h.event, h.received_at, m.metadata AS metadata_json FROM hints h LEFT JOIN hint_metadata m ON m.event_key = h.event_key WHERE h.task_id = ? AND h.received_at < ? AND (h.received_at > ? OR (h.received_at = ? AND h.event_key > ?)) ORDER BY h.received_at, h.event_key",
+          taskId,
+          cutoff,
+          at,
+          at,
+          key,
+        )
+        .toArray();
+      const hints: AttentionHint[] = rows.map((row) => {
+        let metadata = {};
+        try {
+          metadata = row.metadata_json
+            ? sanitizeWebhookMetadata(JSON.parse(row.metadata_json))
+            : {};
+        } catch {
+          // Missing or malformed optional metadata never manufactures a mention.
+        }
+        return {
+          event_key: row.event_key,
+          event: row.event,
+          received_at: row.received_at,
+          metadata,
+        };
+      });
+      const followup = this.followups.read(taskId, 1).state;
+      const decision = classifyAutomaticAttention(
+        snapshot,
+        actorUserId,
+        hints,
+        followup as { state?: string; waiting_on_user_id?: string | null } | null,
+      );
+      if (previous && !hints.length && previous.ownership === decision.ownership) return;
+      const last = rows[rows.length - 1];
+      const receivedAt = last?.received_at ?? at;
+      const eventKey = last?.event_key ?? key;
+      // Persist the high-water mark, routing decision and the private internal
+      // consumer receipts as one SQLite transaction.
+      this.state.storage.sql.exec(
+        "INSERT INTO automatic_attention(task_id, last_received_at_ms, last_event_key, processed_at_ms, source_updated_at_ms, ownership, needs_attention, reason, revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET last_received_at_ms = excluded.last_received_at_ms, last_event_key = excluded.last_event_key, processed_at_ms = excluded.processed_at_ms, source_updated_at_ms = excluded.source_updated_at_ms, ownership = excluded.ownership, needs_attention = excluded.needs_attention, reason = excluded.reason, revision = excluded.revision",
+        taskId,
+        receivedAt,
+        eventKey,
+        Date.now(),
+        snapshot.source_updated_at_ms,
+        decision.ownership,
+        decision.needs_attention ? 1 : 0,
+        decision.reason,
+        (previous?.revision ?? 0) + 1,
+      );
+      for (const row of rows)
+        this.state.storage.sql.exec(
+          "INSERT OR IGNORE INTO consumer_processed(consumer, event_key, processed_at) VALUES ('backend-attention', ?, ?)",
+          row.event_key,
+          Date.now(),
+        );
+    });
+  }
+
   async alarm(): Promise<void> {
     const now = Date.now();
     this.state.storage.sql.exec("DELETE FROM hints WHERE received_at <= ?", now - WEEK);
@@ -651,9 +766,13 @@ export class ClickUpWebhookEvents {
           }
           if (grant) {
             for (const pending of dirty) {
+              const syncStartedAt = Date.now();
               try {
                 const result = await synchronizeDirtyTask(pending, grant, this.taskIndex, fetch);
-                if (result.complete) this.taskIndex.clearRetry(pending.task_id);
+                if (result.complete) {
+                  this.checkpointAttention(pending.task_id, grant.clickupUserId, syncStartedAt);
+                  this.taskIndex.clearRetry(pending.task_id);
+                }
                 else
                   this.taskIndex.deferTaskIfCurrent(
                     pending.task_id,
