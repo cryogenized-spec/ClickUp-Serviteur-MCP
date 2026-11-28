@@ -640,7 +640,7 @@ export class ClickUpWebhookEvents {
   /**
    * Advance the backend-only event checkpoint after a successful, authorised
    * task/comment refresh. The cutoff is captured BEFORE the upstream requests:
-   * an event arriving during refresh must remain unprocessed for the next alarm.
+   * an event arriving during refresh invalidates the snapshot and remains pending.
    * This is NOT a proof that any briefing reached the user.
    */
   private checkpointAttention(taskId: string, actorUserId: string, cutoff: number): void {
@@ -674,7 +674,7 @@ export class ClickUpWebhookEvents {
           received_at: number;
           metadata_json: string | null;
         }>(
-          "SELECT h.event_key, h.event, h.received_at, m.metadata AS metadata_json FROM hints h LEFT JOIN hint_metadata m ON m.event_key = h.event_key WHERE h.task_id = ? AND h.received_at < ? AND (h.received_at > ? OR (h.received_at = ? AND h.event_key > ?)) ORDER BY h.received_at, h.event_key",
+          "SELECT h.event_key, h.event, h.received_at, m.metadata AS metadata_json FROM hints h LEFT JOIN hint_metadata m ON m.event_key = h.event_key WHERE h.task_id = ? AND h.received_at <= ? AND (h.received_at > ? OR (h.received_at = ? AND h.event_key > ?)) ORDER BY h.received_at, h.event_key",
           taskId,
           cutoff,
           at,
