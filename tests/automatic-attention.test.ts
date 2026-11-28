@@ -103,7 +103,7 @@ describe("Durable Object backend checkpoint", () => {
     const sql = {
       exec: (query: string, ...args: Array<string | number | null>) => {
         const stmt = db.prepare(query);
-        if (query.trimStart().startsWith("SELECT") || query.includes("RETURNING")))
+        if (query.trimStart().startsWith("SELECT") || query.includes("RETURNING"))
           return { one: () => stmt.get(...args), toArray: () => stmt.all(...args) };
         stmt.run(...args);
         return { one: () => null, toArray: () => [] };
