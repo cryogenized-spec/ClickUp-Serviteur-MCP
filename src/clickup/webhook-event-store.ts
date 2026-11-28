@@ -1,5 +1,9 @@
 import type { OAuthEnv } from "../auth/env.js";
-import { classifyAutomaticAttention, type AttentionHint, type AttentionSnapshot } from "./automatic-attention.js";
+import {
+  classifyAutomaticAttention,
+  type AttentionHint,
+  type AttentionSnapshot,
+} from "./automatic-attention.js";
 import { FollowupLedger, FollowupLedgerError } from "./followup-ledger.js";
 import { grantForSignedWebhook, retryDelayMs, synchronizeDirtyTask } from "./task-index-sync.js";
 import {
@@ -66,8 +70,7 @@ export class ClickUpWebhookEvents {
     // routes on the public Worker router.
     if (request.method === "GET" && path === "/attention/task") {
       const taskId = url.searchParams.get("task_id") ?? "";
-      if (!/^[a-zA-Z0-9_-]{1,80}$/.test(taskId))
-        return new Response(null, { status: 400 });
+      if (!/^[a-zA-Z0-9_-]{1,80}$/.test(taskId)) return new Response(null, { status: 400 });
       const checkpoint =
         this.state.storage.sql
           .exec(
@@ -76,7 +79,12 @@ export class ClickUpWebhookEvents {
           )
           .toArray()[0] ?? null;
       return Response.json(
-        { task_id: taskId, checkpoint, state_maintained_by: "durable-object-alarm", notification_delivery_verified: false },
+        {
+          task_id: taskId,
+          checkpoint,
+          state_maintained_by: "durable-object-alarm",
+          notification_delivery_verified: false,
+        },
         { headers: { "Cache-Control": "no-store" } },
       );
     }
@@ -653,7 +661,8 @@ export class ClickUpWebhookEvents {
         snapshot.task_id !== taskId ||
         !Array.isArray(snapshot.assignee_ids) ||
         !Number.isSafeInteger(snapshot.source_updated_at_ms)
-      ) return;
+      )
+        return;
       const previous = this.state.storage.sql
         .exec<{
           last_received_at_ms: number;
@@ -772,8 +781,7 @@ export class ClickUpWebhookEvents {
                 if (result.complete) {
                   this.checkpointAttention(pending.task_id, grant.clickupUserId, syncStartedAt);
                   this.taskIndex.clearRetry(pending.task_id);
-                }
-                else
+                } else
                   this.taskIndex.deferTaskIfCurrent(
                     pending.task_id,
                     Date.now() + 15 * 60_000,
