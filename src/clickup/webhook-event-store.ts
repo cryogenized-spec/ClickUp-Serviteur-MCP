@@ -714,9 +714,7 @@ export class ClickUpWebhookEvents {
       if (previous && !hints.length && previous.ownership === decision.ownership) return;
       const last = rows[rows.length - 1];
       const advances =
-        last &&
-        (last.received_at > at ||
-          (last.received_at === at && last.event_key > key));
+        last && (last.received_at > at || (last.received_at === at && last.event_key > key));
       const receivedAt = advances ? last.received_at : at;
       const eventKey = advances ? last.event_key : key;
       // Persist the high-water mark, routing decision and the private internal
