@@ -10,6 +10,13 @@ function setup(
 ) {
   const privateCalls = vi.fn(async (request: Request) => {
     const path = new URL(request.url).pathname;
+    if (path === "/attention/task")
+      return Response.json({
+        task_id: "abc123",
+        checkpoint: { ownership: "delegated", needs_attention: 0, revision: 1 },
+        notification_delivery_verified: false,
+        state_maintained_by: "durable-object-alarm",
+      });
     if (path === "/followups/receipt") return Response.json({ receipt: priorReceipt });
     if (path === "/followups/task")
       return Response.json({
@@ -86,6 +93,34 @@ function setup(
 }
 
 describe("OAuth-verifying follow-up MCP adapter", () => {
+  it("reads autonomous attention state without advancing a cursor or bypassing OAuth", async () => {
+    const { api, grant, privateCalls } = setup();
+    const state = await runCatalogOperation(
+      "clickup_get_automatic_attention_state",
+      { task_id: "abc123" },
+      grant,
+      api as typeof fetch,
+    );
+    expect(state).toMatchObject({
+      checkpoint: { ownership: "delegated", needs_attention: 0, revision: 1 },
+      task_access_verified: true,
+      notification_delivery_verified: false,
+    });
+    expect(privateCalls).toHaveBeenCalledTimes(1);
+    expect(privateCalls.mock.calls[0]![0].method).toBe("GET");
+    expect(new URL(privateCalls.mock.calls[0]![0].url).pathname).toBe("/attention/task");
+    const denied = setup(true);
+    await expect(
+      runCatalogOperation(
+        "clickup_get_automatic_attention_state",
+        { task_id: "abc123" },
+        denied.grant,
+        denied.api as typeof fetch,
+      ),
+    ).rejects.toThrow();
+    expect(denied.privateCalls).not.toHaveBeenCalled();
+  });
+
   it("reads private state only after the individual task is verified live", async () => {
     const { api, grant, privateCalls } = setup();
     const result = await runCatalogOperation(
