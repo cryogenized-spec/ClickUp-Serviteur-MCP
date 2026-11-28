@@ -59,8 +59,8 @@ export class ClickUpWebhookEvents {
       (statement, ...bindings) => state.storage.sql.exec(statement, ...bindings),
       (action) => state.storage.transactionSync(action),
     );
-    this.deliveries = new AttentionDeliveryLedger(
-      (statement, ...bindings) => state.storage.sql.exec(statement, ...bindings),
+    this.deliveries = new AttentionDeliveryLedger((statement, ...bindings) =>
+      state.storage.sql.exec(statement, ...bindings),
     );
     state.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS automatic_attention (task_id TEXT PRIMARY KEY, last_received_at_ms INTEGER NOT NULL DEFAULT 0, last_event_key TEXT NOT NULL DEFAULT '', processed_at_ms INTEGER NOT NULL, source_updated_at_ms INTEGER NOT NULL, ownership TEXT NOT NULL, needs_attention INTEGER NOT NULL, reason TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0)",
