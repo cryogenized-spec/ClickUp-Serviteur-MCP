@@ -2194,8 +2194,7 @@ export async function runCatalogOperation(
         const response = await stub.fetch(new Request(url));
         if (!response.ok) throw new ReadFailure("CLICKUP_ATTENTION_STORAGE_UNAVAILABLE");
         const value = obj(await response.json());
-        if (!value || value["task_id"] !== taskId)
-          throw new ReadFailure("CLICKUP_BAD_RESPONSE");
+        if (!value || value["task_id"] !== taskId) throw new ReadFailure("CLICKUP_BAD_RESPONSE");
         return {
           ...value,
           verified_clickup_task: {
@@ -2209,8 +2208,7 @@ export async function runCatalogOperation(
               : [],
           },
           task_access_verified: true,
-          note:
-            "System checkpoint is backend processing progress, not an acknowledgement that any user received or read an alert. A null checkpoint means autosync has not yet completed for this task.",
+          note: "System checkpoint is backend processing progress, not an acknowledgement that any user received or read an alert. A null checkpoint means autosync has not yet completed for this task.",
         };
       }
       if (name === "clickup_get_followup_state") {
