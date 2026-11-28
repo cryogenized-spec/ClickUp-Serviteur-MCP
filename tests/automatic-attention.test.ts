@@ -176,7 +176,12 @@ describe("Durable Object backend checkpoint", () => {
     checkpoint(at);
     const first = (await (await read()).json()) as {
       checkpoint: { revision: number; needs_attention: number; last_event_key: string };
+      delivery: { pending_delivery_count: number; last_confirmed_delivery_at_ms: number | null };
     };
+    expect(first.delivery).toMatchObject({
+      pending_delivery_count: 1,
+      last_confirmed_delivery_at_ms: null,
+    });
     expect(first.checkpoint).toMatchObject({
       revision: 1,
       needs_attention: 1,
@@ -194,6 +199,7 @@ describe("Durable Object backend checkpoint", () => {
     checkpoint(at + 1);
     expect((await (await read()).json()) as unknown).toMatchObject({
       checkpoint: { revision: 1, last_event_key: event.key },
+      delivery: { pending_delivery_count: 1, last_confirmed_delivery_at_ms: null },
     });
   });
 
