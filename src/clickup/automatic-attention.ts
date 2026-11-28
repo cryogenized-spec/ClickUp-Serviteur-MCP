@@ -31,7 +31,13 @@ export interface AttentionDecision {
   readonly ownership: "assigned" | "delegated" | "unassigned" | "closed";
   readonly needs_attention: boolean;
   readonly changed: boolean;
-  readonly reason: "assigned_change" | "direct_mention" | "owned_change" | "delegated_change" | "unassigned_change" | "no_change";
+  readonly reason:
+    | "assigned_change"
+    | "direct_mention"
+    | "owned_change"
+    | "delegated_change"
+    | "unassigned_change"
+    | "no_change";
   readonly event_count: number;
 }
 
@@ -68,9 +74,7 @@ export function classifyAutomaticAttention(
       event.metadata.actor_user_id !== me,
   );
   const ownedExternalChange = hints.some(
-    (event) =>
-      event.metadata?.actor_user_id !== me &&
-      event.event !== "taskTimeTrackedUpdated",
+    (event) => event.metadata?.actor_user_id !== me && event.event !== "taskTimeTrackedUpdated",
   );
   const changed = hints.length > 0;
   const needsAttention =
