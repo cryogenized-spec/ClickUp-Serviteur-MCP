@@ -47,6 +47,52 @@ An individual structured @mention or verified new assignment can set
 Other owned external changes produce an attention candidate. The backend does
 not infer intent from free-form comments or declare a customer issue resolved.
 
+## Delivery-aware extension (28 November clarification)
+
+**User requirement:** The fully autonomous backend must not mistake a ClickUp
+GET, an agent tool result, or a completed scheduled-automation run for proof
+that the user-facing briefing actually reached its recipient.
+
+A distinct SQLite `attention_delivery_outbox` now retains immutable alert
+revisions and the exact event IDs behind each alert. During the same SQL
+transaction that advances a successfully verified backend processing
+checkpoint, an actionable attention change also creates a **pending**
+delivery record. A repeated webhook/alarm cannot duplicate the alert.
+Subsequent irrelevant processing cannot erase an earlier undelivered item.
+
+A server-owned delivery-adapter method supports recording an exact published
+message ID with the publication timestamp, independently for each alert.
+Its receipt method is deliberately **not exposed** as a model tool, public
+HTTP route or generic write RPC; neither retrieval nor ChatGPT tool usage
+can call it or silently move the delivery checkpoint. A read-only
+`clickup_get_automatic_attention_state` response reports pending count
+and the most recent confirmed delivery (if any).
+
+**Critical limitation:** ChatGPT's existing scheduled-task integration
+currently exposes `delivery_status: unknown` and no platform-authenticated
+publication callback accessible to this Worker. Therefore there is **no**
+trusted ChatGPT notifier wired to this method yet, and the delivery
+checkpoint will remain unconfirmed for ChatGPT output. This is deliberate:
+marking items delivered after an MCP read or after the assistant drafts
+its response would incorrectly suppress messages never published.
+
+The full no-human/no-model-intervention requirement needs one of these
+external capabilities before it can be claimed operational:
+
+1. A native ChatGPT host callback, authenticated and tied to the actual
+   published message and the precise alert IDs included; or
+2. An alternative, explicitly authorised server-owned delivery channel with
+   its own confirmed publish receipt.
+
+Implementing a callback based on `automation completed`, or asking an AI
+model to acknowledge before producing its final response, is **not** an
+equivalent solution. Even OpenAI Agents API invocation delivery status
+identifies a notification accepted by an agent session, not a finished
+user-visible answer.
+
+The pending outbox is the correct fail-safe while such a channel is absent.
+It must not be reported as a fully integrated ChatGPT delivery receipt.
+
 ## Important boundaries
 
 - This is system-maintained **processing state**, not a definitive read/unread
